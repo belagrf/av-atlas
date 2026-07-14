@@ -177,8 +177,8 @@
       "path": "docs/PROJECT_STATE.md",
       "reason_for_inclusion": "architecture, governance, research, or project contract",
       "redistribution_basis": "explicit operator authorization for public disclosure",
-      "sha256": "e0c067de262600a131bf8d52bd8c0f0d0ad82e06ff4a5c531c5556bb4dc3e10a",
-      "size_bytes": 40602
+      "sha256": "d8ff304e6c3d48f4b2de3f833b6701c439731f2f8df739c987520fe4e753c7b5",
+      "size_bytes": 40986
     },
     {
       "applicable_license": "unresolved; no project reuse license selected",
@@ -187,8 +187,8 @@
       "path": "docs/PUBLICATION_READINESS.md",
       "reason_for_inclusion": "architecture, governance, research, or project contract",
       "redistribution_basis": "explicit operator authorization for public disclosure",
-      "sha256": "f6f2a21f2dbbade0e1032d8d642b0f47e89bfab29045d9d8b01d5605144226f1",
-      "size_bytes": 2385
+      "sha256": "892954434656527ee5fc2a0e97f3f2bc86529c07b4026f20f759fbff5dad6426",
+      "size_bytes": 2752
     },
     {
       "applicable_license": "unresolved; no project reuse license selected",
@@ -317,7 +317,7 @@
       "path": "docs/publication-manifest.json",
       "reason_for_inclusion": "machine-readable disclosure inventory",
       "redistribution_basis": "explicit operator authorization for public disclosure",
-      "sha256": "2990d951bcc6339767042ce7a040fc46b3a2897b29ba99a1c5284db6e0877f78",
+      "sha256": "3412fff33f610ccace66c3e79381de828acd1dc228df209c834f5b60eb7696a9",
       "size_bytes": 51234
     },
     {
@@ -927,8 +927,8 @@
       "path": "tests/integration/test_end_to_end.py",
       "reason_for_inclusion": "quality, contract, regression, or security test",
       "redistribution_basis": "explicit operator authorization for public disclosure",
-      "sha256": "9f6e97946890565abd507178b15020d1a58d35571869c0d101c82eb6913ca4b1",
-      "size_bytes": 6330
+      "sha256": "75a645db26e915e361ddf7ee7a8dbe8b1bebe6d3d51940db875bbaaa2678bbbe",
+      "size_bytes": 6485
     },
     {
       "applicable_license": "unresolved; no project reuse license selected",

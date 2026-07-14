@@ -624,6 +624,11 @@ such as `operator@example.invalid` and `/home/` assertions are inert test data. 
 GitHub credential remains in the system keyring and is not stored in the repository. M2C was not
 implemented.
 
+The first public CI run exposed one publication-only regression: a test directly referenced the
+intentionally untracked `runs/m0-m1-validation-v3` directory. The test now executes when that local
+historical evidence exists and otherwise skips with an explicit policy reason. It does not skip any
+Tesseract path or weaken the legacy validator. The failed Actions run remains visible.
+
 Final gates passed: lock check; locked offline sync (18 packages checked); Ruff formatting (34
 files); Ruff lint; mypy (20 source files); doctor; and pytest (52 passed in 69.52 s, no skips or
 failures). Every one of the 13 run directories with a manifest validated at zero errors. A

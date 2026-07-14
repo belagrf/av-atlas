@@ -39,3 +39,8 @@ shot/subtitle F1 1.0. M2B produced the accepted 13-observation semantic hash and
 the fresh resource timings were treated as runtime metadata. Two completed resumes preserved all 64
 M2B manifest-tracked artifacts, with comparison digest
 `308e6943ae828b4e12e9a30b21a332bde8f707ccf4408a202b9ba6ac1b2018c7` before and after.
+
+The first public CI run transparently failed because one regression test referenced an intentionally
+excluded local historical M0 run directory. The test now skips with an explicit publication-policy
+reason only when that local evidence is absent; it still executes locally when the preserved run is
+available. Tesseract tests are unaffected and must execute in CI.

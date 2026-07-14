@@ -174,7 +174,10 @@ def test_fixture_is_byte_deterministic(tmp_path: Path) -> None:
 
 
 def test_preserved_m0_run_uses_explicit_legacy_contract(project_root: Path) -> None:
-    report = validate_run(project_root / "runs/m0-m1-validation-v3", write_report=False)
+    preserved = project_root / "runs/m0-m1-validation-v3"
+    if not preserved.is_dir():
+        pytest.skip("preserved local M0 run evidence is intentionally excluded from publication")
+    report = validate_run(preserved, write_report=False)
     assert report["valid"] is True
     assert report["checks"]["rights_linkage"] == 0
     assert report["checks"]["artifact_hashes"] == 12
