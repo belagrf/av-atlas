@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -329,3 +330,43 @@ def test_validate_recomputes_rights_manifest_digest(
     path.write_text(json.dumps(value))
     with pytest.raises(AtlasError, match="rights manifest hash is invalid"):
         validate_run(run_dir, write_report=False)
+
+
+def test_resume_rehashed_rights_with_stale_run_linkage_invokes_no_processing(
+    controlled_media: Path,
+    project_root: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run_dir = tmp_path / "interrupted-linkage"
+    assert (
+        main(
+            [
+                "run",
+                str(controlled_media),
+                "--config",
+                str(project_root / "configs/m2a.yaml"),
+                "--output",
+                str(run_dir),
+                "--stop-after",
+                "inventory",
+            ]
+        )
+        == 0
+    )
+    rights_path = run_dir / "rights_manifest.json"
+    rights = json.loads(rights_path.read_text())
+    rights["notes"] = "changed and rehashed after run linkage was accepted"
+    rights["manifest_hash"] = manifest_digest(rights)
+    rights_path.write_text(json.dumps(rights), encoding="utf-8")
+    invoked: list[str] = []
+
+    def forbidden(*args: object, **kwargs: object) -> None:
+        invoked.append("processing")
+        raise AssertionError("resume processing must not start with stale rights linkage")
+
+    monkeypatch.setattr("av_atlas.pipeline._complete", forbidden)
+    monkeypatch.setattr(subprocess, "run", forbidden)
+    assert main(["resume", str(run_dir), "--media", str(controlled_media)]) == 2
+    assert invoked == []
+    assert not (run_dir / "shots.jsonl").exists()

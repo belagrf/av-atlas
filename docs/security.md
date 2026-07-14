@@ -16,6 +16,14 @@ counts, subprocess timeouts, keyframe count/size limits, run-controlled output p
 keyframe cleanup. Source files are never modified. Media-borne subtitle and prompt-injection text is
 copied only into evidence fields and cannot select tools, permissions, configuration, or commands.
 
+Initial runs perform a parser-free authorization preflight before FFprobe. The preflight hashes the
+regular file, derives its canonical source ID, verifies an exact-byte fixture marker or explicit
+rights schema/checksum/source/operation/retention/expiry declaration, and creates no run directory.
+Only then may FFprobe run. Its inventory hash and source ID must equal the preflight identity, so a
+source change is refused before any derivative is created. Tests use explicit subprocess sentinels
+to prove a zero-call path for missing, stale, mismatched, denied, retention-denied, and expired
+authorization.
+
 FFmpeg remains an attack surface. These budgets are defense-in-depth, not an OS sandbox. Production
 processing of adversarial media still requires operating-system isolation, CPU/memory/file quotas,
 decoder patch management, and access controls. DRM, authentication, and paywalls are never bypassed.
@@ -39,6 +47,12 @@ Resume and validation recompute the persisted rights checksum and compare it wit
 before processing. Permission edits with either a stale checksum or a new checksum but stale run
 linkage fail closed before FFmpeg, Tesseract, or an adapter is called. This checksum is not a
 signature, identity proof, or legal determination.
+
+OCR temporal tracks are untrusted derived artifacts. Validation checks equal member/evidence/box/
+confidence array lengths before iteration and relationally recomputes all member linkage, ordering,
+timestamp bounds, confidence mean, policy version, shot boundary, configured gap, and spatial
+compatibility from raw OCR observations. Malformed track data is reported through controlled
+validation errors and the quality report; it cannot escape as an uncaught collection/type error.
 
 Ordinary OCR dependency artifacts contain hashes, basenames, and path classes, not custom
 operator-home paths or a raw `TESSDATA_PREFIX`. Full paths require the explicitly local/private

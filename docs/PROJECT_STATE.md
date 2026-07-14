@@ -736,3 +736,58 @@ remain ignored. The checkpoint inventory remains empty. Remaining risks include 
 rights checksums, native FFmpeg/Tesseract parser exposure without an OS sandbox, no retained-frame
 lifecycle, synthetic-only OCR quality, and an unexecuted authorized double-annotated pilot. Full M2
 and M2C remain unimplemented.
+
+## 2026-07-14 — M2B.1 review follow-up: initial preflight and OCR-track relations
+
+Review of PR 10 confirmed two additional defects. Initial `initialize_run()` called FFprobe before
+checking a fixture marker or explicit rights declaration, so denied non-fixture bytes could reach a
+native parser. OCR text-track validation used strict `zip` over unchecked parallel arrays and could
+raise `ValueError`; it also did not recompute the complete derived relationship from raw OCR
+observations.
+
+Initial execution now uses a frozen parser-free authorization record containing the directly
+computed source SHA-256, canonical hash-derived source ID, controlled-fixture status and validated
+marker, validated rights declaration, requested operation, and authorization timestamp. Regular
+file, fixture marker, rights schema/self-checksum, exact source, operation, derivative retention,
+and expiry checks complete before media inspection. FFprobe inventory must reproduce the preflight
+hash and source ID; a changed source aborts before run-directory creation. Fixture generation,
+rights creation, media inventory, and preflight all use one canonical source-ID helper.
+
+Track validation now checks equal member/evidence/box/confidence lengths before iteration and
+recomputes member uniqueness/existence, source, shot, normalized text, evidence, boxes, confidence,
+timestamp bounds, ordering, arithmetic mean (`1e-9` absolute/relative tolerance), policy version,
+configured temporal gap, shot boundary, and spatial compatibility from immutable raw OCR records.
+Malformed artifacts return controlled validation errors and write actionable quality-report
+entries; raw OCR remains canonical and tracks remain secondary.
+
+Regression coverage includes zero-call parser/subprocess sentinels for missing rights, stale
+self-checksum, wrong source hash/ID, analysis denial, retention denial, expiry, and requested
+operation denial; stale persisted-run linkage; valid explicit and fixture authorization ordering;
+post-preflight source change; marker/source-byte mismatch; all requested track relational
+mutations; nonzero CLI validation without traceback; and a valid generated track.
+
+The focused set passed 49 tests in 14.67 seconds, and the final complete suite passed 118 tests in
+66.35 seconds. Lock checking, locked offline sync (18 packages checked), Ruff formatting (43
+files), Ruff lint, mypy over 21 source files, and doctor also passed. Fresh ignored M1, M2A, and M2B runs validated with 17,
+31, and 68 artifact hashes respectively and zero errors. The M2B report checked 13 temporal tracks.
+Fresh interrupted completion and repeated resume validated with 28 artifact hashes and zero errors.
+Completed and interrupted tracked-artifact comparison digests stayed byte-identical across resume:
+`99b71bc94243a7e84fba13ee8cad92b5e7a205086f262a9f0d2fa686f5dcfdc1` and
+`693ae04efcde94ce271e24fd6ebf09cbc645993ee8766b52339db6d7225a6212`.
+
+The fresh M2B observation and temporal-track hashes remain
+`f851aef0d8a1c215023cd71b38120a2f317a10be3dd24567f2f023449acd6060` and
+`f27d60f51c06cead4d0b6159b47865fd635a010e2faba9902057ae1c9cd4b9c2`.
+Runtime-bearing evaluation, benchmark, and run-manifest hashes for this replay are
+`9ccce73311dca7146f1ff837b83dde27fcb89ac8d45b512175dac427e8fc8cb4`,
+`748b174a197bc35b5da616bd4710cc84d9343ca703a800f478a0c2e1ab2c1f82`, and
+`a0e62a3eb3278c121c441d00c69a0c29207dec87b068b9697c1cef7e09b45cb7`.
+The sanitized dependency and BOM hashes remain
+`5ab8663ce63b7d6303ce84e3ec62ab3a9dd1ec55283e8f0c6852dd88740d5cce` and
+`abca366e47275ef2d5ff2825b53b0d47436e03a56e29a696f903cb194d188868`.
+
+The accepted M2B v1 fixture, gold, configuration, OCR, evaluation, benchmark, run-manifest, and
+release hashes remain unchanged. Its 64-artifact run and the prior 68-artifact M2B.1 run both
+validate without rewriting their reports. No schema version or valid hardening output changed; the
+new work strengthens initial ordering and validation semantics only. PR 10 remains the delivery
+vehicle. No tag, release, real-media processing, M2C implementation, or full-M2 claim occurred.

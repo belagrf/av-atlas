@@ -158,3 +158,8 @@ temporal OCR text-track artifact. Raw OCR observations are never destructively d
 rights `manifest_hash` is an integrity checksum, not an authenticated signature. Ordinary exported
 OCR inventories redact full paths; `inspect-ocr --local-private-diagnostic` is explicitly local and
 must not be attached to a public run.
+
+Initial `run` authorization is parser-free: exact-byte fixture or explicit rights checks complete
+before FFprobe, and the resulting inventory must reproduce the preflight hash and source ID.
+Temporal OCR tracks are validated relationally against immutable raw observations; malformed
+parallel arrays become actionable quality-report errors rather than validator tracebacks.

@@ -7,7 +7,8 @@ from typing import Any
 POLICY_VERSION = "ocr-temporal-association/1.0.0"
 
 
-def _compatible(left: list[int], right: list[int]) -> bool:
+def spatially_compatible(left: list[int], right: list[int]) -> bool:
+    """Apply the spatial-compatibility rule for temporal association policy 1.0.0."""
     lx1, ly1, lx2, ly2 = left
     rx1, ry1, rx2, ry2 = right
     intersection = max(0, min(lx2, rx2) - max(lx1, rx1)) * max(0, min(ly2, ry2) - max(ly1, ry1))
@@ -35,13 +36,15 @@ def associate_temporal_text(records: list[dict[str, Any]], maximum_gap_ms: int) 
     for record in ordered:
         candidate: dict[str, Any] | None = None
         for track in reversed(tracks):
+            if track["source_id"] != record["source_id"]:
+                continue
             if track["normalized_text"] != record["normalized_text"]:
                 continue
             if track["shot_id"] != record["shot_id"]:
                 continue
             if int(record["timestamp_ms"]) - int(track["last_timestamp_ms"]) > maximum_gap_ms:
                 continue
-            if not _compatible(track["spatial_boxes"][-1], record["bounding_box"]):
+            if not spatially_compatible(track["spatial_boxes"][-1], record["bounding_box"]):
                 continue
             candidate = track
             break

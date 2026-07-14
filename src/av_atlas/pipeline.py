@@ -18,10 +18,8 @@ from av_atlas.io import atomic_write_text, safe_relative_path, sha256_file, writ
 from av_atlas.media import enforce_media_limits, inspect_media, tool_version
 from av_atlas.ocr import TesseractOcrAdapter
 from av_atlas.rights import (
-    controlled_fixture_manifest,
-    fixture_rights,
+    authorize_media_preflight,
     load_and_validate_rights,
-    validate_rights_artifact,
 )
 from av_atlas.schemas import validate_instance
 from av_atlas.shots import ShotAdapter
@@ -306,30 +304,21 @@ def initialize_run(
     rights_manifest: Path | None = None,
     operation: str = "analysis",
 ) -> None:
+    authorization = authorize_media_preflight(media, rights_manifest, operation)
     config = BaselineConfig.load(config_path)
+    if run_dir.exists() and any(run_dir.iterdir()):
+        raise AtlasError(f"run directory is not empty; refusing to overwrite: {run_dir}")
     inventory = inspect_media(media)
+    if (
+        inventory["sha256"] != authorization.source_sha256
+        or inventory["source_id"] != authorization.source_id
+    ):
+        raise AtlasError("source changed between authorization preflight and media inventory")
     enforce_media_limits(
         inventory, config.max_duration_ms, config.max_video_width, config.max_video_height
     )
-    fixture_marker = controlled_fixture_manifest(media)
-    if rights_manifest is None:
-        if fixture_marker is None:
-            raise AtlasError(
-                "non-fixture media requires --rights-manifest bound to the exact source hash"
-            )
-        rights = fixture_rights(inventory)
-    else:
-        rights = load_and_validate_rights(
-            rights_manifest, inventory["sha256"], inventory["source_id"], operation
-        )
-    validate_rights_artifact(
-        rights,
-        inventory["sha256"],
-        inventory["source_id"],
-        operation,
-    )
-    if run_dir.exists() and any(run_dir.iterdir()):
-        raise AtlasError(f"run directory is not empty; refusing to overwrite: {run_dir}")
+    fixture_marker = authorization.fixture_manifest
+    rights = authorization.rights_declaration
     run_dir.mkdir(parents=True, exist_ok=True)
     config_snapshot = run_dir / "config.snapshot.yaml"
     atomic_write_text(config_snapshot, config_path.read_text(encoding="utf-8"))

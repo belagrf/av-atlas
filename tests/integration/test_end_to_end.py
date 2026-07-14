@@ -9,7 +9,8 @@ import pytest
 
 from av_atlas.cli import main
 from av_atlas.fixture import make_fixture
-from av_atlas.io import sha256_file
+from av_atlas.io import sha256_file, write_json, write_jsonl
+from av_atlas.ocr_tracks import associate_temporal_text
 from av_atlas.pipeline import ARTIFACTS
 from av_atlas.validation import validate_run
 
@@ -161,6 +162,86 @@ def test_dangling_evidence_returns_nonzero(
     value["evidence"].pop(next(iter(value["evidence"])))
     path.write_text(json.dumps(value), encoding="utf-8")
     assert main(["validate", str(run_dir)]) != 0
+
+
+def test_malformed_ocr_track_returns_nonzero_and_writes_actionable_quality_report(
+    fixture_media: Path,
+    project_root: Path,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    run_dir = tmp_path / "malformed-track"
+    assert (
+        main(
+            [
+                "run",
+                str(fixture_media),
+                "--config",
+                str(project_root / "configs/baseline.yaml"),
+                "--output",
+                str(run_dir),
+            ]
+        )
+        == 0
+    )
+    inventory = json.loads((run_dir / "inventory.json").read_text())
+    evidence = json.loads((run_dir / "evidence_index.json").read_text())
+    frame_ref = next(ref for ref in evidence["evidence"] if ref.startswith("VID:"))
+    records = []
+    for index, timestamp in enumerate((1000, 2000), 1):
+        observation_id = f"OCR_0001_{index:04d}"
+        evidence_ref = f"OCR:{observation_id}"
+        records.append(
+            {
+                "schema_version": "1.0.0",
+                "observation_id": observation_id,
+                "source_id": inventory["source_id"],
+                "shot_id": "SHOT_0001",
+                "keyframe_id": f"KEY_{index:04d}",
+                "timestamp_ms": timestamp,
+                "text": "NEWS",
+                "normalized_text": "NEWS",
+                "bounding_box": [10, 10, 60, 30],
+                "confidence": 90.0,
+                "language": "eng",
+                "engine": "tesseract",
+                "engine_version": "validation-fixture",
+                "language_data_identity": "eng:validation-fixture",
+                "preprocessing": {},
+                "source_frame_evidence_ref": frame_ref,
+                "adapter_state": "succeeded",
+                "warnings": [],
+                "evidence_ref": evidence_ref,
+            }
+        )
+        evidence["evidence"][evidence_ref] = {
+            "evidence_ref": evidence_ref,
+            "source_id": inventory["source_id"],
+            "observation_id": observation_id,
+            "modality": "OCR",
+            "start_ms": timestamp,
+            "end_ms": timestamp + 1,
+        }
+    tracks = associate_temporal_text(records, 2500)
+    tracks["tracks"][0]["source_frame_evidence_refs"].pop()
+    write_jsonl(run_dir / "ocr_observations.jsonl", records)
+    write_json(run_dir / "ocr_text_tracks.json", tracks)
+    write_json(run_dir / "evidence_index.json", evidence)
+    manifest = json.loads((run_dir / "run_manifest.json").read_text())
+    for name in ("ocr_observations.jsonl", "ocr_text_tracks.json", "evidence_index.json"):
+        path = run_dir / name
+        manifest["artifacts"][name] = {
+            "sha256": sha256_file(path),
+            "size_bytes": path.stat().st_size,
+        }
+    write_json(run_dir / "run_manifest.json", manifest)
+
+    assert main(["validate", str(run_dir)]) == 2
+    captured = capsys.readouterr()
+    assert "Traceback" not in captured.err
+    report = json.loads((run_dir / "quality_report.json").read_text())
+    assert report["valid"] is False
+    assert any("parallel member-array lengths disagree" in error for error in report["errors"])
 
 
 def test_fixture_is_byte_deterministic(tmp_path: Path) -> None:

@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from av_atlas.errors import AtlasError
-from av_atlas.io import canonical_json, sha256_file, write_json
+from av_atlas.io import canonical_json, sha256_file, source_id_from_sha256, write_json
 from av_atlas.schemas import validate_instance
 
 OPERATIONS = (
@@ -20,6 +21,19 @@ OPERATIONS = (
     "derivative_artifact_retention",
     "redistribution",
 )
+
+
+@dataclass(frozen=True)
+class AuthorizationPreflight:
+    """Parser-free authorization bound to the bytes presented at preflight."""
+
+    source_sha256: str
+    source_id: str
+    fixture_status: str
+    fixture_manifest: dict[str, Any] | None
+    rights_declaration: dict[str, Any]
+    requested_operation: str
+    authorized_at: str
 
 
 def manifest_digest(value: dict[str, Any]) -> str:
@@ -48,7 +62,7 @@ def create_rights_manifest(
     content_hash = sha256_file(media)
     value: dict[str, Any] = {
         "schema_version": "1.0.0",
-        "source_id": f"SRC_{content_hash[:12].upper()}",
+        "source_id": source_id_from_sha256(content_hash),
         "content_sha256": content_hash,
         "operator_id": "OPR_"
         + hashlib.sha256(operator_identity.encode("utf-8")).hexdigest()[:12].upper(),
@@ -144,7 +158,12 @@ def validate_rights(
             raise AtlasError("rights manifest authorization has expired")
 
 
-def controlled_fixture_manifest(media: Path) -> dict[str, Any] | None:
+def controlled_fixture_manifest(
+    media: Path,
+    source_hash: str | None = None,
+    source_id: str | None = None,
+) -> dict[str, Any] | None:
+    """Return a marker only when it is schema-valid and bound to these exact bytes."""
     marker = media.with_suffix(".fixture.json")
     if not marker.is_file():
         return None
@@ -153,16 +172,18 @@ def controlled_fixture_manifest(media: Path) -> dict[str, Any] | None:
         validate_instance("fixture_manifest", value, marker.name)
     except (OSError, json.JSONDecodeError, AtlasError):
         return None
-    if value["content_sha256"] != sha256_file(media):
+    exact_hash = source_hash if source_hash is not None else sha256_file(media)
+    exact_source_id = source_id if source_id is not None else source_id_from_sha256(exact_hash)
+    if value["content_sha256"] != exact_hash or value["source_id"] != exact_source_id:
         return None
     return value
 
 
-def fixture_rights(inventory: dict[str, Any]) -> dict[str, Any]:
+def fixture_rights(source_hash: str, source_id: str) -> dict[str, Any]:
     value: dict[str, Any] = {
         "schema_version": "1.0.0",
-        "source_id": inventory["source_id"],
-        "content_sha256": inventory["sha256"],
+        "source_id": source_id,
+        "content_sha256": source_hash,
         "operator_id": "OPR_000000000001",
         "rights_basis": "synthetic-controlled",
         "permissions": {operation: True for operation in OPERATIONS},
@@ -177,3 +198,38 @@ def fixture_rights(inventory: dict[str, Any]) -> dict[str, Any]:
     value["manifest_hash"] = manifest_digest(value)
     validate_instance("rights_manifest", value, "controlled fixture rights")
     return value
+
+
+def authorize_media_preflight(
+    media: Path,
+    rights_manifest: Path | None,
+    operation: str,
+) -> AuthorizationPreflight:
+    """Authorize exact source bytes without invoking a media parser or adapter."""
+    if not media.is_file():
+        raise AtlasError(f"media source is not a regular file: {media}")
+    source_hash = sha256_file(media)
+    source_id = source_id_from_sha256(source_hash)
+    fixture_marker = controlled_fixture_manifest(media, source_hash, source_id)
+    if rights_manifest is None:
+        if fixture_marker is None:
+            raise AtlasError(
+                "non-fixture media requires --rights-manifest bound to the exact source hash"
+            )
+        rights = fixture_rights(source_hash, source_id)
+        fixture_status = "authorized_controlled_fixture"
+    else:
+        rights = load_and_validate_rights(rights_manifest, source_hash, source_id, operation)
+        fixture_status = (
+            "authorized_controlled_fixture" if fixture_marker is not None else "not_fixture"
+        )
+    validate_rights_artifact(rights, source_hash, source_id, operation)
+    return AuthorizationPreflight(
+        source_sha256=source_hash,
+        source_id=source_id,
+        fixture_status=fixture_status,
+        fixture_manifest=fixture_marker,
+        rights_declaration=rights,
+        requested_operation=operation,
+        authorized_at=datetime.now(UTC).isoformat(),
+    )
