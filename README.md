@@ -151,3 +151,10 @@ An authorized real-media pilot is prepared, annotated, frozen, run, and evaluate
 `pilot-prepare`, `pilot-annotation-packages`, `pilot-compare-annotations`, `pilot-freeze`,
 `pilot-run-ocr`, and `pilot-evaluate`. These commands do nothing without operator-supplied local
 media and sufficient rights. No pilot media or human annotation is currently present.
+
+M2B.1 hardening uses strict configuration types, fail-closed rights checksum/linkage validation,
+versioned `partial_success` unit accounting, actual overlapping-chunk provenance, and a derived
+temporal OCR text-track artifact. Raw OCR observations are never destructively deduplicated. A
+rights `manifest_hash` is an integrity checksum, not an authenticated signature. Ordinary exported
+OCR inventories redact full paths; `inspect-ocr --local-private-diagnostic` is explicitly local and
+must not be attached to a public run.

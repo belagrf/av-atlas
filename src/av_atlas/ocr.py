@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import io
 import json
 import os
@@ -20,7 +21,8 @@ from typing import Any
 from av_atlas.adapters import AdapterContext
 from av_atlas.contracts import AdapterResult, AdapterStatus, Observation
 from av_atlas.errors import AtlasError
-from av_atlas.io import sha256_file, write_json, write_jsonl
+from av_atlas.io import canonical_json, sha256_file, write_json, write_jsonl
+from av_atlas.ocr_tracks import associate_temporal_text
 
 INSTALL_COMMAND = "sudo apt-get install tesseract-ocr tesseract-ocr-eng"
 LANGUAGE_DIRECTORY = re.compile(r'List of available languages in "(?P<path>.+)"')
@@ -59,19 +61,95 @@ def _package_record(path: Path) -> dict[str, Any] | None:
         return None
     package = fields[0].split(":", 1)[0]
     copyright_path = Path("/usr/share/doc") / package / "copyright"
+    license_id = "unknown-not-verified"
+    license_verification = "package copyright metadata unavailable"
+    if copyright_path.is_file():
+        try:
+            copyright_text = copyright_path.read_text(encoding="utf-8", errors="replace").lower()
+            if "apache license" in copyright_text or "licenses/apache-2.0" in copyright_text:
+                license_id = "Apache-2.0"
+            license_verification = "read installed package copyright metadata"
+        except OSError:
+            license_verification = "installed package copyright metadata unreadable"
     return {
         "package": fields[0],
         "version": fields[1],
         "architecture": fields[2],
         "source_package": fields[3] or package,
         "source_version": fields[4] or fields[1],
-        "license_id": "Apache-2.0",
+        "license_id": license_id,
+        "license_verification": license_verification,
         "license_file": str(copyright_path) if copyright_path.is_file() else None,
         "license_file_sha256": (sha256_file(copyright_path) if copyright_path.is_file() else None),
     }
 
 
-def inspect_ocr(executable: str = "auto") -> dict[str, Any]:
+def _path_class(path: Path) -> str:
+    resolved = path.resolve()
+    return (
+        "system" if str(resolved).startswith(("/usr/", "/bin/", "/opt/")) else "operator-supplied"
+    )
+
+
+def sanitize_ocr_inventory(value: dict[str, Any]) -> dict[str, Any]:
+    """Remove host-private absolute paths from ordinary exported dependency records."""
+    if value.get("state") != "available":
+        return value
+    sanitized: dict[str, Any] = json.loads(json.dumps(value))
+    executable = Path(sanitized.pop("resolved_executable_path"))
+    sanitized["schema_version"] = "1.1.0"
+    sanitized["executable"] = {
+        "basename": executable.name,
+        "path_class": _path_class(executable),
+        "sha256": sanitized["executable_sha256"],
+        "size_bytes": sanitized["executable_size_bytes"],
+    }
+    package = sanitized.get("executable_package")
+    if package and package.get("license_file"):
+        package["license_file_basename"] = Path(package.pop("license_file")).name
+    sanitized["discovered_tessdata_directories"] = [
+        {"basename": Path(path).name, "path_class": _path_class(Path(path))}
+        for path in sanitized.get("discovered_tessdata_directories", [])
+    ]
+    for item in sanitized.get("language_data", []):
+        path = Path(item.pop("path"))
+        item["basename"] = path.name
+        item["path_class"] = _path_class(path)
+        language_package = item.get("package")
+        if language_package and language_package.get("license_file"):
+            language_package["license_file_basename"] = Path(
+                language_package.pop("license_file")
+            ).name
+    prefix = sanitized.get("tessdata_prefix", {}).get("environment_value")
+    sanitized["tessdata_prefix"]["environment_value"] = None
+    sanitized["tessdata_prefix"]["path_class"] = (
+        _path_class(Path(prefix)) if prefix else "distribution-default"
+    )
+    sanitized["relevant_environment"] = {
+        key: ("set-path-redacted" if key == "TESSDATA_PREFIX" and item else item)
+        for key, item in sanitized.get("relevant_environment", {}).items()
+    }
+    identity_payload = {
+        "engine": sanitized["engine"],
+        "version": sanitized["version"],
+        "executable_sha256": sanitized["executable_sha256"],
+        "language_data": [
+            (item["language"], item["sha256"]) for item in sanitized["language_data"]
+        ],
+    }
+    sanitized["dependency_identity_sha256"] = hashlib.sha256(
+        canonical_json(identity_payload).encode()
+    ).hexdigest()
+    sanitized["inventory_layers"] = {
+        "declared_metadata": "adapter configuration and project BOM",
+        "measured_current_host": True,
+        "package_manager_claims": bool(sanitized.get("executable_package")),
+        "independently_verified_hashes": True,
+    }
+    return sanitized
+
+
+def inspect_ocr(executable: str = "auto", *, include_private_paths: bool = False) -> dict[str, Any]:
     """Inventory a local Tesseract installation without network or mutation."""
     path = shutil.which("tesseract") if executable == "auto" else shutil.which(executable)
     if path is None:
@@ -134,7 +212,7 @@ def inspect_ocr(executable: str = "auto") -> dict[str, Any]:
         key: os.environ.get(key)
         for key in ("TESSDATA_PREFIX", "OMP_THREAD_LIMIT", "LANG", "LC_ALL", "LC_CTYPE")
     }
-    return {
+    result = {
         "schema_version": "1.0.0",
         "state": "available",
         "engine": "tesseract",
@@ -164,6 +242,7 @@ def inspect_ocr(executable: str = "auto") -> dict[str, Any]:
         "relevant_environment": relevant_environment,
         "network_accessed": False,
     }
+    return result if include_private_paths else sanitize_ocr_inventory(result)
 
 
 @dataclass(frozen=True)
@@ -317,15 +396,21 @@ class TesseractOcrAdapter:
         cpu_started = time.process_time()
         child_started = resource.getrusage(resource.RUSAGE_CHILDREN)
         config = context.config
-        dependency = inspect_ocr(config.ocr_executable)
+        private_dependency = inspect_ocr(config.ocr_executable, include_private_paths=True)
+        dependency = sanitize_ocr_inventory(private_dependency)
         dependency_path = context.run_dir / "ocr_dependency.json"
         output_path = context.run_dir / "ocr_observations.jsonl"
         frames_path = context.run_dir / "ocr_frame_results.json"
         runtime_path = context.run_dir / "ocr_runtime.json"
+        tracks_path = context.run_dir / "ocr_text_tracks.json"
         write_json(dependency_path, dependency)
-        base_artifacts = (dependency_path, output_path, frames_path, runtime_path)
+        base_artifacts = (dependency_path, output_path, frames_path, runtime_path, tracks_path)
         if not config.ocr_enabled:
             write_jsonl(output_path, [])
+            write_json(
+                tracks_path,
+                associate_temporal_text([], config.ocr_temporal_association_max_gap_ms),
+            )
             write_json(
                 frames_path,
                 {"schema_version": "1.0.0", "adapter_state": "disabled", "frames": []},
@@ -337,8 +422,12 @@ class TesseractOcrAdapter:
                 {},
                 base_artifacts,
             )
-        if dependency["state"] != "available":
+        if private_dependency["state"] != "available":
             write_jsonl(output_path, [])
+            write_json(
+                tracks_path,
+                associate_temporal_text([], config.ocr_temporal_association_max_gap_ms),
+            )
             write_json(
                 frames_path,
                 {"schema_version": "1.0.0", "adapter_state": "unavailable", "frames": []},
@@ -351,15 +440,20 @@ class TesseractOcrAdapter:
                     self.name,
                     "unavailable_dependency",
                     detail="Tesseract is unavailable; install tesseract-ocr and tesseract-ocr-eng",
+                    attempted_units=0,
                 ),
                 (),
                 {},
                 base_artifacts,
             )
-        available = set(dependency["available_languages"])
+        available = set(private_dependency["available_languages"])
         missing = sorted(set(config.ocr_languages) - available)
         if missing:
             write_jsonl(output_path, [])
+            write_json(
+                tracks_path,
+                associate_temporal_text([], config.ocr_temporal_association_max_gap_ms),
+            )
             write_json(
                 frames_path,
                 {"schema_version": "1.0.0", "adapter_state": "failed", "frames": []},
@@ -370,6 +464,7 @@ class TesseractOcrAdapter:
                     self.name,
                     "invalid_configuration",
                     detail=f"unsupported Tesseract languages: {missing}",
+                    attempted_units=0,
                 ),
                 (),
                 {},
@@ -379,12 +474,22 @@ class TesseractOcrAdapter:
         if not keyframes_path.is_file():
             write_jsonl(output_path, [])
             write_json(
+                tracks_path,
+                associate_temporal_text([], config.ocr_temporal_association_max_gap_ms),
+            )
+            write_json(
                 frames_path,
                 {"schema_version": "1.0.0", "adapter_state": "skipped", "frames": []},
             )
             self._write_runtime(runtime_path, started, cpu_started, child_started, 0, 0, 0, 1, 0)
             return OcrOutput(
-                AdapterResult(self.name, "unsupported_input", detail="OCR requires shot keyframes"),
+                AdapterResult(
+                    self.name,
+                    "unsupported_input",
+                    detail="OCR requires shot keyframes",
+                    attempted_units=1,
+                    unsupported_units=1,
+                ),
                 (),
                 {},
                 base_artifacts,
@@ -400,13 +505,21 @@ class TesseractOcrAdapter:
         if len(keyframes) > config.ocr_max_frames:
             write_jsonl(output_path, [])
             write_json(
+                tracks_path,
+                associate_temporal_text([], config.ocr_temporal_association_max_gap_ms),
+            )
+            write_json(
                 frames_path,
                 {"schema_version": "1.0.0", "adapter_state": "failed", "frames": []},
             )
             self._write_runtime(runtime_path, started, cpu_started, child_started, 0, 0, 0, 1, 0)
             return OcrOutput(
                 AdapterResult(
-                    self.name, "resource_limit_failure", detail="OCR frame limit exceeded"
+                    self.name,
+                    "resource_limit_failure",
+                    detail="OCR frame limit exceeded",
+                    attempted_units=len(keyframes),
+                    failed_units=len(keyframes),
                 ),
                 (),
                 {},
@@ -429,7 +542,7 @@ class TesseractOcrAdapter:
             with ThreadPoolExecutor(max_workers=config.ocr_workers) as executor:
                 futures = {
                     executor.submit(
-                        _process_frame, context, dependency, temporary, index, keyframe
+                        _process_frame, context, private_dependency, temporary, index, keyframe
                     ): (index, keyframe)
                     for index, keyframe in enumerate(keyframes, 1)
                 }
@@ -466,7 +579,7 @@ class TesseractOcrAdapter:
         records: list[dict[str, Any]] = []
         observations: list[Observation] = []
         evidence: dict[str, dict[str, Any]] = {}
-        language_identity = _language_identity(dependency, config.ocr_languages)
+        language_identity = _language_identity(private_dependency, config.ocr_languages)
         duration_ms = int(context.inventory["duration_ms"])
         for frame_number, regions, frame_result in frame_outputs:
             for region_index, region in enumerate(regions, 1):
@@ -487,7 +600,7 @@ class TesseractOcrAdapter:
                     "confidence": region["confidence"],
                     "language": "+".join(config.ocr_languages),
                     "engine": "tesseract",
-                    "engine_version": dependency["version"],
+                    "engine_version": private_dependency["version"],
                     "language_data_identity": language_identity,
                     "preprocessing": {
                         "grayscale": config.ocr_grayscale,
@@ -526,16 +639,28 @@ class TesseractOcrAdapter:
         records.sort(key=lambda item: (int(item["timestamp_ms"]), str(item["observation_id"])))
         write_jsonl(output_path, records)
         write_json(
+            tracks_path,
+            associate_temporal_text(records, config.ocr_temporal_association_max_gap_ms),
+        )
+        write_json(
             frames_path,
             {
-                "schema_version": "1.0.0",
+                "schema_version": "1.1.0",
                 "adapter_state": (
-                    "partial"
+                    "partial_success"
                     if frame_failures and frame_outputs
                     else "failed"
                     if frame_failures
                     else "succeeded"
                 ),
+                "unit_counts": {
+                    "attempted": len(keyframes),
+                    "successful": len(frame_outputs),
+                    "failed": len(frame_failures),
+                    "timed_out": timeouts,
+                    "unsupported": 0,
+                    "emitted_observations": len(records),
+                },
                 "frames": frame_results,
             },
         )
@@ -554,6 +679,8 @@ class TesseractOcrAdapter:
             status: AdapterStatus = (
                 "resource_limit_failure" if timeouts == len(frame_failures) else "decode_failure"
             )
+        elif frame_failures:
+            status = "partial_success"
         else:
             status = "success" if records else "success_zero"
         detail = (
@@ -561,7 +688,16 @@ class TesseractOcrAdapter:
             f"workers; recognized {len(records)} text regions; failures={len(frame_failures)}"
         )
         return OcrOutput(
-            AdapterResult(self.name, status, tuple(observations), detail),
+            AdapterResult(
+                self.name,
+                status,
+                tuple(observations),
+                detail,
+                attempted_units=len(keyframes),
+                successful_units=len(frame_outputs),
+                failed_units=len(frame_failures),
+                timed_out_units=timeouts,
+            ),
             tuple(records),
             evidence,
             base_artifacts,

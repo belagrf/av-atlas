@@ -71,3 +71,13 @@ pre-registered local intake validates four rights operations, extracts exactly 2
 submissions, and hash-freezes adjudicated gold before running the unchanged adapter. Pilot OCR
 records retain frame evidence and are evaluated in a separate real-pilot report. No pilot data
 enters source control, and no pilot result is merged with the controlled baseline.
+
+M2B.1 introduces additive 1.1 contracts. Adapter results can be `partial_success` only with balanced
+unit counts and at least one successful plus one failed or unsupported unit. Raw OCR observations
+stay canonical and immutable; `ocr_text_tracks.json` retains every observation ID and source-frame
+reference. Its policy requires equal normalized text, the same shot, a bounded gap, and spatial
+compatibility. New events preserve all overlapping generated chunk IDs and one stable primary
+chunk; 1.0 event and adapter artifacts remain readable.
+
+Rights resume and validation share one schema, digest, source, operation, retention, expiry, and
+run-linkage path before any adapter executes. The declaration checksum is not a signature.

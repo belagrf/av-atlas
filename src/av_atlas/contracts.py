@@ -11,6 +11,7 @@ Modality = Literal["VID", "AUD", "ASR", "SUB", "OCR", "ENTITY"]
 AdapterStatus = Literal[
     "success",
     "success_zero",
+    "partial_success",
     "unsupported_input",
     "unavailable_dependency",
     "decode_failure",
@@ -73,6 +74,11 @@ class AdapterResult:
     observations: tuple[Observation, ...] = ()
     detail: str = ""
     retryable: bool = False
+    attempted_units: int = 0
+    successful_units: int = 0
+    failed_units: int = 0
+    timed_out_units: int = 0
+    unsupported_units: int = 0
 
     def as_record(self) -> dict[str, Any]:
         return {
@@ -81,6 +87,14 @@ class AdapterResult:
             "observation_count": len(self.observations),
             "detail": self.detail,
             "retryable": self.retryable,
+            "unit_counts": {
+                "attempted": self.attempted_units,
+                "successful": self.successful_units,
+                "failed": self.failed_units,
+                "timed_out": self.timed_out_units,
+                "unsupported": self.unsupported_units,
+                "emitted_observations": len(self.observations),
+            },
         }
 
 

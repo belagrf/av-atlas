@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -173,11 +174,29 @@ def test_fixture_is_byte_deterministic(tmp_path: Path) -> None:
     )
 
 
-def test_preserved_m0_run_uses_explicit_legacy_contract(project_root: Path) -> None:
-    preserved = project_root / "runs/m0-m1-validation-v3"
-    if not preserved.is_dir():
-        pytest.skip("preserved local M0 run evidence is intentionally excluded from publication")
-    report = validate_run(preserved, write_report=False)
-    assert report["valid"] is True
-    assert report["checks"]["rights_linkage"] == 0
-    assert report["checks"]["artifact_hashes"] == 12
+def test_clean_tracked_source_checkout_does_not_depend_on_ignored_runs(
+    fixture_media: Path, project_root: Path, tmp_path: Path
+) -> None:
+    tracked_runs = subprocess.run(
+        ["git", "ls-files", "runs"],
+        cwd=project_root,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    assert tracked_runs == ""
+    run_dir = tmp_path / "clean-checkout-proof"
+    assert (
+        main(
+            [
+                "run",
+                str(fixture_media),
+                "--config",
+                str(project_root / "configs/baseline.yaml"),
+                "--output",
+                str(run_dir),
+            ]
+        )
+        == 0
+    )
+    assert validate_run(run_dir, write_report=False)["valid"] is True

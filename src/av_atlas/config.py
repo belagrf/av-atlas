@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from av_atlas.errors import AtlasError
+from av_atlas.schemas import validate_instance
 
 
 @dataclass(frozen=True)
@@ -45,89 +46,58 @@ class BaselineConfig:
     ocr_workers: int = 1
     ocr_max_frames: int = 100
     ocr_unavailable_behavior: str = "degrade"
-    ocr_retain_raw_frames: bool = False
+    ocr_temporal_association_max_gap_ms: int = 2500
 
     @classmethod
     def load(cls, path: Path) -> BaselineConfig:
         try:
             raw: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(raw, dict):
+                raise AtlasError("configuration root must be an object")
+            validate_instance("config", raw, path.name)
             subtitle = raw.get("subtitle", {})
             shot = raw.get("shot", {})
             resources = raw.get("resources", {})
             ocr = raw.get("ocr", {})
-            allowed_top = {
-                "schema_version",
-                "chunk_duration_ms",
-                "chunk_overlap_ms",
-                "sample_interval_ms",
-                "adapters",
-                "subtitle",
-                "shot",
-                "resources",
-                "ocr",
-            }
-            if set(raw) - allowed_top:
-                raise AtlasError(f"unknown configuration keys: {sorted(set(raw) - allowed_top)}")
-            allowed_ocr = {
-                "enabled",
-                "executable",
-                "languages",
-                "page_segmentation_mode",
-                "engine_mode",
-                "preprocessing",
-                "minimum_confidence",
-                "max_frame_dimension",
-                "timeout_seconds",
-                "workers",
-                "maximum_frames_per_source",
-                "unavailable_behavior",
-                "retain_raw_frames",
-            }
-            if set(ocr) - allowed_ocr:
-                raise AtlasError(
-                    f"unknown OCR configuration keys: {sorted(set(ocr) - allowed_ocr)}"
-                )
             config = cls(
-                schema_version=str(raw["schema_version"]),
-                chunk_duration_ms=int(raw["chunk_duration_ms"]),
-                chunk_overlap_ms=int(raw["chunk_overlap_ms"]),
-                sample_interval_ms=int(raw["sample_interval_ms"]),
-                adapters=tuple(str(item) for item in raw["adapters"]),
-                subtitle_mode=str(subtitle.get("mode", "disabled")),
-                subtitle_tracks=tuple(int(item) for item in subtitle.get("tracks", [])),
-                shot_enabled=bool(shot.get("enabled", False)),
-                shot_sample_fps=int(shot.get("sample_fps", 10)),
-                shot_hard_threshold=float(shot.get("hard_threshold", 0.35)),
-                shot_gradual_threshold=float(shot.get("gradual_threshold", 0.025)),
-                shot_min_duration_ms=int(shot.get("min_duration_ms", 500)),
-                shot_max_duration_ms=int(shot.get("max_duration_ms", 5000)),
-                flash_suppression_ms=int(shot.get("flash_suppression_ms", 250)),
-                subprocess_timeout_seconds=int(resources.get("subprocess_timeout_seconds", 30)),
-                max_duration_ms=int(resources.get("max_duration_ms", 600_000)),
-                max_video_width=int(resources.get("max_video_width", 4096)),
-                max_video_height=int(resources.get("max_video_height", 4096)),
-                max_keyframes=int(resources.get("max_keyframes", 1000)),
-                ocr_enabled=bool(ocr.get("enabled", False)),
-                ocr_executable=str(ocr.get("executable", "auto")),
-                ocr_languages=tuple(str(item) for item in ocr.get("languages", ["eng"])),
-                ocr_page_segmentation_mode=int(ocr.get("page_segmentation_mode", 6)),
-                ocr_engine_mode=int(ocr.get("engine_mode", 1)),
-                ocr_grayscale=bool(ocr.get("preprocessing", {}).get("grayscale", True)),
-                ocr_contrast_normalization=bool(
+                schema_version=raw["schema_version"],
+                chunk_duration_ms=raw["chunk_duration_ms"],
+                chunk_overlap_ms=raw["chunk_overlap_ms"],
+                sample_interval_ms=raw["sample_interval_ms"],
+                adapters=tuple(raw["adapters"]),
+                subtitle_mode=subtitle.get("mode", "disabled"),
+                subtitle_tracks=tuple(subtitle.get("tracks", [])),
+                shot_enabled=shot.get("enabled", False),
+                shot_sample_fps=shot.get("sample_fps", 10),
+                shot_hard_threshold=shot.get("hard_threshold", 0.35),
+                shot_gradual_threshold=shot.get("gradual_threshold", 0.025),
+                shot_min_duration_ms=shot.get("min_duration_ms", 500),
+                shot_max_duration_ms=shot.get("max_duration_ms", 5000),
+                flash_suppression_ms=shot.get("flash_suppression_ms", 250),
+                subprocess_timeout_seconds=resources.get("subprocess_timeout_seconds", 30),
+                max_duration_ms=resources.get("max_duration_ms", 600_000),
+                max_video_width=resources.get("max_video_width", 4096),
+                max_video_height=resources.get("max_video_height", 4096),
+                max_keyframes=resources.get("max_keyframes", 1000),
+                ocr_enabled=ocr.get("enabled", False),
+                ocr_executable=ocr.get("executable", "auto"),
+                ocr_languages=tuple(ocr.get("languages", ["eng"])),
+                ocr_page_segmentation_mode=ocr.get("page_segmentation_mode", 6),
+                ocr_engine_mode=ocr.get("engine_mode", 1),
+                ocr_grayscale=ocr.get("preprocessing", {}).get("grayscale", True),
+                ocr_contrast_normalization=(
                     ocr.get("preprocessing", {}).get("contrast_normalization", False)
                 ),
-                ocr_threshold=(
-                    None
-                    if ocr.get("preprocessing", {}).get("threshold") is None
-                    else int(ocr["preprocessing"]["threshold"])
+                ocr_threshold=ocr.get("preprocessing", {}).get("threshold"),
+                ocr_resize_max_dimension=ocr.get("max_frame_dimension", 1920),
+                ocr_min_confidence=ocr.get("minimum_confidence", 0.0),
+                ocr_timeout_seconds=ocr.get("timeout_seconds", 15),
+                ocr_workers=ocr.get("workers", 1),
+                ocr_max_frames=ocr.get("maximum_frames_per_source", 100),
+                ocr_unavailable_behavior=ocr.get("unavailable_behavior", "degrade"),
+                ocr_temporal_association_max_gap_ms=ocr.get(
+                    "temporal_association_max_gap_ms", 2500
                 ),
-                ocr_resize_max_dimension=int(ocr.get("max_frame_dimension", 1920)),
-                ocr_min_confidence=float(ocr.get("minimum_confidence", 0.0)),
-                ocr_timeout_seconds=int(ocr.get("timeout_seconds", 15)),
-                ocr_workers=int(ocr.get("workers", 1)),
-                ocr_max_frames=int(ocr.get("maximum_frames_per_source", 100)),
-                ocr_unavailable_behavior=str(ocr.get("unavailable_behavior", "degrade")),
-                ocr_retain_raw_frames=bool(ocr.get("retain_raw_frames", False)),
             )
         except (OSError, ValueError, KeyError, TypeError) as exc:
             raise AtlasError(f"invalid baseline configuration {path}: {exc}") from exc

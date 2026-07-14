@@ -5,7 +5,7 @@ import pytest
 
 from av_atlas.config import BaselineConfig
 from av_atlas.errors import AtlasError
-from av_atlas.ocr import inspect_ocr, parse_tsv
+from av_atlas.ocr import inspect_ocr, parse_tsv, sanitize_ocr_inventory
 from av_atlas.schemas import validate_instance
 
 
@@ -66,3 +66,60 @@ def test_real_tesseract_gate_executes_approved_english_data() -> None:
     english = next(item for item in result["language_data"] if item["language"] == "eng")
     assert len(english["sha256"]) == 64
     assert english["size_bytes"] > 0
+
+
+@pytest.mark.tesseract
+def test_ordinary_ocr_inventory_redacts_absolute_paths() -> None:
+    result = inspect_ocr()
+    if result["state"] != "available":
+        pytest.skip(result["installation_command"])
+    raw = json.dumps(result)
+    assert "resolved_executable_path" not in result
+    assert '"path": "/' not in raw
+    assert result["executable"]["path_class"] in {"system", "operator-supplied"}
+    assert len(result["dependency_identity_sha256"]) == 64
+
+
+@pytest.mark.tesseract
+def test_full_paths_require_explicit_local_private_diagnostic() -> None:
+    result = inspect_ocr(include_private_paths=True)
+    if result["state"] != "available":
+        pytest.skip(result["installation_command"])
+    assert Path(result["resolved_executable_path"]).is_absolute()
+
+
+def test_operator_home_executable_and_tessdata_paths_are_redacted() -> None:
+    private = {
+        "schema_version": "1.0.0",
+        "state": "available",
+        "engine": "tesseract",
+        "resolved_executable_path": "/home/operator/private/bin/tesseract",
+        "executable_sha256": "0" * 64,
+        "executable_size_bytes": 1,
+        "version": "test",
+        "leptonica_version": "test",
+        "reported_build_features": [],
+        "version_output": [],
+        "executable_package": None,
+        "tessdata_prefix": {
+            "environment_value": "/home/operator/private/tessdata",
+            "behavior": "explicit_environment_override",
+        },
+        "discovered_tessdata_directories": ["/home/operator/private/tessdata"],
+        "available_languages": ["eng"],
+        "language_data": [
+            {
+                "language": "eng",
+                "path": "/home/operator/private/tessdata/eng.traineddata",
+                "sha256": "1" * 64,
+                "size_bytes": 1,
+                "package": None,
+                "used_by_default_m2b": True,
+            }
+        ],
+        "relevant_environment": {"TESSDATA_PREFIX": "/home/operator/private/tessdata"},
+        "network_accessed": False,
+    }
+    rendered = json.dumps(sanitize_ocr_inventory(private))
+    assert "/home/operator" not in rendered
+    assert "operator-supplied" in rendered

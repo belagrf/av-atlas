@@ -223,7 +223,13 @@ def detect_shots(
     video_streams = [stream for stream in inventory["streams"] if stream["codec_type"] == "video"]
     if not video_streams:
         return ShotOutput(
-            AdapterResult("shot", "unsupported_input", detail="source has no video stream"),
+            AdapterResult(
+                "shot",
+                "unsupported_input",
+                detail="source has no video stream",
+                attempted_units=1,
+                unsupported_units=1,
+            ),
             (),
             (),
             {},
@@ -231,7 +237,13 @@ def detect_shots(
         )
     if shutil.which("ffmpeg") is None:
         return ShotOutput(
-            AdapterResult("shot", "unavailable_dependency", detail="ffmpeg is unavailable"),
+            AdapterResult(
+                "shot",
+                "unavailable_dependency",
+                detail="ffmpeg is unavailable",
+                attempted_units=1,
+                failed_units=1,
+            ),
             (),
             (),
             {},
@@ -317,6 +329,8 @@ def detect_shots(
                 "success" if observations else "success_zero",
                 tuple(observations),
                 f"decoded {len(frames)} structural sample frames and produced {len(shots)} shots",
+                attempted_units=len(shots),
+                successful_units=len(shots),
             ),
             tuple(shots),
             tuple(keyframes),
@@ -325,7 +339,21 @@ def detect_shots(
         )
     except ResourceLimitError as exc:
         return ShotOutput(
-            AdapterResult("shot", "resource_limit_failure", detail=str(exc)), (), (), {}, ()
+            AdapterResult(
+                "shot", "resource_limit_failure", detail=str(exc), attempted_units=1, failed_units=1
+            ),
+            (),
+            (),
+            {},
+            (),
         )
     except AtlasError as exc:
-        return ShotOutput(AdapterResult("shot", "decode_failure", detail=str(exc)), (), (), {}, ())
+        return ShotOutput(
+            AdapterResult(
+                "shot", "decode_failure", detail=str(exc), attempted_units=1, failed_units=1
+            ),
+            (),
+            (),
+            {},
+            (),
+        )

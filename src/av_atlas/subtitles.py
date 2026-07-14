@@ -163,11 +163,19 @@ def extract_subtitles(
             "subtitle",
             "invalid_configuration",
             detail=f"unknown subtitle stream indexes: {missing}",
+            attempted_units=len(selected_indexes),
+            failed_units=len(selected_indexes),
         )
         return SubtitleOutput(result, _tracks_payload(source_id, mode, []), (), (), {})
     chosen = available_indexes if mode == "all" else set(selected_indexes)
     if chosen and shutil.which("ffmpeg") is None:
-        result = AdapterResult("subtitle", "unavailable_dependency", detail="ffmpeg is unavailable")
+        result = AdapterResult(
+            "subtitle",
+            "unavailable_dependency",
+            detail="ffmpeg is unavailable",
+            attempted_units=len(chosen),
+            failed_units=len(chosen),
+        )
         return SubtitleOutput(result, _tracks_payload(source_id, mode, []), (), (), {})
     tracks: list[dict[str, Any]] = []
     cues: list[dict[str, Any]] = []
@@ -175,6 +183,7 @@ def extract_subtitles(
     decode_errors: list[str] = []
     resource_errors: list[str] = []
     unsupported = 0
+    extracted = 0
     raw_dir = run_dir / "subtitles" / "raw"
     for stream in streams:
         stream_index = int(stream["index"])
@@ -215,6 +224,7 @@ def extract_subtitles(
             track_cues = parse_webvtt(raw, track_id, source_id, duration_ms)
             cues.extend(track_cues)
             artifacts.append(raw_path)
+            extracted += 1
         except ResourceLimitError as exc:
             record["status"] = "decode_failure"
             resource_errors.append(f"{track_id}: {exc}")
@@ -250,8 +260,15 @@ def extract_subtitles(
         for cue in cues
         if cue["text"] != ""
     )
-    if resource_errors:
-        status: AdapterStatus = "resource_limit_failure"
+    failed = len(resource_errors) + len(decode_errors)
+    if extracted and (failed or unsupported):
+        status: AdapterStatus = "partial_success"
+        detail = (
+            f"extracted {len(cues)} cues; successful_tracks={extracted}; "
+            f"failed_tracks={failed}; unsupported_tracks={unsupported}"
+        )
+    elif resource_errors:
+        status = "resource_limit_failure"
         detail = "; ".join(resource_errors)
     elif decode_errors:
         status = "decode_failure"
@@ -277,7 +294,17 @@ def extract_subtitles(
         for cue in cues
     }
     return SubtitleOutput(
-        AdapterResult("subtitle", status, observations, detail),
+        AdapterResult(
+            "subtitle",
+            status,
+            observations,
+            detail,
+            attempted_units=len(chosen),
+            successful_units=extracted,
+            failed_units=failed,
+            timed_out_units=len(resource_errors),
+            unsupported_units=unsupported,
+        ),
         payload,
         tuple(cues),
         tuple(artifacts),

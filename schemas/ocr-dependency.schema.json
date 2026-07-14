@@ -4,11 +4,12 @@
   "type": "object",
   "required": ["schema_version", "state", "engine", "network_accessed"],
   "properties": {
-    "schema_version": {"const": "1.0.0"},
+    "schema_version": {"enum": ["1.0.0", "1.1.0"]},
     "state": {"enum": ["available", "unavailable"]},
     "engine": {"const": "tesseract"},
     "network_accessed": {"const": false},
     "resolved_executable_path": {"type": "string"},
+    "executable": {"type": "object"},
     "executable_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
     "executable_size_bytes": {"type": "integer", "minimum": 1},
     "version": {"type": "string"},
@@ -17,16 +18,18 @@
     "version_output": {"type": "array", "items": {"type": "string"}},
     "executable_package": {"type": ["object", "null"]},
     "tessdata_prefix": {"type": "object"},
-    "discovered_tessdata_directories": {"type": "array", "items": {"type": "string"}},
+    "discovered_tessdata_directories": {"type": "array", "items": {"type": ["string", "object"]}},
     "available_languages": {"type": "array", "items": {"type": "string"}},
     "language_data": {"type": "array", "items": {"type": "object"}},
     "relevant_environment": {"type": "object"},
     "detail": {"type": "string"},
     "installation_command": {"type": "string"}
+    ,"dependency_identity_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+    ,"inventory_layers": {"type": "object"}
   },
   "allOf": [{
     "if": {"properties": {"state": {"const": "available"}}},
-    "then": {"required": ["resolved_executable_path", "executable_sha256", "version", "leptonica_version", "available_languages", "language_data"]}
+    "then": {"required": ["executable_sha256", "version", "leptonica_version", "available_languages", "language_data"]}
   }],
   "additionalProperties": false
 }

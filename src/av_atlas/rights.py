@@ -22,7 +22,8 @@ OPERATIONS = (
 )
 
 
-def _manifest_digest(value: dict[str, Any]) -> str:
+def manifest_digest(value: dict[str, Any]) -> str:
+    """Return the declaration integrity checksum (not an authenticated signature)."""
     payload = {key: item for key, item in value.items() if key != "manifest_hash"}
     return hashlib.sha256(canonical_json(payload).encode("utf-8")).hexdigest()
 
@@ -61,7 +62,7 @@ def create_rights_manifest(
         "independently_reviewed": independently_reviewed,
         "review_record": review_record,
     }
-    value["manifest_hash"] = _manifest_digest(value)
+    value["manifest_hash"] = manifest_digest(value)
     validate_instance("rights_manifest", value, output.name)
     write_json(output, value)
     return value
@@ -73,8 +74,53 @@ def load_rights_manifest(path: Path) -> dict[str, Any]:
     except (OSError, json.JSONDecodeError) as exc:
         raise AtlasError(f"invalid rights manifest {path.name}: {exc}") from exc
     validate_instance("rights_manifest", value, path.name)
-    if value["manifest_hash"] != _manifest_digest(value):
+    if value["manifest_hash"] != manifest_digest(value):
         raise AtlasError("rights manifest hash is invalid")
+    return value
+
+
+def validate_rights_artifact(
+    value: dict[str, Any],
+    source_hash: str,
+    source_id: str,
+    operation: str,
+    *,
+    expected_manifest_hash: str | None = None,
+    require_derivative_retention: bool = True,
+    label: str = "rights manifest",
+) -> None:
+    """Schema-, digest-, linkage-, source-, permission-, and expiry-check one artifact."""
+    validate_instance("rights_manifest", value, label)
+    actual = manifest_digest(value)
+    if value["manifest_hash"] != actual:
+        raise AtlasError("rights manifest hash is invalid")
+    if expected_manifest_hash is not None and actual != expected_manifest_hash:
+        raise AtlasError("run manifest rights hash does not match rights artifact")
+    validate_rights(value, source_hash, source_id, operation)
+    if require_derivative_retention:
+        validate_rights(value, source_hash, source_id, "derivative_artifact_retention")
+
+
+def load_and_validate_rights(
+    path: Path,
+    source_hash: str,
+    source_id: str,
+    operation: str,
+    *,
+    expected_manifest_hash: str | None = None,
+    require_derivative_retention: bool = True,
+) -> dict[str, Any]:
+    """Authoritative path for loading a persisted rights declaration."""
+    value = load_rights_manifest(path)
+    validate_rights_artifact(
+        value,
+        source_hash,
+        source_id,
+        operation,
+        expected_manifest_hash=expected_manifest_hash,
+        require_derivative_retention=require_derivative_retention,
+        label=path.name,
+    )
     return value
 
 
@@ -128,6 +174,6 @@ def fixture_rights(inventory: dict[str, Any]) -> dict[str, Any]:
         "independently_reviewed": False,
         "review_record": None,
     }
-    value["manifest_hash"] = _manifest_digest(value)
+    value["manifest_hash"] = manifest_digest(value)
     validate_instance("rights_manifest", value, "controlled fixture rights")
     return value

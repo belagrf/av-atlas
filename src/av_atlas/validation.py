@@ -9,7 +9,7 @@ from typing import Any
 from av_atlas.errors import AtlasError
 from av_atlas.io import sha256_file, write_json
 from av_atlas.pipeline import ARTIFACTS
-from av_atlas.rights import validate_rights
+from av_atlas.rights import load_and_validate_rights
 from av_atlas.schemas import validate_instance
 
 
@@ -112,6 +112,21 @@ def validate_run(run_dir: Path, write_report: bool = True) -> dict[str, Any]:
         and "rights" not in initial_manifest
     ):
         return _validate_legacy_m0(run_dir, initial_manifest, write_report)
+    validate_instance("run_manifest", initial_manifest, "run_manifest.json")
+    initial_inventory = _json(run_dir / "inventory.json")
+    validate_instance("inventory", initial_inventory, "inventory.json")
+    if (
+        initial_inventory["sha256"] != initial_manifest["source"]["sha256"]
+        or initial_inventory["source_id"] != initial_manifest["source"]["source_id"]
+    ):
+        raise AtlasError("run manifest source linkage does not match inventory")
+    load_and_validate_rights(
+        run_dir / "rights_manifest.json",
+        str(initial_manifest["source"]["sha256"]),
+        str(initial_manifest["source"]["source_id"]),
+        str(initial_manifest["operation"]),
+        expected_manifest_hash=str(initial_manifest["rights"]["manifest_hash"]),
+    )
     errors: list[str] = []
     checks = {
         "json_schema": 0,
@@ -128,6 +143,7 @@ def validate_run(run_dir: Path, write_report: bool = True) -> dict[str, Any]:
     manifest: dict[str, Any] = {}
     inventory: dict[str, Any] = {}
     evidence: dict[str, Any] = {}
+    state: dict[str, Any] = {}
     final: list[dict[str, Any]] = []
     provisional: list[dict[str, Any]] = []
     try:
@@ -205,6 +221,7 @@ def validate_run(run_dir: Path, write_report: bool = True) -> dict[str, Any]:
             ("ocr_runtime.json", "ocr_runtime"),
             ("ocr_evaluation.json", "ocr_evaluation"),
             ("ocr_benchmark.json", "ocr_benchmark"),
+            ("ocr_text_tracks.json", "ocr_text_tracks"),
         ):
             if (run_dir / filename).is_file() and not legacy_ocr:
                 validate_instance(schema, _json(run_dir / filename), filename)
@@ -213,31 +230,14 @@ def validate_run(run_dir: Path, write_report: bool = True) -> dict[str, Any]:
         errors.append(str(exc))
 
     if manifest and inventory:
-        try:
-            rights = _json(run_dir / "rights_manifest.json")
-            validate_rights(
-                rights,
-                str(inventory["sha256"]),
-                str(inventory["source_id"]),
-                str(manifest["operation"]),
-            )
-            validate_rights(
-                rights,
-                str(inventory["sha256"]),
-                str(inventory["source_id"]),
-                "derivative_artifact_retention",
-            )
-            if rights["manifest_hash"] != manifest["rights"]["manifest_hash"]:
-                raise AtlasError("run manifest rights hash does not match rights artifact")
-            checks["rights_linkage"] += 1
-        except (AtlasError, KeyError) as exc:
-            errors.append(str(exc))
+        checks["rights_linkage"] += 1
 
     duration_ms = int(inventory.get("duration_ms", 0))
     provisional_by_id = {record.get("event_id"): record for record in provisional}
     prior_key = (-1, -1, "")
     seen_revisions: dict[str, int] = {}
     known_refs = set(evidence.get("evidence", {}))
+    state_chunks = state.get("chunks", []) if isinstance(state, dict) else []
     for record in final:
         checks["events"] += 1
         start, end = int(record.get("start_ms", -1)), int(record.get("end_ms", -1))
@@ -247,6 +247,19 @@ def validate_run(run_dir: Path, write_report: bool = True) -> dict[str, Any]:
         if key < prior_key:
             errors.append("final events are not deterministically ordered")
         prior_key = key
+        if record.get("schema_version") == "1.1.0":
+            expected_chunks = [
+                f"CHK_{index:04d}"
+                for index, chunk in enumerate(state_chunks, 1)
+                if int(chunk["start_ms"]) < end and int(chunk["end_ms"]) > start
+            ]
+            provenance_chunks = record.get("provenance", {}).get("chunk_ids", [])
+            if (
+                not expected_chunks
+                or provenance_chunks != expected_chunks
+                or record["provenance"]["chunk_id"] != expected_chunks[0]
+            ):
+                errors.append(f"event {record.get('event_id')} has incorrect chunk provenance")
         event_id, revision = str(record.get("event_id")), int(record.get("revision", 0))
         if event_id in seen_revisions and revision <= seen_revisions[event_id]:
             errors.append(f"non-increasing revision chain for {event_id}")
@@ -280,8 +293,24 @@ def validate_run(run_dir: Path, write_report: bool = True) -> dict[str, Any]:
         adapter_payload = _json(run_dir / "adapter_results.json")
         for result in adapter_payload.get("results", []):
             checks["adapter_contracts"] += 1
-            if result["status"] not in {"success", "success_zero"} and result["observation_count"]:
+            if (
+                result["status"] not in {"success", "success_zero", "partial_success"}
+                and result["observation_count"]
+            ):
                 errors.append(f"failed adapter {result['adapter']} reports fabricated observations")
+            counts = result.get("unit_counts")
+            if counts is not None:
+                if counts["emitted_observations"] != result["observation_count"]:
+                    errors.append(f"adapter {result['adapter']} observation counts disagree")
+                accounted = counts["successful"] + counts["failed"] + counts["unsupported"]
+                if accounted != counts["attempted"]:
+                    errors.append(f"adapter {result['adapter']} unit counts do not balance")
+                if counts["timed_out"] > counts["failed"]:
+                    errors.append(f"adapter {result['adapter']} timeout count exceeds failures")
+                if result["status"] == "partial_success" and not (
+                    counts["successful"] > 0 and (counts["failed"] + counts["unsupported"]) > 0
+                ):
+                    errors.append(f"adapter {result['adapter']} has invalid partial_success counts")
 
     if (run_dir / "subtitles.jsonl").is_file():
         cues = _jsonl(run_dir / "subtitles.jsonl")
@@ -330,13 +359,27 @@ def validate_run(run_dir: Path, write_report: bool = True) -> dict[str, Any]:
             errors.append("one or more shots lack a keyframe")
 
     if (run_dir / "ocr_observations.jsonl").is_file():
-        for record in _jsonl(run_dir / "ocr_observations.jsonl"):
+        ocr_records = _jsonl(run_dir / "ocr_observations.jsonl")
+        for record in ocr_records:
             if record["evidence_ref"] not in known_refs:
                 errors.append(f"OCR evidence is unresolved: {record['evidence_ref']}")
             if record["source_frame_evidence_ref"] not in known_refs:
                 errors.append(
                     f"OCR source frame is unresolved: {record['source_frame_evidence_ref']}"
                 )
+        if (run_dir / "ocr_text_tracks.json").is_file():
+            observations_by_id = {item["observation_id"]: item for item in ocr_records}
+            for track in _json(run_dir / "ocr_text_tracks.json").get("tracks", []):
+                for observation_id, ref in zip(
+                    track["member_observation_ids"],
+                    track["source_frame_evidence_refs"],
+                    strict=True,
+                ):
+                    observation = observations_by_id.get(observation_id)
+                    if observation is None:
+                        errors.append(f"OCR text track member is unresolved: {observation_id}")
+                    elif observation["source_frame_evidence_ref"] != ref or ref not in known_refs:
+                        errors.append(f"OCR text track evidence is unresolved: {ref}")
 
     for name in ARTIFACTS:
         if name not in manifest.get("artifacts", {}):

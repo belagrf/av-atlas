@@ -27,3 +27,10 @@ one-to-one IoU >= 0.5 region P/R/F1 and mean IoU, reading order, evidence/time f
 rate, resources, and source/category/difficulty/text-size/confidence strata. Inter-annotator results
 remain separate. The path is prepared but unexecuted because no authorized media or human
 annotations are present.
+
+M2B.1 separately reports exact-record duplicates, temporal repeated observations, derived-track
+compression, and unresolved derived evidence. Prediction-only keyframes participate in text-
+presence false positives rather than being mislabeled as timestamp errors. Gold-only frames remain
+false negatives, no-text frames remain explicit negatives, and zero-record adapter correctness is
+checked from structured state rather than by vacuous `all([])`. The accepted four-frame v1 gold and
+historical metrics are unchanged; new metrics belong to the additive hardening report.

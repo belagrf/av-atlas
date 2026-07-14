@@ -21,3 +21,46 @@ def test_versioned_gold_and_dependency_bom_records_validate() -> None:
         validate_instance(schema, json.loads(path.read_text()), path.name)
     bom = root / "docs/dependency-bom.json"
     validate_instance("dependency_bom", json.loads(bom.read_text()), bom.name)
+
+
+def test_adapter_result_v1_backward_compatibility_and_v1_1_partial_success() -> None:
+    validate_instance(
+        "adapter_results",
+        {
+            "schema_version": "1.0.0",
+            "results": [
+                {
+                    "adapter": "ocr_frame",
+                    "status": "success",
+                    "observation_count": 1,
+                    "detail": "legacy",
+                    "retryable": False,
+                }
+            ],
+        },
+        "legacy adapter results",
+    )
+    validate_instance(
+        "adapter_results",
+        {
+            "schema_version": "1.1.0",
+            "results": [
+                {
+                    "adapter": "ocr_frame",
+                    "status": "partial_success",
+                    "observation_count": 1,
+                    "detail": "one of two frames succeeded",
+                    "retryable": False,
+                    "unit_counts": {
+                        "attempted": 2,
+                        "successful": 1,
+                        "failed": 1,
+                        "timed_out": 0,
+                        "unsupported": 0,
+                        "emitted_observations": 1,
+                    },
+                }
+            ],
+        },
+        "current adapter results",
+    )

@@ -35,3 +35,10 @@ uv run av-atlas validate "$REPLAY_RUN"
 Regenerate and validate M1 and M2A with their documented README commands as regression checks. To test interruption, start a new M2B run, send SIGTERM while OCR is active, resume twice, and validate after each resume.
 
 Fixture, gold, configuration, and OCR observation hashes must exactly match the release record. Runtime-bearing evaluation, benchmark, BOM, logs, and run-manifest bytes can change across machines and executions. Compare their invariant fields and the observation semantic hash rather than expecting those files to be byte-identical. Within a completed run, hash all keys listed in `run_manifest.json` before and after each resume; every listed artifact must remain byte-identical.
+
+## Immutable release and later patch boundary
+
+The `m2b-controlled-v1` tag predates the public-CI clean-checkout test fix. The annotated tag and
+published release remain immutable and are not retargeted by M2B.1. A later, separately authorized
+patch release may incorporate that fix and the reviewed hardening changes. The accepted v1 hashes
+remain historical release evidence; they are not silently regenerated.

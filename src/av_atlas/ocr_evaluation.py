@@ -13,7 +13,7 @@ from av_atlas.config import BaselineConfig
 from av_atlas.errors import AtlasError
 from av_atlas.io import sha256_file, write_json
 from av_atlas.ocr import TesseractOcrAdapter
-from av_atlas.rights import validate_rights
+from av_atlas.rights import load_and_validate_rights
 from av_atlas.schemas import validate_instance
 
 
@@ -57,13 +57,35 @@ def _quality_metrics(run_dir: Path, gold: dict[str, Any]) -> dict[str, Any]:
     evidence = _read(run_dir / "evidence_index.json").get("evidence", {})
     runtime = _read(run_dir / "ocr_runtime.json")
     frame_results = _read(run_dir / "ocr_frame_results.json")
+    if (run_dir / "adapter_results.json").is_file():
+        adapter_results = _read(run_dir / "adapter_results.json")
+        adapter_status = next(
+            (
+                item["status"]
+                for item in adapter_results["results"]
+                if item["adapter"] == "ocr_frame"
+            ),
+            "missing",
+        )
+    else:
+        adapter_status = {
+            "succeeded": "success" if records else "success_zero",
+            "partial_success": "partial_success",
+            "partial": "partial_success",
+            "failed": "decode_failure",
+        }.get(str(frame_results.get("adapter_state")), "missing")
+    tracks = (
+        _read(run_dir / "ocr_text_tracks.json")
+        if (run_dir / "ocr_text_tracks.json").is_file()
+        else {"tracks": []}
+    )
     gold_by_frame = {item["keyframe_id"]: item for item in gold["frames"]}
     records_by_frame: dict[str, list[dict[str, Any]]] = {key: [] for key in gold_by_frame}
     for record in records:
         records_by_frame.setdefault(str(record["keyframe_id"]), []).append(record)
     predicted = {
-        key: " ".join(str(item["normalized_text"]) for item in records_by_frame[key])
-        for key in gold_by_frame
+        key: " ".join(str(item["normalized_text"]) for item in values)
+        for key, values in records_by_frame.items()
     }
 
     def aggregate(frame_ids: list[str]) -> dict[str, Any]:
@@ -110,19 +132,28 @@ def _quality_metrics(run_dir: Path, gold: dict[str, Any]) -> dict[str, Any]:
         if precision is not None and recall is not None and precision + recall
         else None
     )
-    unique = {
+    exact_unique = {
         (
+            item["observation_id"],
+            item["source_id"],
             item["keyframe_id"],
+            item["timestamp_ms"],
+            item["text"],
             item["normalized_text"],
             tuple(item["bounding_box"]),
+            item["evidence_ref"],
         )
         for item in records
     }
-    duplicate_count = len(records) - len(unique)
+    exact_duplicate_count = len(records) - len(exact_unique)
     gold_timestamps = {key: int(item["timestamp_ms"]) for key, item in gold_by_frame.items()}
     invalid_timestamps = sum(
-        item["keyframe_id"] not in gold_timestamps
-        or int(item["timestamp_ms"]) != gold_timestamps[item["keyframe_id"]]
+        not isinstance(item.get("timestamp_ms"), int)
+        or int(item["timestamp_ms"]) < 0
+        or (
+            item["keyframe_id"] in gold_timestamps
+            and int(item["timestamp_ms"]) != gold_timestamps[item["keyframe_id"]]
+        )
         for item in records
     )
     missing_evidence = sum(
@@ -137,10 +168,34 @@ def _quality_metrics(run_dir: Path, gold: dict[str, Any]) -> dict[str, Any]:
         for category in categories
     }
     overall = aggregate(frame_ids)
-    expected_adapter_state = (
-        "succeeded"
-        if frame_results.get("adapter_state") == "succeeded"
-        else frame_results.get("adapter_state")
+    frame_state = frame_results.get("adapter_state")
+    expected_statuses = {
+        "succeeded": {"success", "success_zero"},
+        "partial": {"partial_success"},
+        "partial_success": {"partial_success"},
+        "failed": {"decode_failure", "resource_limit_failure", "permanent_failure"},
+        "unavailable": {"unavailable_dependency"},
+        "disabled": {"success_zero"},
+        "skipped": {"unsupported_input"},
+    }
+    records_state_correct = (
+        all(item.get("adapter_state") == "succeeded" for item in records) if records else True
+    )
+    adapter_state_correct = (
+        frame_state in expected_statuses
+        and adapter_status in expected_statuses[frame_state]
+        and records_state_correct
+        and not (adapter_status == "success" and not records)
+        and not (adapter_status == "success_zero" and records)
+    )
+    track_members = sum(len(track["member_observation_ids"]) for track in tracks["tracks"])
+    repeated_members = sum(
+        max(0, len(track["member_observation_ids"]) - 1) for track in tracks["tracks"]
+    )
+    unresolved_track_evidence = sum(
+        ref not in evidence
+        for track in tracks["tracks"]
+        for ref in track["source_frame_evidence_refs"]
     )
     return {
         **overall,
@@ -156,12 +211,19 @@ def _quality_metrics(run_dir: Path, gold: dict[str, Any]) -> dict[str, Any]:
             "Unsupported for this frozen set because its gold regions arrays are empty; "
             "predicted boxes are retained but cannot be matched to gold boxes."
         ),
-        "duplicate_observation_rate": _ratio(duplicate_count, len(records)) or 0.0,
+        "exact_record_duplicate_rate": _ratio(exact_duplicate_count, len(records)) or 0.0,
+        "duplicate_observation_rate": _ratio(exact_duplicate_count, len(records)) or 0.0,
+        "temporal_repeated_observation_rate": _ratio(repeated_members, track_members) or 0.0,
+        "derived_track_compression_ratio": (
+            _ratio(len(records) - len(tracks["tracks"]), len(records)) or 0.0
+        ),
+        "derived_text_track_count": len(tracks["tracks"]),
+        "unresolved_track_evidence_count": unresolved_track_evidence,
+        "prediction_only_keyframe_count": len(set(records_by_frame) - set(gold_by_frame)),
+        "gold_only_keyframe_count": len(expected_positive - predicted_positive),
         "missing_evidence_reference_count": missing_evidence,
         "invalid_timestamp_count": invalid_timestamps,
-        "adapter_state_correctness": all(
-            item.get("adapter_state") == expected_adapter_state for item in records
-        ),
+        "adapter_state_correctness": adapter_state_correct,
         "timeout_count": int(runtime["timeouts"]),
         "retry_count": int(runtime["retries"]),
         "wall_seconds": runtime["wall_seconds"],
@@ -183,11 +245,13 @@ def evaluate_ocr(run_dir: Path, gold_path: Path) -> dict[str, Any]:
     validate_instance("ocr_gold", gold, gold_path.name)
     dependency = _read(run_dir / "ocr_dependency.json")
     inventory = _read(run_dir / "inventory.json")
-    validate_rights(
-        _read(run_dir / "rights_manifest.json"),
+    manifest = _read(run_dir / "run_manifest.json")
+    load_and_validate_rights(
+        run_dir / "rights_manifest.json",
         inventory["sha256"],
         inventory["source_id"],
         "evaluation",
+        expected_manifest_hash=manifest["rights"]["manifest_hash"],
     )
     adapter = _read(run_dir / "adapter_results.json")
     state = next(
@@ -195,7 +259,7 @@ def evaluate_ocr(run_dir: Path, gold_path: Path) -> dict[str, Any]:
         "missing",
     )
     measured: dict[str, Any] | None = None
-    if state in {"success", "success_zero"}:
+    if state in {"success", "success_zero", "partial_success"}:
         measured = _quality_metrics(run_dir, gold)
         _media_efficiency(measured, int(inventory["duration_ms"]))
     report = {
@@ -266,8 +330,14 @@ def _benchmark_workspace(run_dir: Path, workers: int) -> Path:
 def benchmark_ocr(run_dir: Path, gold_path: Path) -> dict[str, Any]:
     dependency = _read(run_dir / "ocr_dependency.json")
     inventory = _read(run_dir / "inventory.json")
-    rights = _read(run_dir / "rights_manifest.json")
-    validate_rights(rights, inventory["sha256"], inventory["source_id"], "evaluation")
+    manifest = _read(run_dir / "run_manifest.json")
+    load_and_validate_rights(
+        run_dir / "rights_manifest.json",
+        inventory["sha256"],
+        inventory["source_id"],
+        "evaluation",
+        expected_manifest_hash=manifest["rights"]["manifest_hash"],
+    )
     rows: list[dict[str, Any]]
     if dependency.get("state") != "available":
         rows = [

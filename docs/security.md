@@ -34,3 +34,13 @@ and removes a partial output package on failure. Pilot OCR rechecks rights, fram
 frozen configuration. Media paths appear only in the operator's local input specification; tracked
 manifests export hash-derived source IDs. Separate annotator packages prevent accidental disclosure
 of the other submission, but their operational delivery remains the operator's responsibility.
+
+Resume and validation recompute the persisted rights checksum and compare it with the run link
+before processing. Permission edits with either a stale checksum or a new checksum but stale run
+linkage fail closed before FFmpeg, Tesseract, or an adapter is called. This checksum is not a
+signature, identity proof, or legal determination.
+
+Ordinary OCR dependency artifacts contain hashes, basenames, and path classes, not custom
+operator-home paths or a raw `TESSDATA_PREFIX`. Full paths require the explicitly local/private
+diagnostic option. Package licenses are identified only when installed metadata was actually read;
+unknown status remains explicit.

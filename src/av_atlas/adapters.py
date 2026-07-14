@@ -77,6 +77,8 @@ class SidecarAdapter:
                 "success" if values else "success_zero",
                 tuple(values),
                 f"loaded {len(values)} deterministic sidecar observations",
+                attempted_units=len(values),
+                successful_units=len(values),
             ),
             {},
         )

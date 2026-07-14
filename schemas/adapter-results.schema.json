@@ -1,19 +1,54 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://av-atlas.local/schemas/adapter-results/1.0.0",
-  "type": "object", "additionalProperties": false,
-  "required": ["schema_version", "results"],
-  "properties": {
-    "schema_version": {"const": "1.0.0"},
-    "results": {"type": "array", "items": {
+  "$id": "https://av-atlas.local/schemas/adapter-results/1.1.0",
+  "oneOf": [
+    {
+      "type": "object", "additionalProperties": false,
+      "required": ["schema_version", "results"],
+      "properties": {
+        "schema_version": {"const": "1.0.0"},
+        "results": {"type": "array", "items": {"$ref": "#/$defs/legacyResult"}}
+      }
+    },
+    {
+      "type": "object", "additionalProperties": false,
+      "required": ["schema_version", "results"],
+      "properties": {
+        "schema_version": {"const": "1.1.0"},
+        "results": {"type": "array", "items": {"$ref": "#/$defs/currentResult"}}
+      }
+    }
+  ],
+  "$defs": {
+    "status": {"enum": ["success", "success_zero", "partial_success", "unsupported_input", "unavailable_dependency", "decode_failure", "resource_limit_failure", "invalid_configuration", "interrupted_retryable_failure", "permanent_failure"]},
+    "legacyStatus": {"enum": ["success", "success_zero", "unsupported_input", "unavailable_dependency", "decode_failure", "resource_limit_failure", "invalid_configuration", "interrupted_retryable_failure", "permanent_failure"]},
+    "baseProperties": {
+      "adapter": {"type": "string"}, "observation_count": {"type": "integer", "minimum": 0},
+      "detail": {"type": "string"}, "retryable": {"type": "boolean"}
+    },
+    "legacyResult": {
       "type": "object", "additionalProperties": false,
       "required": ["adapter", "status", "observation_count", "detail", "retryable"],
       "properties": {
-        "adapter": {"type": "string"},
-        "status": {"enum": ["success", "success_zero", "unsupported_input", "unavailable_dependency", "decode_failure", "resource_limit_failure", "invalid_configuration", "interrupted_retryable_failure", "permanent_failure"]},
-        "observation_count": {"type": "integer", "minimum": 0},
-        "detail": {"type": "string"}, "retryable": {"type": "boolean"}
+        "adapter": {"type": "string"}, "status": {"$ref": "#/$defs/legacyStatus"},
+        "observation_count": {"type": "integer", "minimum": 0}, "detail": {"type": "string"}, "retryable": {"type": "boolean"}
       }
-    }}
+    },
+    "currentResult": {
+      "type": "object", "additionalProperties": false,
+      "required": ["adapter", "status", "observation_count", "detail", "retryable", "unit_counts"],
+      "properties": {
+        "adapter": {"type": "string"}, "status": {"$ref": "#/$defs/status"},
+        "observation_count": {"type": "integer", "minimum": 0}, "detail": {"type": "string"}, "retryable": {"type": "boolean"},
+        "unit_counts": {"type": "object", "additionalProperties": false,
+          "required": ["attempted", "successful", "failed", "timed_out", "unsupported", "emitted_observations"],
+          "properties": {
+            "attempted": {"type": "integer", "minimum": 0}, "successful": {"type": "integer", "minimum": 0},
+            "failed": {"type": "integer", "minimum": 0}, "timed_out": {"type": "integer", "minimum": 0},
+            "unsupported": {"type": "integer", "minimum": 0}, "emitted_observations": {"type": "integer", "minimum": 0}
+          }
+        }
+      }
+    }
   }
 }

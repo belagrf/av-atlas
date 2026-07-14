@@ -640,3 +640,99 @@ release JSON/Markdown and M2C memo hashes are
 `f4a48d534707b56bf1d21ccfa69c8e8dafa4544e163893c7da6411c26fa331ef`, and
 `f6aed849967a1cf3185dc9de21138a4fdc117c18240c5597984d6de87d74f547`
 respectively.
+
+## 2026-07-14 — M2B.1 source-audit hardening branch
+
+Branch `audit/m2b1-hardening` addresses confirmed source-integrity and correctness findings without
+implementing M2C, processing real media, or changing the immutable `m2b-controlled-v1` tag/release.
+Public findings are tracked in issues 7, 8, and 9.
+
+Confirmed on pre-change `main` (`2545fcf4da8e7b62cb57ad1196f802226059c03e`): resume and
+validation bypassed the rights self-digest loader; resume omitted retention and run-link checks;
+configuration coerced wrong JSON types and missed nested unknown keys; OCR/subtitle partial output
+had contradictory status semantics; prediction-only OCR frames were excluded from presence false
+positives; empty-record state correctness was vacuous; event chunk provenance hardcoded 2,000 ms;
+ordinary OCR dependency reports exposed full paths; and the clean-checkout CI fix postdated v1.
+No requested finding was rejected as non-reproducible.
+
+The additive contracts are adapter-results 1.1 (`partial_success` plus balanced unit counts), event
+ledger 1.1 (all overlapping generated chunk IDs), OCR frame-results 1.1, OCR dependency 1.1,
+dependency BOM 1.1, strict configuration schema 1.1, and derived OCR text tracks 1.0. Legacy 1.0
+adapter, event, frame, dependency, and BOM artifacts remain accepted. Rights validation now uses one
+schema/digest/source/operation/retention/expiry/run-link path before resume processing. The rights
+self-hash is explicitly only an integrity checksum, not an authenticated signature.
+
+Raw OCR observations remain byte-identical to v1; a separate association artifact preserves every
+member observation/frame reference and uses normalized text, same-shot, bounded-gap, and spatial
+compatibility policy `ocr-temporal-association/1.0.0`. Evaluation now separates exact duplicates,
+temporal repetition, track compression, and unresolved evidence and includes prediction-only and
+gold-only frames. Raw-frame retention remains false-only.
+
+Exact local gates:
+
+```text
+uv lock --check
+  Resolved 19 packages
+uv sync --extra dev --locked --offline
+  Resolved 19 packages; checked 18 packages
+uv run ruff format --check .
+  41 files already formatted
+uv run ruff check .
+  All checks passed!
+uv run mypy src
+  Success: no issues found in 21 source files
+uv run pytest -q
+  86 passed in 40.12s
+uv run av-atlas doctor
+  exit 0; FFmpeg/ffprobe 6.1.1-3ubuntu5, Python 3.14.3, Tesseract 5.3.4 available;
+  ordinary OCR inventory path-sanitized; no GPU/model dependency used
+```
+
+Fresh ignored M1, M2A, M2B, and interruption/resume runs all validated with zero errors. M1 had 17
+artifact hashes/3 events/9 evidence references. M2A had 31 hashes/8 events/12 references/4 shots/4
+keyframes/4 cues and retained shot/subtitle F1 1.0. M2B had 68 hashes/8 events/17 references/4
+shots/4 keyframes and 13 OCR observations. The accepted OCR semantic hash remained
+`f851aef0d8a1c215023cd71b38120a2f317a10be3dd24567f2f023449acd6060`.
+
+New synthetic hardening evaluation retained exact match 0.75, CER 0.0125, WER
+0.07692307692307693, presence P/R/F1 1/1/1, 0 exact duplicates, 0 temporal repeats, 13 derived
+tracks, compression 0, 0 prediction-only/gold-only frames, 0 unresolved evidence/invalid
+timestamps/timeouts/retries, and correct adapter state. Measured OCR wall/CPU/peak RSS/FPS were
+2.408453 s/1.909924 s/180,556 KiB/1.6608173544469151. Worker 1/2/4 measurements were respectively
+1.870963/1.651128/1.510803 wall seconds, 1.855986/1.888869/1.900421 CPU seconds, 180,556 KiB peak,
+and 2.1379358942689217/2.422586835739302/2.6475993620845615 FPS. All emitted the accepted semantic
+hash with zero failures/timeouts.
+
+New artifact hashes: OCR tracks
+`f27d60f51c06cead4d0b6159b47865fd635a010e2faba9902057ae1c9cd4b9c2`; evaluation
+`4787b5acadea251e9b9930b3bccfda3c4f11238643639547c7efc39bd2b4968c`; benchmark
+`8b6b5838c8372456f7a561c598734a42707d97672569bc33226f4a36aa385baa`; sanitized OCR dependency
+`5ab8663ce63b7d6303ce84e3ec62ab3a9dd1ec55283e8f0c6852dd88740d5cce`; BOM snapshot
+`abca366e47275ef2d5ff2825b53b0d47436e03a56e29a696f903cb194d188868`; M2B run manifest
+`65b6919d4cdda23acfdd87e4292fb91488866113b494ff94a94a5fa773e77a8f`.
+Completed-run tracked digest remained
+`0fdda6b09a2de87d7a0bcf22c85dc36258bf246cbc246521713207f6bea14c86` across two resumes;
+interrupted/completed digest remained
+`06879f45963ae06f06bb6e62f9607ce2fcaed47f90ace7e75029dcbc933fe5be` on repeated resume.
+
+The accepted fixture, gold, configuration, OCR output, evaluation, benchmark, run manifest, and
+release manifest hashes remain exactly
+`6d1f79c6a63b6a8d5510bcd67a74e522096fe97b6c2bba68587f0213ccc682a8`,
+`e62e392aa45406f939edc1f2093d07f1dcf175c0c4ea9085cbeae3edde50bc1a`,
+`8f5545df1c78e5845e19e3ae0299a86cc7c950cb9c3ba7e7b5fee217f1a45c55`,
+`f851aef0d8a1c215023cd71b38120a2f317a10be3dd24567f2f023449acd6060`,
+`a1011542165e3b8974857aaee68bbaa8185987cbb3ca0353ad4afecda38803ad`,
+`479087002a126b1d442ca2e4d768bafd3e266e9f542dba92a01ea075a3280455`,
+`6779769594db6a7457ee30b7d9ffbdacc8ec345120433125e7e846978359b440`, and
+`e545855c11ee23542939a35aecf03d00c6f12bbd056d6d4bcae43df139b7c9b2`. The old 64-artifact M2B
+run validates under backward compatibility. No authorized real-media result or full-M2 completion
+is claimed.
+
+Changed tracked files are README and project architecture/governance/security/evaluation/BOM/
+reproduction documentation; ADR-0005; configuration, adapter-results, event, OCR dependency/frame/
+track, and BOM schemas; adapter/config/contract/rights/pipeline/OCR/evaluation/subtitle/shot/
+validation/CLI source; and contract/unit/integration regressions for each finding. Generated runs
+remain ignored. The checkpoint inventory remains empty. Remaining risks include unauthenticated
+rights checksums, native FFmpeg/Tesseract parser exposure without an OS sandbox, no retained-frame
+lifecycle, synthetic-only OCR quality, and an unexecuted authorized double-annotated pilot. Full M2
+and M2C remain unimplemented.

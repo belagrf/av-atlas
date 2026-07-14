@@ -26,3 +26,8 @@ evaluation permission. External-pilot intake and independent annotation are docu
 derivative retention for each exact source hash, exports hash-derived IDs rather than local paths,
 preserves both original annotations, and locks adjudicated gold. No external pilot or human
 annotation occurred.
+
+Changing retention, operation permission, expiry, source identity, or the declaration checksum
+after interruption invalidates resume before any new derivative is created. The self-checksum is
+not an authenticated signature; an operator assertion remains an assertion. Raw-frame retention is
+false-only pending a separately reviewed derivative lifecycle and deletion design.

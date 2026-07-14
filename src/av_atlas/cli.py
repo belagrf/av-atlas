@@ -75,8 +75,13 @@ def _parser() -> argparse.ArgumentParser:
         "inspect-subtitles", help="list embedded subtitle tracks without extraction"
     )
     inspect_subtitles.add_argument("media", type=Path)
-    commands.add_parser(
+    inspect_ocr_parser = commands.add_parser(
         "inspect-ocr", help="inspect the local OCR dependency without installing it"
+    )
+    inspect_ocr_parser.add_argument(
+        "--local-private-diagnostic",
+        action="store_true",
+        help="include full local paths; never attach this output to exported runs",
     )
     run = commands.add_parser("run", help="process a sidecar fixture into a complete run")
     run.add_argument("media", type=Path)
@@ -179,7 +184,13 @@ def main(arguments: list[str] | None = None) -> int:
         if args.command == "doctor":
             return _doctor()
         if args.command == "inspect-ocr":
-            print(json.dumps(inspect_ocr(), indent=2, sort_keys=True))
+            print(
+                json.dumps(
+                    inspect_ocr(include_private_paths=args.local_private_diagnostic),
+                    indent=2,
+                    sort_keys=True,
+                )
+            )
             return 0
         if args.command == "make-fixture":
             media = {"m1": make_fixture, "m2a": make_m2a_fixture, "m2b": make_m2b_fixture}[
