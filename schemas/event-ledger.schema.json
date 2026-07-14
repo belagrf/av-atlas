@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://av-atlas.local/schemas/event-ledger/1.0.0",
+  "title": "AV-Atlas atomic evidence-ledger event",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "event_id", "revision", "start_ms", "end_ms", "level", "scene_id", "claims", "speech", "entities", "uncertainty", "status", "provenance"],
+  "properties": {
+    "schema_version": {"const": "1.0.0"},
+    "event_id": {"type": "string", "pattern": "^EVT_[0-9]{6}$"},
+    "revision": {"type": "integer", "minimum": 1},
+    "start_ms": {"type": "integer", "minimum": 0},
+    "end_ms": {"type": "integer", "minimum": 1},
+    "level": {"const": "atomic"},
+    "scene_id": {"type": "string", "pattern": "^SCN_[0-9]{4}$"},
+    "claims": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/claim"}},
+    "speech": {"type": "array", "items": {"$ref": "#/$defs/speech"}},
+    "entities": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "uncertainty": {"type": "array", "items": {"type": "string"}},
+    "status": {"enum": ["provisional", "final", "withheld"]},
+    "provenance": {
+      "type": "object", "additionalProperties": false,
+      "required": ["source_id", "chunk_id", "run_id"],
+      "properties": {
+        "source_id": {"type": "string", "pattern": "^SRC_[A-F0-9]{12}$"},
+        "chunk_id": {"type": "string", "pattern": "^CHK_[0-9]{4}$"},
+        "run_id": {"type": "string", "minLength": 1}
+      }
+    }
+  },
+  "$defs": {
+    "claim": {
+      "type": "object", "additionalProperties": false,
+      "required": ["claim_id", "type", "text", "confidence", "evidence_refs"],
+      "properties": {
+        "claim_id": {"type": "string", "pattern": "^CLM_[0-9]{6}$"},
+        "type": {"type": "string", "minLength": 1},
+        "text": {"type": "string", "minLength": 1},
+        "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+        "evidence_refs": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+      }
+    },
+    "speech": {
+      "type": "object", "additionalProperties": false,
+      "required": ["speaker_id", "text", "source", "evidence_ref", "confidence"],
+      "properties": {
+        "speaker_id": {"type": "string", "minLength": 1},
+        "text": {"type": "string", "minLength": 1},
+        "source": {"enum": ["asr", "subtitle", "caption", "sidecar_asr", "provided_transcript"]},
+        "evidence_ref": {"type": "string", "pattern": "^(ASR|SUB):"},
+        "confidence": {"type": "number", "minimum": 0, "maximum": 1}
+      }
+    }
+  }
+}
+

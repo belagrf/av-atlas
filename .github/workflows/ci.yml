@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out tracked source
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff
+        with:
+          enable-cache: true
+
+      - name: Install approved system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y ffmpeg fonts-dejavu-core tesseract-ocr tesseract-ocr-eng
+
+      - name: Install locked project dependencies
+        run: uv sync --extra dev --locked
+
+      - name: Regenerate controlled fixtures
+        run: |
+          uv run av-atlas make-fixture --profile m1 --output tests/fixtures/generated/m1
+          uv run av-atlas make-fixture --profile m2a --include-edge-fixtures --output tests/fixtures/generated/m2a
+          uv run av-atlas make-fixture --profile m2b --output tests/fixtures/generated/m2b
+
+      - name: Quality gates
+        run: |
+          uv lock --check
+          uv run ruff format --check .
+          uv run ruff check .
+          uv run mypy src
+          uv run pytest -q
+          uv run av-atlas doctor

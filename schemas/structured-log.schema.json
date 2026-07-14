@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://av-atlas.local/schemas/structured-log/1.0.0",
+  "type": "object", "additionalProperties": false,
+  "required": ["event", "run_id", "source_id"],
+  "properties": {
+    "event": {"enum": ["run_started", "artifacts_written"]},
+    "run_id": {"type": "string", "minLength": 1},
+    "source_id": {"type": "string", "pattern": "^SRC_[A-F0-9]{12}$"},
+    "record_count": {"type": "integer", "minimum": 0}
+  }
+}
+

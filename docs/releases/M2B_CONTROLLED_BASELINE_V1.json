@@ -1,0 +1,73 @@
+{
+  "schema_version": "1.0.0",
+  "release_id": "M2B_CONTROLLED_BASELINE_V1",
+  "scope": "four-frame project-authored synthetic controlled fixture only",
+  "status": "M2B controlled-fixture engineering, OCR execution, evaluation, and resource benchmark complete; authorized double-annotated real-media pilot pending.",
+  "dependencies": {
+    "tesseract": {"version": "5.3.4", "leptonica": "1.82.0", "package_version": "5.3.4-1build5", "architecture": "amd64", "license": "Apache-2.0", "sha256": "9f831cab7525c3dab04af41bda35182af7ea1df9dceeaaa2f3bf207ac45c06a5"},
+    "eng_traineddata": {"package_version": "1:4.1.0-2", "size_bytes": 4113088, "license": "Apache-2.0", "sha256": "7d4322bd2a7749724879683fc3912cb542f19906c83bcc1a52132556427170b2"},
+    "operator_installation": "completed before measured execution; Codex performed no installation during the measured continuation"
+  },
+  "frozen_hashes": {
+    "fixture": "6d1f79c6a63b6a8d5510bcd67a74e522096fe97b6c2bba68587f0213ccc682a8",
+    "gold": "e62e392aa45406f939edc1f2093d07f1dcf175c0c4ea9085cbeae3edde50bc1a",
+    "configuration": "8f5545df1c78e5845e19e3ae0299a86cc7c950cb9c3ba7e7b5fee217f1a45c55",
+    "observations_semantic": "f851aef0d8a1c215023cd71b38120a2f317a10be3dd24567f2f023449acd6060",
+    "evaluation": "a1011542165e3b8974857aaee68bbaa8185987cbb3ca0353ad4afecda38803ad",
+    "benchmark": "479087002a126b1d442ca2e4d768bafd3e266e9f542dba92a01ea075a3280455",
+    "run_manifest": "6779769594db6a7457ee30b7d9ffbdacc8ec345120433125e7e846978359b440",
+    "schema_ocr_observation": "8e70e97e07df18374d986691c34da1311115a11af8659eae07148555e96e21f3",
+    "schema_ocr_gold": "01189133b7185d3cf0d17dbaf7c34cb9700e7d17ae5d98fede470f747070efc3",
+    "schema_ocr_evaluation": "28c639314fdc4bdbd5789e68251e3003071861df276564589c123074a53b9d4a",
+    "schema_ocr_benchmark": "f07e1519a937b1d6408ee92249185bc4ba263c1d50f3cef15f305128078a87e5",
+    "schema_run_manifest": "59053ec2bcdf0752f32889bc00b9322da6d98831ce83120208237225a3cc5b4d"
+  },
+  "metrics": {"frames": 4, "observations": 13, "exact_match": 0.75, "normalized_cer": 0.0125, "normalized_wer": 0.07692307692307693, "presence_precision": 1.0, "presence_recall": 1.0, "presence_f1": 1.0, "duplicate_rate": 0.0, "missing_evidence": 0, "invalid_timestamps": 0, "wall_seconds": 3.017794, "cpu_seconds": 2.230488, "peak_rss_kb": 181284, "frames_per_second": 1.3254717351419905},
+  "metrics_by_difficulty": {
+    "high-contrast": {"exact": 1.0, "cer": 0.0, "wer": 0.0},
+    "digits": {"exact": 1.0, "cer": 0.0, "wer": 0.0},
+    "mixed-case": {"exact": 1.0, "cer": 0.0, "wer": 0.0},
+    "punctuation": {"exact": 1.0, "cer": 0.0, "wer": 0.0},
+    "prompt-injection": {"exact": 1.0, "cer": 0.0, "wer": 0.0},
+    "rotation": {"exact": 1.0, "cer": 0.0, "wer": 0.0},
+    "unicode-supported-by-eng": {"exact": 1.0, "cer": 0.0, "wer": 0.0},
+    "low-contrast": {"exact": 0.0, "cer": 0.038461538461538464, "wer": 0.2},
+    "small": {"exact": 0.0, "cer": 0.038461538461538464, "wer": 0.2},
+    "multiline": {"exact": 0.5, "cer": 0.018518518518518517, "wer": 0.125}
+  },
+  "unsupported_metrics": {"region_precision": "gold regions are empty", "region_recall": "gold regions are empty", "bounding_iou": "gold regions are empty"},
+  "workers": [
+    {"count": 1, "wall_seconds": 2.207769, "cpu_seconds": 2.177335, "peak_rss_kb": 181352, "frames_per_second": 1.8117836204463749, "configuration_sha256": "7020e5ea8bb54c00d99963dd0eed00a02f521859cbe222400232969c5a83fd3c"},
+    {"count": 2, "wall_seconds": 1.842121, "cpu_seconds": 2.096001, "peak_rss_kb": 181352, "frames_per_second": 2.171409541629186, "configuration_sha256": "6fb1b15f8c0e6411c8ef9d10493d2f0654f20aaea9007f1e2e1be385bf48b33e"},
+    {"count": 4, "wall_seconds": 1.838363, "cpu_seconds": 2.36402, "peak_rss_kb": 181352, "frames_per_second": 2.1758485470815976, "configuration_sha256": "cdd9168fdf983922ed0233f8b2d81d865ee49e98a5f1096a920e707181a5c08d"}
+  ],
+  "semantic_outputs_equivalent": true,
+  "provisional_worker_recommendation": 2,
+  "rights_and_security": {"fail_closed_negative_tests": true, "prompt_injection_inert": true, "network_used": false, "gpu_used": false},
+  "quality_gates": {"uv_lock": "pass", "offline_sync": "pass", "ruff_format": "pass", "ruff_lint": "pass", "mypy_source_files": 20, "pytest_passed": 52, "pytest_failed": 0, "doctor": "pass", "validated_run_directories": 13, "unexplained_validation_errors": 0},
+  "resume": {"completed_tracked_digest": "e10bec548cd486d969cdc9f169928ee2e02a8d19958f0dfc58350808a4722e97", "interrupted_tracked_digest": "b07e1b5e716a77d05a33d8a6b6254fdb35cfa69f7ba6a7eaedd5d69e4bdf36e1", "byte_identical": true},
+  "reproduction_commands": [
+    "uv lock --check",
+    "uv sync --extra dev --locked --offline",
+    "uv run ruff format --check .",
+    "uv run ruff check .",
+    "uv run mypy src",
+    "uv run pytest -q",
+    "uv run av-atlas doctor",
+    "uv run av-atlas inspect-ocr",
+    "uv run av-atlas make-fixture --profile m2b --output REPLAY_FIXTURES",
+    "uv run av-atlas run REPLAY_FIXTURES/m2b_ocr_controlled.mkv --config configs/m2b.yaml --output REPLAY_RUN",
+    "uv run av-atlas evaluate-ocr REPLAY_RUN tests/gold/m2b-ocr-controlled.gold.json",
+    "uv run av-atlas benchmark-ocr REPLAY_RUN tests/gold/m2b-ocr-controlled.gold.json",
+    "uv run av-atlas validate REPLAY_RUN",
+    "uv run av-atlas resume REPLAY_RUN --media REPLAY_FIXTURES/m2b_ocr_controlled.mkv"
+  ],
+  "known_limitations": [
+    "Four synthetic frames only.",
+    "Gold region arrays are empty, so region precision, recall, and IoU are unsupported.",
+    "Fresh replay used the same implementation and host, not an independent environment or implementation.",
+    "No authorized double-annotated real-media pilot has occurred.",
+    "Full M2 remains incomplete."
+  ],
+  "claims": {"real_media_accuracy": false, "semantic_visual_understanding": false, "full_m2_complete": false}
+}

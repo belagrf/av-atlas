@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://av-atlas.local/schemas/ocr-evaluation/1.0.0",
+  "type": "object",
+  "required": ["schema_version", "evaluation_id", "category", "adapter_state", "dependency", "measured_results", "engineering_validation", "pilot_results", "limitations"],
+  "properties": {
+    "schema_version": {"const": "1.0.0"}, "evaluation_id": {"type": "string"},
+    "category": {"const": "deterministic_synthetic_fixture"}, "adapter_state": {"type": "string"},
+    "dependency": {"type": "object"}, "measured_results": {"type": ["object", "null"]},
+    "engineering_validation": {"type": "object"}, "pilot_results": {"type": ["object", "null"]},
+    "limitations": {"type": "array", "items": {"type": "string"}}
+  },
+  "additionalProperties": false
+}

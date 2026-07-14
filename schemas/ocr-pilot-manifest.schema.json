@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://av-atlas.local/schemas/ocr-pilot-manifest/1.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "pilot_id", "state", "selection_protocol", "sources", "frames", "counts", "privacy", "manifest_hash"],
+  "properties": {
+    "schema_version": {"const": "1.0.0"},
+    "pilot_id": {"type": "string", "pattern": "^PILOT_[A-Z0-9_-]+$"},
+    "state": {"enum": ["prepared_unannotated", "two_annotations_received", "adjudicated_frozen"]},
+    "selection_protocol": {
+      "type": "object", "additionalProperties": false,
+      "required": ["method", "random_seed", "inclusion_criteria", "exclusion_criteria", "duplicate_frame_policy"],
+      "properties": {
+        "method": {"type": "string", "minLength": 1},
+        "random_seed": {"type": ["integer", "null"]},
+        "inclusion_criteria": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+        "exclusion_criteria": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+        "duplicate_frame_policy": {"type": "string", "minLength": 1}
+      }
+    },
+    "sources": {"type": "array", "minItems": 3, "items": {"type": "object"}},
+    "frames": {"type": "array", "minItems": 80, "maxItems": 80, "items": {"type": "object"}},
+    "counts": {"type": "object"},
+    "privacy": {"type": "object"},
+    "manifest_hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+  }
+}

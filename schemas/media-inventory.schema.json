@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://av-atlas.local/schemas/media-inventory/1.0.0",
+  "type": "object", "additionalProperties": false,
+  "required": ["schema_version", "source_id", "sha256", "size_bytes", "duration_ms", "format_names", "streams", "chapters"],
+  "properties": {
+    "schema_version": {"const": "1.0.0"},
+    "source_id": {"type": "string", "pattern": "^SRC_[A-F0-9]{12}$"},
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "size_bytes": {"type": "integer", "minimum": 1},
+    "duration_ms": {"type": "integer", "minimum": 1},
+    "format_names": {"type": "array", "items": {"type": "string"}},
+    "streams": {"type": "array", "items": {"type": "object", "required": ["index", "codec_type", "codec_name", "language", "title", "time_base", "frame_rate", "duration_ms", "width", "height", "disposition"]}},
+    "chapters": {"type": "array", "items": {"type": "object"}}
+  }
+}

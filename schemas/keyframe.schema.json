@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://av-atlas.local/schemas/keyframe/1.0.0",
+  "type": "object", "additionalProperties": false,
+  "required": ["schema_version", "keyframe_id", "shot_id", "source_id", "timestamp_ms", "frame_index", "path", "sha256", "size_bytes", "evidence_ref"],
+  "properties": {
+    "schema_version": {"const": "1.0.0"}, "keyframe_id": {"type": "string", "pattern": "^KEY_[0-9]{4}$"},
+    "shot_id": {"type": "string", "pattern": "^SHOT_[0-9]{4}$"}, "source_id": {"type": "string"},
+    "timestamp_ms": {"type": "integer", "minimum": 0}, "frame_index": {"type": "integer", "minimum": 0},
+    "path": {"type": "string"}, "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "size_bytes": {"type": "integer", "minimum": 1}, "evidence_ref": {"type": "string", "pattern": "^VID:"}
+  }
+}

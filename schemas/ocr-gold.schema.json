@@ -1,0 +1,11 @@
+{
+  "$schema":"https://json-schema.org/draft/2020-12/schema", "$id":"https://av-atlas.local/schemas/ocr-gold/1.0.0",
+  "type":"object", "additionalProperties":false,
+  "required":["schema_version","gold_id","fixture_recipe","source_sha256","frames","annotators","adjudication_state","provenance","notes","limitations"],
+  "properties":{
+    "schema_version":{"const":"1.0.0"}, "gold_id":{"type":"string"}, "fixture_recipe":{"type":"string"}, "source_sha256":{"type":["string","null"]},
+    "frames":{"type":"array","items":{"type":"object","required":["keyframe_id","timestamp_ms","exact_transcription","normalized_transcription","regions","ignore_regions","illegible","uncertain","difficulty"],"properties":{"keyframe_id":{"type":"string"},"timestamp_ms":{"type":"integer","minimum":0},"exact_transcription":{"type":"string"},"normalized_transcription":{"type":"string"},"regions":{"type":"array"},"ignore_regions":{"type":"array"},"illegible":{"type":"boolean"},"uncertain":{"type":"boolean"},"difficulty":{"type":"array","items":{"type":"string"}}}}},
+    "annotators":{"type":"array","items":{"type":"object","required":["annotator_id","annotation_timestamp"],"properties":{"annotator_id":{"type":"string"},"annotation_timestamp":{"type":["string","null"]}}}},
+    "adjudication_state":{"enum":["synthetic-generator-gold","pending-two-independent-annotations","adjudicated"]}, "provenance":{"type":"object"}, "notes":{"type":"string"}, "limitations":{"type":"array","items":{"type":"string"}}
+  }
+}

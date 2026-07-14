@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://av-atlas.local/schemas/ocr-runtime/1.0.0",
+  "type": "object",
+  "required": ["schema_version", "workers", "frames_processed", "observation_count", "wall_seconds", "cpu_seconds", "peak_rss_kb", "frames_per_second", "failures", "timeouts", "retries", "memory_scope", "thread_limit_per_tesseract_process", "temporary_files_retained"],
+  "properties": {
+    "schema_version": {"const": "1.0.0"}, "workers": {"type": "integer", "minimum": 0, "maximum": 4},
+    "frames_processed": {"type": "integer", "minimum": 0}, "observation_count": {"type": "integer", "minimum": 0},
+    "wall_seconds": {"type": "number", "minimum": 0}, "cpu_seconds": {"type": "number", "minimum": 0},
+    "peak_rss_kb": {"type": "integer", "minimum": 0}, "frames_per_second": {"type": "number", "minimum": 0},
+    "failures": {"type": "integer", "minimum": 0}, "timeouts": {"type": "integer", "minimum": 0}, "retries": {"type": "integer", "minimum": 0},
+    "memory_scope": {"type": "string"}, "thread_limit_per_tesseract_process": {"type": "integer", "minimum": 1},
+    "temporary_files_retained": {"const": false}
+  },
+  "additionalProperties": false
+}

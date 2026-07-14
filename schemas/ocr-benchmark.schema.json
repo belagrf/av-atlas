@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://av-atlas.local/schemas/ocr-benchmark/1.0.0",
+  "type": "object",
+  "required": ["schema_version", "dependency", "gold_sha256", "cpu_only", "network_accessed", "measurements", "semantic_outputs_equivalent", "limitations"],
+  "properties": {
+    "schema_version": {"const": "1.0.0"}, "dependency": {"type": "object"},
+    "gold_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}, "cpu_only": {"const": true}, "network_accessed": {"const": false},
+    "measurements": {"type": "array", "minItems": 3, "maxItems": 3, "items": {"type": "object"}},
+    "semantic_outputs_equivalent": {"type": ["boolean", "null"]},
+    "limitations": {"type": "array", "items": {"type": "string"}}
+  },
+  "additionalProperties": false
+}

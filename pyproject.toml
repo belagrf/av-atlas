@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=70"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "av-atlas"
+version = "0.2.1"
+description = "Evidence-grounded offline audiovisual ingest and event-ledger baseline"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = ["jsonschema>=4.23,<5"]
+
+[project.optional-dependencies]
+dev = ["mypy>=1.10,<2", "pytest>=8.2,<9", "ruff>=0.5,<1", "types-jsonschema>=4.23"]
+
+[project.scripts]
+av-atlas = "av_atlas.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+addopts = "-ra"
+testpaths = ["tests"]
+markers = ["tesseract: requires an approved local Tesseract executable and English data"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+packages = ["av_atlas"]

@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://av-atlas.local/schemas/adapter-results/1.0.0",
+  "type": "object", "additionalProperties": false,
+  "required": ["schema_version", "results"],
+  "properties": {
+    "schema_version": {"const": "1.0.0"},
+    "results": {"type": "array", "items": {
+      "type": "object", "additionalProperties": false,
+      "required": ["adapter", "status", "observation_count", "detail", "retryable"],
+      "properties": {
+        "adapter": {"type": "string"},
+        "status": {"enum": ["success", "success_zero", "unsupported_input", "unavailable_dependency", "decode_failure", "resource_limit_failure", "invalid_configuration", "interrupted_retryable_failure", "permanent_failure"]},
+        "observation_count": {"type": "integer", "minimum": 0},
+        "detail": {"type": "string"}, "retryable": {"type": "boolean"}
+      }
+    }}
+  }
+}

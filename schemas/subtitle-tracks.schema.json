@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://av-atlas.local/schemas/subtitle-tracks/1.0.0",
+  "type": "object", "additionalProperties": false,
+  "required": ["schema_version", "source_id", "selection", "tracks"],
+  "properties": {
+    "schema_version": {"const": "1.0.0"}, "source_id": {"type": "string"},
+    "selection": {"type": "string"},
+    "tracks": {"type": "array", "items": {
+      "type": "object", "additionalProperties": false,
+      "required": ["track_id", "stream_index", "codec", "language", "title", "time_base", "disposition", "status", "raw_artifact"],
+      "properties": {
+        "track_id": {"type": "string", "pattern": "^TRACK_[0-9]{4}$"},
+        "stream_index": {"type": "integer", "minimum": 0}, "codec": {"type": ["string", "null"]},
+        "language": {"type": ["string", "null"]}, "title": {"type": ["string", "null"]},
+        "time_base": {"type": ["string", "null"]},
+        "disposition": {"type": "object", "additionalProperties": {"type": "boolean"}},
+        "status": {"enum": ["extracted", "not_selected", "unsupported_bitmap", "decode_failure"]},
+        "raw_artifact": {"type": ["object", "null"], "properties": {"path": {"type": "string"}, "sha256": {"type": "string"}, "size_bytes": {"type": "integer"}}, "required": ["path", "sha256", "size_bytes"]}
+      }
+    }}
+  }
+}

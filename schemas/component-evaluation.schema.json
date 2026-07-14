@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://av-atlas.local/schemas/component-evaluation/1.0.0",
+  "type": "object", "additionalProperties": false,
+  "required": ["schema_version", "evaluation_id", "measured_fixture_results", "unmeasured_targets", "unsupported_metrics", "sample_size_limitations", "reproducibility", "efficiency"],
+  "properties": {
+    "schema_version": {"const": "1.0.0"}, "evaluation_id": {"type": "string"},
+    "measured_fixture_results": {"type": "object"}, "unmeasured_targets": {"type": "array", "items": {"type": "string"}},
+    "unsupported_metrics": {"type": "array", "items": {"type": "string"}},
+    "sample_size_limitations": {"type": "array", "items": {"type": "string"}},
+    "reproducibility": {"type": "object"}, "efficiency": {"type": "object"}
+  }
+}

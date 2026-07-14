@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://av-atlas.local/schemas/component-gold/1.0.0",
+  "type": "object", "additionalProperties": false,
+  "required": ["schema_version", "gold_id", "fixture_recipe", "source_sha256", "duration_ms", "shots", "keyframe_rules", "subtitle_tracks", "subtitle_cues", "expected_adapter_states", "limitations"],
+  "properties": {
+    "schema_version": {"const": "1.0.0"}, "gold_id": {"type": "string"}, "fixture_recipe": {"type": "string"},
+    "source_sha256": {"type": ["string", "null"]}, "duration_ms": {"type": "integer", "minimum": 1},
+    "shots": {"type": "array", "items": {"type": "object", "required": ["boundary_ms", "transition_type"], "properties": {"boundary_ms": {"type": "integer", "minimum": 1}, "transition_type": {"enum": ["hard_cut", "gradual_transition"]}, "tolerance_ms": {"type": "integer", "minimum": 0}}}},
+    "keyframe_rules": {"type": "object", "required": ["one_per_shot", "inside_shot"]},
+    "subtitle_tracks": {"type": "array", "items": {"type": "object", "required": ["language", "title", "default", "forced"]}},
+    "subtitle_cues": {"type": "array", "items": {"type": "object", "required": ["language", "start_ms", "end_ms", "text"]}},
+    "expected_adapter_states": {"type": "object", "additionalProperties": {"type": "string"}},
+    "limitations": {"type": "array", "items": {"type": "string"}}
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "schema_version": "1.0.0",
+  "pilot_id": "PILOT_AUTHORIZED_OCR_V1",
+  "selection_method": "Describe the pre-registered source/frame sampling method",
+  "random_seed": null,
+  "inclusion_criteria": ["Authorized local source with a decodable video stream"],
+  "exclusion_criteria": ["Rights unclear, expired, or insufficient"],
+  "duplicate_frame_policy": "Reject duplicate source/timestamp pairs; identify near duplicates without selecting for OCR performance",
+  "sources": [
+    {
+      "media_path": "OPERATOR_LOCAL_MEDIA_PATH",
+      "rights_manifest_path": "OPERATOR_LOCAL_RIGHTS_PATH",
+      "selections": [
+        {
+          "timestamp_ms": 0,
+          "split": "calibration",
+          "categories": ["title-card"],
+          "difficulty": ["high-contrast"]
+        }
+      ]
+    }
+  ]
+}

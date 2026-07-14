@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://av-atlas.local/schemas/ocr-frame-results/1.0.0",
+  "type": "object",
+  "required": ["schema_version", "frames"],
+  "properties": {
+    "schema_version": {"const": "1.0.0"},
+    "adapter_state": {"enum": ["disabled", "unavailable", "skipped", "succeeded", "partial", "failed"]},
+    "frames": {"type": "array", "items": {"type": "object", "required": ["keyframe_id", "shot_id", "timestamp_ms", "source_frame_evidence_ref", "state", "warning"], "properties": {"keyframe_id": {"type": "string"}, "shot_id": {"type": "string"}, "timestamp_ms": {"type": "integer", "minimum": 0}, "source_frame_evidence_ref": {"type": "string"}, "state": {"enum": ["succeeded", "failed"]}, "warning": {"type": ["string", "null"]}}, "additionalProperties": false}}
+  },
+  "additionalProperties": false
+}

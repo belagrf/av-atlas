@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://av-atlas.local/schemas/provenance/1.0.0",
+  "type": "object", "additionalProperties": false,
+  "required": ["schema_version", "source_id", "content_sha256", "rights_tier", "acquisition_basis", "permitted_uses", "restrictions", "retention", "deletion_key", "review_status"],
+  "properties": {
+    "schema_version": {"const": "1.0.0"},
+    "source_id": {"type": "string", "pattern": "^SRC_[A-F0-9]{12}$"},
+    "content_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "rights_tier": {"enum": ["A-clear-training-rights", "B-research-dataset", "C-private-user-accessible", "D-synthetic-controlled", "E-excluded-quarantined"]},
+    "acquisition_basis": {"type": "string", "minLength": 1},
+    "permitted_uses": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "restrictions": {"type": "array", "items": {"type": "string"}},
+    "retention": {"type": "string", "minLength": 1},
+    "deletion_key": {"type": "string", "minLength": 1},
+    "review_status": {"type": "string", "minLength": 1}
+  }
+}
+

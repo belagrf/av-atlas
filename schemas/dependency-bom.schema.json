@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://av-atlas.local/schemas/dependency-bom/1.0.0",
+  "type": "object", "additionalProperties": false,
+  "required": ["schema_version", "generated_at", "components", "checkpoints"],
+  "properties": {
+    "schema_version": {"const": "1.0.0"}, "generated_at": {"type": "string"},
+    "components": {"type": "array", "items": {"$ref": "#/$defs/component"}},
+    "checkpoints": {"type": "array", "items": {"$ref": "#/$defs/component"}}
+  },
+  "$defs": {"component": {
+    "type": "object", "additionalProperties": false,
+    "required": ["name", "purpose", "identifier", "version", "source", "checksum", "license_id", "license_source", "redistribution_constraints", "commercial_use_constraints", "data_use_constraints", "runtime_requirements", "network_required", "weights_status", "approval_record", "approval_date", "known_risks"],
+    "properties": {
+      "name": {"type": "string"}, "purpose": {"type": "string"}, "identifier": {"type": "string"},
+      "version": {"type": "string"}, "source": {"type": "string"}, "checksum": {"type": ["string", "null"]},
+      "license_id": {"type": "string"}, "license_source": {"type": "string"},
+      "redistribution_constraints": {"type": "string"}, "commercial_use_constraints": {"type": "string"},
+      "data_use_constraints": {"type": "string"}, "runtime_requirements": {"type": "string"},
+      "network_required": {"type": "boolean"}, "weights_status": {"enum": ["not_applicable", "not_installed", "present", "approved", "blocked"]},
+      "approval_record": {"type": "string"}, "approval_date": {"type": ["string", "null"]},
+      "known_risks": {"type": "array", "items": {"type": "string"}}
+    }
+  }}
+}

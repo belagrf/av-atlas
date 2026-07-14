@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://av-atlas.local/schemas/state/1.0.0",
+  "type": "object",
+  "required": ["schema_version", "stage", "source_path", "config_path"],
+  "properties": {
+    "schema_version": {"const": "1.0.0"},
+    "stage": {"enum": ["inventory", "artifacts_written"]},
+    "source_path": {"type": "string", "minLength": 1},
+    "config_path": {"type": "string", "minLength": 1},
+    "chunks": {"type": "array", "items": {"type": "object", "required": ["start_ms", "end_ms"]}},
+    "uniform_sample_timestamps_ms": {"type": "array", "items": {"type": "integer", "minimum": 0}}
+  }
+}
+

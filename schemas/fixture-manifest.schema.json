@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://av-atlas.local/schemas/fixture-manifest/1.0.0",
+  "type": "object", "additionalProperties": false,
+  "required": ["schema_version", "fixture_id", "profile", "generator_version", "source_id", "content_sha256", "ffmpeg_version", "parameters"],
+  "properties": {
+    "schema_version": {"const": "1.0.0"}, "fixture_id": {"type": "string"},
+    "profile": {"enum": ["m1", "m2a", "m2b", "no-subtitles", "no-video"]},
+    "generator_version": {"type": "string"}, "source_id": {"type": "string"},
+    "content_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "ffmpeg_version": {"type": "string"}, "parameters": {"type": "object"}
+  }
+}

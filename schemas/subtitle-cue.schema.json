@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://av-atlas.local/schemas/subtitle-cue/1.0.0",
+  "type": "object", "additionalProperties": false,
+  "required": ["schema_version", "cue_id", "track_id", "source_id", "start_ms", "end_ms", "text", "normalized_text", "evidence_ref"],
+  "properties": {
+    "schema_version": {"const": "1.0.0"}, "cue_id": {"type": "string", "pattern": "^CUE_[0-9]{6}$"},
+    "track_id": {"type": "string", "pattern": "^TRACK_[0-9]{4}$"}, "source_id": {"type": "string"},
+    "start_ms": {"type": "integer", "minimum": 0}, "end_ms": {"type": "integer", "minimum": 1},
+    "text": {"type": "string"}, "normalized_text": {"type": "string"},
+    "evidence_ref": {"type": "string", "pattern": "^SUB:TRACK_[0-9]{4}:CUE_[0-9]{6}$"}
+  }
+}

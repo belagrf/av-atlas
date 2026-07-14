@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://av-atlas.local/schemas/run-manifest/1.0.0",
+  "type": "object", "additionalProperties": false,
+  "required": ["schema_version", "run_id", "status", "created_at", "completed_at", "operation", "rights", "source", "configuration", "software", "performance", "artifacts"],
+  "properties": {
+    "schema_version": {"const": "1.0.0"}, "run_id": {"type": "string", "minLength": 1},
+    "status": {"enum": ["processing", "complete", "failed"]}, "created_at": {"type": "string", "format": "date-time"},
+    "completed_at": {"type": ["string", "null"], "format": "date-time"},
+    "operation": {"enum": ["analysis", "annotation", "training", "evaluation", "derivative_artifact_retention", "redistribution"]},
+    "rights": {"type": "object", "required": ["manifest_hash", "independently_reviewed"]},
+    "source": {"type": "object", "required": ["source_id", "sha256", "duration_ms"]},
+    "configuration": {"type": "object", "required": ["sha256", "path"]},
+    "software": {"type": "object", "required": ["av_atlas", "ffmpeg", "ffprobe"]},
+    "performance": {"type": "object", "required": ["runtime_seconds", "peak_rss_kb", "retry_count", "processed_duration_ms"]},
+    "artifacts": {"type": "object", "additionalProperties": {"type": "object", "required": ["sha256", "size_bytes"]}}
+  }
+}

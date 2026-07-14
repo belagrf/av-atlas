@@ -1,0 +1,16 @@
+{
+  "schema_version": "1.0.0",
+  "gold_id": "GOLD_M2A_EDGE_V1",
+  "fixture_recipe": "M2A_EDGE_V1",
+  "source_sha256": null,
+  "duration_ms": 2000,
+  "shots": [],
+  "keyframe_rules": {"one_per_shot": true, "inside_shot": true},
+  "subtitle_tracks": [],
+  "subtitle_cues": [],
+  "expected_adapter_states": {
+    "no_video.shot": "unsupported_input",
+    "no_subtitles.subtitle": "success_zero"
+  },
+  "limitations": ["Synthetic degraded-state contract fixture only."]
+}

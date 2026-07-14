@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://av-atlas.local/schemas/ocr-human-annotation/1.0.0",
+  "type": "object", "additionalProperties": false,
+  "required": ["schema_version", "pilot_id", "annotator_pseudonym", "annotation_timestamp", "independence_attestation", "frames"],
+  "properties": {
+    "schema_version": {"const": "1.0.0"},
+    "pilot_id": {"type": "string"},
+    "annotator_pseudonym": {"type": "string", "minLength": 1},
+    "annotation_timestamp": {"type": ["string", "null"]},
+    "independence_attestation": {"type": "boolean"},
+    "frames": {"type": "array", "minItems": 60, "maxItems": 60, "items": {
+      "type": "object", "additionalProperties": false,
+      "required": ["frame_id", "source_id", "timestamp_ms", "exact_transcription", "normalized_transcription", "regions", "ignore_regions", "language", "legibility", "uncertain", "occluded", "truncated", "notes"],
+      "properties": {
+        "frame_id": {"type": "string"}, "source_id": {"type": "string"},
+        "timestamp_ms": {"type": "integer", "minimum": 0},
+        "exact_transcription": {"type": ["string", "null"]},
+        "normalized_transcription": {"type": ["string", "null"]},
+        "regions": {"type": "array", "items": {"$ref": "#/$defs/region"}},
+        "ignore_regions": {"type": "array", "items": {"$ref": "#/$defs/ignore_region"}},
+        "language": {"type": ["string", "null"]},
+        "legibility": {"enum": ["legible", "partly_legible", "illegible", null]},
+        "uncertain": {"type": ["boolean", "null"]}, "occluded": {"type": ["boolean", "null"]},
+        "truncated": {"type": ["boolean", "null"]}, "notes": {"type": ["string", "null"]}
+      }
+    }}
+  },
+  "$defs": {
+    "geometry": {
+      "oneOf": [
+        {"type": "object", "additionalProperties": false, "required": ["bounding_box"], "properties": {"bounding_box": {"type": "array", "prefixItems": [{"type": "number"}, {"type": "number"}, {"type": "number", "exclusiveMinimum": 0}, {"type": "number", "exclusiveMinimum": 0}], "minItems": 4, "maxItems": 4}}},
+        {"type": "object", "additionalProperties": false, "required": ["polygon"], "properties": {"polygon": {"type": "array", "minItems": 3, "items": {"type": "array", "prefixItems": [{"type": "number"}, {"type": "number"}], "minItems": 2, "maxItems": 2}}}}
+      ]
+    },
+    "region": {
+      "type": "object", "additionalProperties": false,
+      "required": ["exact_transcription", "normalized_transcription", "geometry", "reading_order", "language", "legibility", "uncertain", "occluded", "truncated", "notes"],
+      "properties": {
+        "exact_transcription": {"type": "string"}, "normalized_transcription": {"type": "string"},
+        "geometry": {"$ref": "#/$defs/geometry"}, "reading_order": {"type": "integer", "minimum": 0},
+        "language": {"type": "string"}, "legibility": {"enum": ["legible", "partly_legible", "illegible"]},
+        "uncertain": {"type": "boolean"}, "occluded": {"type": "boolean"}, "truncated": {"type": "boolean"}, "notes": {"type": "string"}
+      }
+    },
+    "ignore_region": {
+      "type": "object", "additionalProperties": false, "required": ["geometry", "reason"],
+      "properties": {"geometry": {"$ref": "#/$defs/geometry"}, "reason": {"type": "string", "minLength": 1}}
+    }
+  }
+}

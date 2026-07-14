@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://av-atlas.local/schemas/rights-manifest/1.0.0",
+  "type": "object", "additionalProperties": false,
+  "required": ["schema_version", "source_id", "content_sha256", "operator_id", "rights_basis", "permissions", "restrictions", "expires_at", "notes", "created_at", "manifest_hash", "independently_reviewed", "review_record"],
+  "properties": {
+    "schema_version": {"const": "1.0.0"},
+    "source_id": {"type": "string", "pattern": "^SRC_[A-F0-9]{12}$"},
+    "content_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "operator_id": {"type": "string", "pattern": "^OPR_[A-F0-9]{12}$"},
+    "rights_basis": {"enum": ["owned", "licensed", "public-domain", "synthetic-controlled", "other-documented-authorization"]},
+    "permissions": {
+      "type": "object", "additionalProperties": false,
+      "required": ["analysis", "annotation", "training", "evaluation", "derivative_artifact_retention", "redistribution"],
+      "properties": {
+        "analysis": {"type": "boolean"}, "annotation": {"type": "boolean"},
+        "training": {"type": "boolean"}, "evaluation": {"type": "boolean"},
+        "derivative_artifact_retention": {"type": "boolean"}, "redistribution": {"type": "boolean"}
+      }
+    },
+    "restrictions": {"type": "array", "items": {"type": "string"}},
+    "expires_at": {"type": ["string", "null"], "format": "date-time"},
+    "notes": {"type": "string"},
+    "created_at": {"type": "string", "format": "date-time"},
+    "manifest_hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "independently_reviewed": {"type": "boolean"},
+    "review_record": {"type": ["string", "null"]}
+  }
+}
