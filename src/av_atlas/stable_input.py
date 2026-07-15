@@ -15,6 +15,7 @@ from pathlib import Path
 
 from av_atlas.errors import AtlasError
 from av_atlas.io import source_id_from_sha256
+from av_atlas.rights import AuthorizationPreflight, authorize_media_preflight
 
 DEFAULT_MAX_SNAPSHOT_BYTES = 8 * 1024 * 1024 * 1024
 COPY_CHUNK_BYTES = 1024 * 1024
@@ -34,6 +35,14 @@ class StableInputRecord:
     source_id: str
     size_bytes: int
     method: str = "verified-private-copy"
+
+
+@dataclass(frozen=True)
+class AuthorizedStableInput:
+    """Rights authorization paired with its private verified parser input."""
+
+    authorization: AuthorizationPreflight
+    stable: StableInputRecord
 
 
 def _stat_identity(value: os.stat_result) -> tuple[int, int, int, int, int]:
@@ -67,16 +76,21 @@ def _write_all(file_descriptor: int, value: bytes) -> None:
         offset += written
 
 
-def _open_regular_source(source: Path) -> tuple[int, os.stat_result]:
+def validate_stable_source_path(source: Path) -> os.stat_result:
+    """Reject symlink and non-regular source paths without invoking a native parser."""
     try:
-        before = source.lstat()
+        value = source.lstat()
     except OSError as exc:
         raise AtlasError(f"cannot inspect media source before stable copy: {exc}") from exc
-    if stat.S_ISLNK(before.st_mode):
+    if stat.S_ISLNK(value.st_mode):
         raise AtlasError("media source symlinks are not accepted for stable input")
-    if not stat.S_ISREG(before.st_mode):
+    if not stat.S_ISREG(value.st_mode):
         raise AtlasError(f"media source is not a regular file: {source}")
+    return value
 
+
+def _open_regular_source(source: Path) -> tuple[int, os.stat_result]:
+    before = validate_stable_source_path(source)
     flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
     try:
         file_descriptor = os.open(source, flags)
@@ -249,3 +263,36 @@ def verified_stable_input(
                 active_exception.add_note(f"stable snapshot cleanup also failed: {exc}")
             else:
                 raise AtlasError(f"cannot remove private stable snapshot: {exc}") from exc
+
+
+@contextmanager
+def authorized_stable_input(
+    source: Path,
+    rights_manifest: Path | None,
+    run_mode: str,
+    *,
+    expected_manifest_hash: str | None = None,
+    max_snapshot_bytes: int = DEFAULT_MAX_SNAPSHOT_BYTES,
+    temporary_root: Path | None = None,
+) -> Iterator[AuthorizedStableInput]:
+    """Authorize exact bytes, yield their verified private parser input, then remove it."""
+
+    validate_stable_source_path(source)
+    authorization = authorize_media_preflight(
+        source,
+        rights_manifest,
+        run_mode,
+        expected_manifest_hash=expected_manifest_hash,
+    )
+    with verified_stable_input(
+        source,
+        authorization.source_sha256,
+        max_snapshot_bytes=max_snapshot_bytes,
+        temporary_root=temporary_root,
+    ) as stable:
+        if (
+            stable.source_sha256 != authorization.source_sha256
+            or stable.source_id != authorization.source_id
+        ):
+            raise AtlasError("stable snapshot identity does not match parser-free authorization")
+        yield AuthorizedStableInput(authorization=authorization, stable=stable)
