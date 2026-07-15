@@ -115,7 +115,22 @@ jobs:
         run: uv run mypy src
 
       - name: Run test suite
-        run: uv run pytest -q
+        id: tests
+        continue-on-error: true
+        run: uv run pytest -q --tb=short > pytest.log 2>&1
+
+      - name: Upload pytest failure report
+        if: always() && steps.tests.outcome == 'failure'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: pytest-failure-report
+          path: pytest.log
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Enforce test result
+        if: always() && steps.tests.outcome == 'failure'
+        run: exit 1
 
       - name: Verify runtime dependencies
         run: uv run av-atlas doctor
