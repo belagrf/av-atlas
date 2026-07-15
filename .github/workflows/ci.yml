@@ -50,7 +50,43 @@ jobs:
       - name: Verify dependency lock
         run: uv lock --check
 
-      - name: Check formatting
+      - name: Format stable input
+        continue-on-error: true
+        run: uv run ruff format --check src/av_atlas/stable_input.py
+
+      - name: Format rights
+        continue-on-error: true
+        run: uv run ruff format --check src/av_atlas/rights.py
+
+      - name: Format adapters
+        continue-on-error: true
+        run: uv run ruff format --check src/av_atlas/adapters.py
+
+      - name: Format CLI
+        continue-on-error: true
+        run: uv run ruff format --check src/av_atlas/cli.py
+
+      - name: Format pipeline
+        continue-on-error: true
+        run: uv run ruff format --check src/av_atlas/pipeline.py
+
+      - name: Format stable-input tests
+        continue-on-error: true
+        run: uv run ruff format --check tests/unit/test_stable_input.py
+
+      - name: Format authorization tests
+        continue-on-error: true
+        run: uv run ruff format --check tests/unit/test_initial_authorization.py
+
+      - name: Format inspection tests
+        continue-on-error: true
+        run: uv run ruff format --check tests/unit/test_inspection_authorization.py
+
+      - name: Format pipeline stable-input tests
+        continue-on-error: true
+        run: uv run ruff format --check tests/unit/test_pipeline_stable_input.py
+
+      - name: Check all formatting
         run: uv run ruff format --check .
 
       - name: Lint source and tests
