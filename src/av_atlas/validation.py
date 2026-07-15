@@ -9,8 +9,8 @@ from typing import Any
 
 from av_atlas.config import BaselineConfig
 from av_atlas.errors import AtlasError
-from av_atlas.io import sha256_file, write_json
-from av_atlas.ocr_tracks import POLICY_VERSION, spatially_compatible
+from av_atlas.io import canonical_json, sha256_file, write_json
+from av_atlas.ocr_tracks import POLICY_VERSION, associate_temporal_text, spatially_compatible
 from av_atlas.pipeline import ARTIFACTS
 from av_atlas.rights import load_and_validate_rights
 from av_atlas.schemas import validate_instance
@@ -37,7 +37,7 @@ def _validate_ocr_tracks(
     known_refs: set[str],
     errors: list[str],
 ) -> int:
-    """Recompute relational track fields from immutable OCR observations."""
+    """Verify the complete derived track payload against immutable OCR observations."""
     try:
         payload = _json(run_dir / "ocr_text_tracks.json")
     except AtlasError as exc:
@@ -46,6 +46,14 @@ def _validate_ocr_tracks(
     if not isinstance(payload, dict):
         errors.append("OCR text-track artifact must be a JSON object")
         return 0
+    try:
+        configured_gap = BaselineConfig.load(
+            run_dir / "config.snapshot.yaml"
+        ).ocr_temporal_association_max_gap_ms
+    except (AtlasError, OSError, TypeError, ValueError, OverflowError) as exc:
+        errors.append(f"cannot verify OCR text-track configured association gap: {exc}")
+        configured_gap = None
+
     policy = payload.get("association_policy_version")
     if policy != POLICY_VERSION:
         errors.append(f"unsupported OCR text-track association policy: {policy}")
@@ -53,26 +61,36 @@ def _validate_ocr_tracks(
     if not isinstance(maximum_gap, int) or isinstance(maximum_gap, bool) or maximum_gap < 0:
         errors.append("OCR text-track maximum association gap must be a nonnegative integer")
         maximum_gap = None
-    try:
-        configured_gap = BaselineConfig.load(
-            run_dir / "config.snapshot.yaml"
-        ).ocr_temporal_association_max_gap_ms
-    except (AtlasError, OSError, TypeError, ValueError) as exc:
-        errors.append(f"cannot verify OCR text-track configured association gap: {exc}")
-        configured_gap = None
     if maximum_gap is not None and configured_gap is not None and maximum_gap != configured_gap:
         errors.append("OCR text-track association gap does not match the run configuration")
 
-    observations_by_id = {
-        item.get("observation_id"): item
-        for item in ocr_records
-        if isinstance(item, dict) and isinstance(item.get("observation_id"), str)
-    }
+    expected_payload: dict[str, Any] | None = None
+    if configured_gap is not None:
+        try:
+            expected_payload = associate_temporal_text(ocr_records, configured_gap)
+        except (KeyError, TypeError, ValueError, IndexError, OverflowError) as exc:
+            errors.append(f"cannot deterministically derive OCR text tracks: {exc}")
+
     tracks = payload.get("tracks")
     if not isinstance(tracks, list):
         errors.append("OCR text-track tracks field must be an array")
         return 0
+    observations_by_id: dict[str, dict[str, Any]] = {}
+    for item in ocr_records:
+        if not isinstance(item, dict):
+            continue
+        observation_id = item.get("observation_id")
+        if isinstance(observation_id, str):
+            observations_by_id[observation_id] = item
+    raw_ids = list(observations_by_id)
+    if len(raw_ids) != len(ocr_records):
+        errors.append("raw OCR observations contain missing or duplicate observation IDs")
+    if not tracks and raw_ids:
+        errors.append("OCR text tracks are empty while eligible raw observations exist")
+
     checked = 0
+    track_ids: list[str] = []
+    member_counts: dict[str, int] = {}
     fields = (
         "member_observation_ids",
         "source_frame_evidence_refs",
@@ -85,8 +103,12 @@ def _validate_ocr_tracks(
         if not isinstance(candidate, dict):
             errors.append(f"{label} must be an object")
             continue
-        track_id = candidate.get("track_id", index)
-        label = f"OCR text track {track_id}"
+        track_id = candidate.get("track_id")
+        if not isinstance(track_id, str):
+            errors.append(f"{label} track ID must be a string")
+        else:
+            track_ids.append(track_id)
+            label = f"OCR text track {track_id}"
         arrays: dict[str, list[Any]] = {}
         for field in fields:
             value = candidate.get(field)
@@ -102,6 +124,9 @@ def _validate_ocr_tracks(
             errors.append(f"{label} parallel member-array lengths disagree: {detail}")
             continue
         member_ids = arrays["member_observation_ids"]
+        if not member_ids:
+            errors.append(f"{label} parallel member arrays must be nonempty")
+            continue
         if len(member_ids) != len(set(str(item) for item in member_ids)):
             errors.append(f"{label} contains duplicate member observation IDs")
         if candidate.get("association_policy_version") != POLICY_VERSION:
@@ -109,8 +134,7 @@ def _validate_ocr_tracks(
                 f"{label} uses unsupported association policy: "
                 f"{candidate.get('association_policy_version')}"
             )
-        track_gap = candidate.get("maximum_association_gap_ms")
-        if track_gap != maximum_gap:
+        if candidate.get("maximum_association_gap_ms") != maximum_gap:
             errors.append(f"{label} association gap disagrees with the artifact policy")
 
         resolved: list[dict[str, Any]] = []
@@ -119,13 +143,14 @@ def _validate_ocr_tracks(
             ref = arrays["source_frame_evidence_refs"][position]
             box = arrays["spatial_boxes"][position]
             confidence = arrays["confidence_values"][position]
+            if not isinstance(observation_id, str):
+                errors.append(f"{label} member observation ID must be a string")
+                continue
+            member_counts[observation_id] = member_counts.get(observation_id, 0) + 1
             if not isinstance(ref, str):
                 errors.append(f"{label} evidence reference must be a string")
             elif ref not in known_refs:
                 errors.append(f"{label} evidence reference is unresolved: {ref}")
-            if not isinstance(observation_id, str):
-                errors.append(f"{label} member observation ID must be a string")
-                continue
             observation = observations_by_id.get(observation_id)
             if observation is None:
                 errors.append(f"{label} member observation is unresolved: {observation_id}")
@@ -144,7 +169,9 @@ def _validate_ocr_tracks(
             try:
                 expected_confidence = float(observation["confidence"])
                 actual_confidence = float(confidence)
-            except (KeyError, TypeError, ValueError):
+                if not math.isfinite(expected_confidence) or not math.isfinite(actual_confidence):
+                    raise ValueError("confidence must be finite")
+            except (KeyError, TypeError, ValueError, OverflowError):
                 errors.append(f"{label} member {observation_id} has malformed confidence data")
             else:
                 numeric_confidences.append(actual_confidence)
@@ -161,7 +188,7 @@ def _validate_ocr_tracks(
                 key=lambda item: (int(item["timestamp_ms"]), str(item["observation_id"])),
             )
             timestamps = [int(item["timestamp_ms"]) for item in resolved]
-        except (KeyError, TypeError, ValueError):
+        except (KeyError, TypeError, ValueError, IndexError, OverflowError):
             errors.append(f"{label} members contain malformed ordering or timestamp data")
             continue
         if [item["observation_id"] for item in resolved] != [
@@ -179,9 +206,21 @@ def _validate_ocr_tracks(
         elif first_timestamp > last_timestamp:
             errors.append(f"{label} first timestamp exceeds its last timestamp")
 
+        expected_variants: list[str] = []
+        for observation in resolved:
+            raw_text = observation.get("text")
+            if isinstance(raw_text, str) and raw_text not in expected_variants:
+                expected_variants.append(raw_text)
+        if candidate.get("raw_text_variants") != expected_variants:
+            errors.append(f"{label} raw text variants do not match its ordered members")
+
         if maximum_gap is not None:
             for left, right in zip(resolved, resolved[1:], strict=False):
-                gap = int(right["timestamp_ms"]) - int(left["timestamp_ms"])
+                try:
+                    gap = int(right["timestamp_ms"]) - int(left["timestamp_ms"])
+                except (KeyError, TypeError, ValueError, OverflowError):
+                    errors.append(f"{label} member gap is malformed")
+                    continue
                 if gap < 0 or gap > maximum_gap:
                     errors.append(f"{label} members exceed the configured association gap")
                 left_box, right_box = left.get("bounding_box"), right.get("bounding_box")
@@ -197,15 +236,41 @@ def _validate_ocr_tracks(
                     and not spatially_compatible(left_box, right_box)
                 ):
                     errors.append(f"{label} members violate spatial compatibility")
-        if len(numeric_confidences) == len(member_ids) and numeric_confidences:
+        if len(numeric_confidences) == len(member_ids):
             expected_mean = sum(numeric_confidences) / len(numeric_confidences)
             try:
                 actual_mean = float(candidate["mean_confidence"])
-            except (KeyError, TypeError, ValueError):
+                if not math.isfinite(actual_mean):
+                    raise ValueError("mean confidence must be finite")
+            except (KeyError, TypeError, ValueError, OverflowError):
                 errors.append(f"{label} mean confidence is malformed")
             else:
                 if not math.isclose(actual_mean, expected_mean, rel_tol=1e-9, abs_tol=1e-9):
                     errors.append(f"{label} mean confidence is not the arithmetic mean")
+
+    if len(track_ids) != len(set(track_ids)):
+        errors.append("OCR text-track IDs are not unique")
+    for observation_id in raw_ids:
+        count = member_counts.get(observation_id, 0)
+        if count == 0:
+            errors.append(f"raw OCR observation is omitted from temporal tracks: {observation_id}")
+        elif count > 1:
+            errors.append(
+                f"raw OCR observation appears in multiple temporal tracks: {observation_id}"
+            )
+    for observation_id in sorted(set(member_counts).difference(raw_ids)):
+        errors.append(f"temporal track contains a fabricated member: {observation_id}")
+
+    if expected_payload is not None:
+        expected_tracks = expected_payload["tracks"]
+        expected_track_ids = [item["track_id"] for item in expected_tracks]
+        if track_ids != expected_track_ids:
+            errors.append("OCR text tracks are not globally deterministically ordered")
+        if canonical_json(payload) != canonical_json(expected_payload):
+            errors.append(
+                "OCR text-track artifact does not equal the deterministic derivation of all raw "
+                "OCR observations"
+            )
     return checked
 
 

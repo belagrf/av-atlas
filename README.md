@@ -66,9 +66,11 @@ uv run av-atlas validate runs/m2a-demo
 uv run av-atlas resume runs/m2a-demo
 ```
 
-Non-fixture media is refused without `--rights-manifest`. A run requires both its requested
-operation and derivative-artifact-retention permission. `evaluate` additionally requires evaluation
-permission. Declarations are content-hash-bound and operator IDs are hashed; they are operator
+Non-fixture media is refused without `--rights-manifest`. Executable `run` modes are distinct from
+the broader rights vocabulary: `analysis` requires analysis plus derivative retention, while
+`evaluation` requires analysis, evaluation, and derivative retention. Annotation, training,
+derivative retention, and redistribution are permissions but are not executable run modes.
+Declarations are content-hash-bound and operator IDs are hashed; they are operator
 assertions, not legal conclusions. When a source is outside the run directory's parent, its path is
 not retained and interrupted resume requires `resume RUN --media MEDIA`.
 
@@ -159,7 +161,8 @@ rights `manifest_hash` is an integrity checksum, not an authenticated signature.
 OCR inventories redact full paths; `inspect-ocr --local-private-diagnostic` is explicitly local and
 must not be attached to a public run.
 
-Initial `run` authorization is parser-free: exact-byte fixture or explicit rights checks complete
-before FFprobe, and the resulting inventory must reproduce the preflight hash and source ID.
+Initial `run` authorization completes before FFprobe, and the resulting inventory must reproduce
+the preflight hash and source ID. A concurrent same-path modification race remains until a stable
+input mechanism is implemented.
 Temporal OCR tracks are validated relationally against immutable raw observations; malformed
 parallel arrays become actionable quality-report errors rather than validator tracebacks.

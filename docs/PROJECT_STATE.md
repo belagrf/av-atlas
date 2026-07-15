@@ -791,3 +791,97 @@ release hashes remain unchanged. Its 64-artifact run and the prior 68-artifact M
 validate without rewriting their reports. No schema version or valid hardening output changed; the
 new work strengthens initial ordering and validation semantics only. PR 10 remains the delivery
 vehicle. No tag, release, real-media processing, M2C implementation, or full-M2 claim occurred.
+
+## 2026-07-15 — M2B.1 review follow-up: permission closure and complete track derivation
+
+Review of PR 10 confirmed that rights permission names were still accepted indiscriminately as
+executable run modes. Because every run enters the perception pipeline, an evaluation-only or
+downstream-use permission could otherwise trigger analysis without the complete authorization
+needed by the actual behavior. Executable modes are now distinct from the unchanged rights-manifest
+1.0 vocabulary: `analysis` requires `analysis` plus `derivative_artifact_retention`; `evaluation`
+requires `analysis`, `evaluation`, and `derivative_artifact_retention`. `annotation`, `training`,
+`derivative_artifact_retention`, and `redistribution` are rejected as run modes rather than being
+silently treated as analysis. One canonical closure helper is used by CLI validation, parser-free
+initial authorization, persisted-rights loading, resume, and run validation. Regression sentinels
+prove denied modes and incomplete permission closures invoke no FFprobe, FFmpeg, Tesseract, or
+adapter subprocess.
+
+OCR temporal tracks are now validated as the complete deterministic secondary derivation of all
+immutable raw OCR observations. Validation recomputes the expected payload with
+`associate_temporal_text` and the configured maximum gap, canonicalizes both payloads, and compares
+them in full. It also reports field-level errors for track/member uniqueness and order, exactly-once
+raw-observation coverage, nonempty equal-length parallel arrays, ordered unique raw-text variants,
+source/shot/text/evidence/box/confidence relations, timestamps, mean confidence, policy, spatial
+compatibility, and temporal gaps. Empty member arrays and other malformed values are guarded before
+indexing, extrema, or arithmetic, so the public validation CLI returns a controlled nonzero result
+and writes an actionable quality report without a traceback. Empty tracks are accepted only when
+there are no raw OCR observations. No schema version changed: these are semantic invariants of the
+existing M2B.1 derived artifact, while accepted M2B v1 runs without that optional artifact retain
+backward compatibility.
+
+Authorization still hashes and authorizes the source before FFprobe and verifies identity again
+after inspection, but this does not provide an absolute exact-byte parser guarantee against a
+concurrent same-path mutation. The documented property is: “Authorization completes before parser
+invocation, and post-inspection identity verification detects source changes. A concurrent
+same-path modification race remains until a stable-input mechanism is implemented.” Public issue
+[#11](https://github.com/belagrf/av-atlas/issues/11) evaluates an authorized immutable copy,
+copy-on-write/reflink snapshot, stable file-descriptor design, and operator-enforced immutable
+storage. The authorized real-media pilot remains pending until a design is accepted or the residual
+risk is explicitly accepted.
+
+The focused permission, preflight-sentinel, resume/validation closure, malformed-track, complete
+recomputation, valid-track, CLI failure-report, and M2B v1 compatibility tests passed: 75 tests in
+13.24 seconds. The complete local gate results were:
+
+```text
+uv lock --check
+  Resolved 19 packages
+uv sync --extra dev --locked --offline
+  Resolved 19 packages; checked 18 packages
+uv run ruff format --check .
+  44 files already formatted
+uv run ruff check .
+  All checks passed!
+uv run mypy src
+  Success: no issues found in 21 source files
+uv run pytest -q
+  140 passed in 61.01s
+uv run av-atlas doctor
+  exit 0; required CPU/offline dependencies and approved Tesseract 5.3.4 available
+```
+
+Fresh ignored M1, M2A, and M2B runs validated with 17, 31, and 68 tracked artifact hashes and zero
+errors. The fresh M2B run emitted 13 raw OCR observations and 13 derived temporal tracks. A fresh
+interrupted M2B.1 run completed on resume, validated with 28 tracked artifact hashes, and remained
+byte-identical on repeated resume. Completed-run and interrupted/repeated-resume aggregate tracked
+digests remained respectively
+`760bbc33a8ff3883d38d87a4577ea1bf513503154a2318e3e488c2994910b4ea` and
+`2760fa06c7e795d7b51f2074430eb40fb511f578556574beeb734d7625656b9f`.
+The accepted 64-artifact M2B v1 run, the prior 68-artifact M2B.1 run, and the current 68-artifact
+M2B.1 run all validate without rewriting their reports.
+
+Stable hardening hashes remain: raw OCR observations
+`f851aef0d8a1c215023cd71b38120a2f317a10be3dd24567f2f023449acd6060`, temporal tracks
+`f27d60f51c06cead4d0b6159b47865fd635a010e2faba9902057ae1c9cd4b9c2`, sanitized OCR dependency
+inventory `5ab8663ce63b7d6303ce84e3ec62ab3a9dd1ec55283e8f0c6852dd88740d5cce`, and BOM snapshot
+`abca366e47275ef2d5ff2825b53b0d47436e03a56e29a696f903cb194d188868`. Runtime-bearing replay
+hashes are evaluation `dc228c0d4d844b4e0a8303e55c70aeb787e2e4a36807d8bd06aaf2d5ab04924b`, benchmark
+`52207face378c24f1634deb382d5a9f9f7fe774e9955cb2f00c98f536d15a4af`, and run manifest
+`b6f2f098a939e177f7126f8f141248da03f313f0b9c750627196e17dcd360792`.
+
+The accepted M2B v1 fixture, gold, configuration, OCR, evaluation, benchmark, run-manifest, and
+release-manifest hashes remain exactly
+`6d1f79c6a63b6a8d5510bcd67a74e522096fe97b6c2bba68587f0213ccc682a8`,
+`e62e392aa45406f939edc1f2093d07f1dcf175c0c4ea9085cbeae3edde50bc1a`,
+`8f5545df1c78e5845e19e3ae0299a86cc7c950cb9c3ba7e7b5fee217f1a45c55`,
+`f851aef0d8a1c215023cd71b38120a2f317a10be3dd24567f2f023449acd6060`,
+`a1011542165e3b8974857aaee68bbaa8185987cbb3ca0353ad4afecda38803ad`,
+`479087002a126b1d442ca2e4d768bafd3e266e9f542dba92a01ea075a3280455`,
+`6779769594db6a7457ee30b7d9ffbdacc8ec345120433125e7e846978359b440`, and
+`e545855c11ee23542939a35aecf03d00c6f12bbd056d6d4bcae43df139b7c9b2`.
+
+Changed tracked files for this follow-up are README, project state, architecture, governance and
+security documentation; CLI, rights, and validation source; and unit/integration regressions for
+run-mode closure, parser/subprocess non-invocation, resume/validation closure, and complete OCR-track
+derivation. Generated runs remain ignored. No accepted artifact, schema, tag, release, real-media
+input, or raw OCR observation changed; no M2C work occurred.

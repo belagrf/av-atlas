@@ -22,6 +22,12 @@ OPERATIONS = (
     "redistribution",
 )
 
+RUN_MODES = ("analysis", "evaluation")
+RUN_MODE_PERMISSIONS: dict[str, tuple[str, ...]] = {
+    "analysis": ("analysis", "derivative_artifact_retention"),
+    "evaluation": ("analysis", "evaluation", "derivative_artifact_retention"),
+}
+
 
 @dataclass(frozen=True)
 class AuthorizationPreflight:
@@ -32,7 +38,7 @@ class AuthorizationPreflight:
     fixture_status: str
     fixture_manifest: dict[str, Any] | None
     rights_declaration: dict[str, Any]
-    requested_operation: str
+    requested_run_mode: str
     authorized_at: str
 
 
@@ -97,10 +103,9 @@ def validate_rights_artifact(
     value: dict[str, Any],
     source_hash: str,
     source_id: str,
-    operation: str,
+    run_mode: str,
     *,
     expected_manifest_hash: str | None = None,
-    require_derivative_retention: bool = True,
     label: str = "rights manifest",
 ) -> None:
     """Schema-, digest-, linkage-, source-, permission-, and expiry-check one artifact."""
@@ -110,19 +115,16 @@ def validate_rights_artifact(
         raise AtlasError("rights manifest hash is invalid")
     if expected_manifest_hash is not None and actual != expected_manifest_hash:
         raise AtlasError("run manifest rights hash does not match rights artifact")
-    validate_rights(value, source_hash, source_id, operation)
-    if require_derivative_retention:
-        validate_rights(value, source_hash, source_id, "derivative_artifact_retention")
+    validate_run_mode_permissions(value, source_hash, source_id, run_mode)
 
 
 def load_and_validate_rights(
     path: Path,
     source_hash: str,
     source_id: str,
-    operation: str,
+    run_mode: str,
     *,
     expected_manifest_hash: str | None = None,
-    require_derivative_retention: bool = True,
 ) -> dict[str, Any]:
     """Authoritative path for loading a persisted rights declaration."""
     value = load_rights_manifest(path)
@@ -130,9 +132,8 @@ def load_and_validate_rights(
         value,
         source_hash,
         source_id,
-        operation,
+        run_mode,
         expected_manifest_hash=expected_manifest_hash,
-        require_derivative_retention=require_derivative_retention,
         label=path.name,
     )
     return value
@@ -156,6 +157,24 @@ def validate_rights(
             raise AtlasError("rights manifest expiration must include a timezone")
         if expiry <= datetime.now(UTC):
             raise AtlasError("rights manifest authorization has expired")
+
+
+def required_permissions_for_run_mode(run_mode: str) -> tuple[str, ...]:
+    """Return the complete permission closure for one executable run mode."""
+    permissions = RUN_MODE_PERMISSIONS.get(run_mode)
+    if permissions is None:
+        raise AtlasError(
+            f"unsupported run mode: {run_mode}; supported modes are {', '.join(RUN_MODES)}"
+        )
+    return permissions
+
+
+def validate_run_mode_permissions(
+    value: dict[str, Any], source_hash: str, source_id: str, run_mode: str
+) -> None:
+    """Require every permission implied by actual processing for a supported run mode."""
+    for permission in required_permissions_for_run_mode(run_mode):
+        validate_rights(value, source_hash, source_id, permission)
 
 
 def controlled_fixture_manifest(
@@ -203,7 +222,7 @@ def fixture_rights(source_hash: str, source_id: str) -> dict[str, Any]:
 def authorize_media_preflight(
     media: Path,
     rights_manifest: Path | None,
-    operation: str,
+    run_mode: str,
 ) -> AuthorizationPreflight:
     """Authorize exact source bytes without invoking a media parser or adapter."""
     if not media.is_file():
@@ -219,17 +238,17 @@ def authorize_media_preflight(
         rights = fixture_rights(source_hash, source_id)
         fixture_status = "authorized_controlled_fixture"
     else:
-        rights = load_and_validate_rights(rights_manifest, source_hash, source_id, operation)
+        rights = load_and_validate_rights(rights_manifest, source_hash, source_id, run_mode)
         fixture_status = (
             "authorized_controlled_fixture" if fixture_marker is not None else "not_fixture"
         )
-    validate_rights_artifact(rights, source_hash, source_id, operation)
+    validate_rights_artifact(rights, source_hash, source_id, run_mode)
     return AuthorizationPreflight(
         source_sha256=source_hash,
         source_id=source_id,
         fixture_status=fixture_status,
         fixture_manifest=fixture_marker,
         rights_declaration=rights,
-        requested_operation=operation,
+        requested_run_mode=run_mode,
         authorized_at=datetime.now(UTC).isoformat(),
     )

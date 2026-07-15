@@ -17,12 +17,18 @@ keyframe cleanup. Source files are never modified. Media-borne subtitle and prom
 copied only into evidence fields and cannot select tools, permissions, configuration, or commands.
 
 Initial runs perform a parser-free authorization preflight before FFprobe. The preflight hashes the
-regular file, derives its canonical source ID, verifies an exact-byte fixture marker or explicit
+regular file, derives its canonical source ID, verifies a hash-bound fixture marker or explicit
 rights schema/checksum/source/operation/retention/expiry declaration, and creates no run directory.
 Only then may FFprobe run. Its inventory hash and source ID must equal the preflight identity, so a
 source change is refused before any derivative is created. Tests use explicit subprocess sentinels
 to prove a zero-call path for missing, stale, mismatched, denied, retention-denied, and expired
 authorization.
+
+Authorization completes before parser invocation, and post-inspection identity verification
+detects source changes. A concurrent same-path modification race remains until a stable-input
+mechanism is implemented. The design options and real-media-pilot blocker are tracked in public
+security issue [#11](https://github.com/belagrf/av-atlas/issues/11); current checks must not be
+described as an immutable-byte parser guarantee.
 
 FFmpeg remains an attack surface. These budgets are defense-in-depth, not an OS sandbox. Production
 processing of adversarial media still requires operating-system isolation, CPU/memory/file quotas,
@@ -53,6 +59,9 @@ confidence array lengths before iteration and relationally recomputes all member
 timestamp bounds, confidence mean, policy version, shot boundary, configured gap, and spatial
 compatibility from raw OCR observations. Malformed track data is reported through controlled
 validation errors and the quality report; it cannot escape as an uncaught collection/type error.
+The complete supplied track payload must also equal the canonical deterministic recomputation from
+all immutable raw OCR observations, preventing omitted, duplicated, split, merged, reordered, or
+fabricated derived evidence.
 
 Ordinary OCR dependency artifacts contain hashes, basenames, and path classes, not custom
 operator-home paths or a raw `TESSDATA_PREFIX`. Full paths require the explicitly local/private

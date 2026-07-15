@@ -243,6 +243,22 @@ def test_malformed_ocr_track_returns_nonzero_and_writes_actionable_quality_repor
     assert report["valid"] is False
     assert any("parallel member-array lengths disagree" in error for error in report["errors"])
 
+    tracks["tracks"][0].pop("raw_text_variants")
+    write_json(run_dir / "ocr_text_tracks.json", tracks)
+    manifest = json.loads((run_dir / "run_manifest.json").read_text())
+    path = run_dir / "ocr_text_tracks.json"
+    manifest["artifacts"]["ocr_text_tracks.json"] = {
+        "sha256": sha256_file(path),
+        "size_bytes": path.stat().st_size,
+    }
+    write_json(run_dir / "run_manifest.json", manifest)
+    assert main(["validate", str(run_dir)]) == 2
+    captured = capsys.readouterr()
+    assert "Traceback" not in captured.err
+    report = json.loads((run_dir / "quality_report.json").read_text())
+    assert any("ocr_text_tracks.json" in error for error in report["errors"])
+    assert any("deterministic derivation" in error for error in report["errors"])
+
 
 def test_fixture_is_byte_deterministic(tmp_path: Path) -> None:
     if shutil.which("ffmpeg") is None:

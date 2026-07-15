@@ -370,3 +370,57 @@ def test_resume_rehashed_rights_with_stale_run_linkage_invokes_no_processing(
     assert main(["resume", str(run_dir), "--media", str(controlled_media)]) == 2
     assert invoked == []
     assert not (run_dir / "shots.jsonl").exists()
+
+
+def test_evaluation_permission_closure_is_enforced_on_resume_and_validation(
+    controlled_media: Path,
+    project_root: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    rights_path = _rights(
+        controlled_media,
+        tmp_path / "evaluation-rights.json",
+        {"analysis", "evaluation", "derivative_artifact_retention"},
+    )
+    run_dir = tmp_path / "evaluation-interrupted"
+    assert (
+        main(
+            [
+                "run",
+                str(controlled_media),
+                "--config",
+                str(project_root / "configs/m2a.yaml"),
+                "--rights-manifest",
+                str(rights_path),
+                "--operation",
+                "evaluation",
+                "--output",
+                str(run_dir),
+                "--stop-after",
+                "inventory",
+            ]
+        )
+        == 0
+    )
+    persisted = run_dir / "rights_manifest.json"
+    rights = json.loads(persisted.read_text())
+    rights["permissions"]["analysis"] = False
+    rights["manifest_hash"] = manifest_digest(rights)
+    persisted.write_text(json.dumps(rights), encoding="utf-8")
+    manifest_path = run_dir / "run_manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["rights"]["manifest_hash"] = rights["manifest_hash"]
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    invoked: list[str] = []
+
+    def forbidden(*args: object, **kwargs: object) -> None:
+        invoked.append("processing")
+        raise AssertionError("processing must not start without analysis permission")
+
+    monkeypatch.setattr("av_atlas.pipeline._complete", forbidden)
+    monkeypatch.setattr(subprocess, "run", forbidden)
+    assert main(["resume", str(run_dir), "--media", str(controlled_media)]) == 2
+    assert invoked == []
+    with pytest.raises(AtlasError, match="requested operation: analysis"):
+        validate_run(run_dir, write_report=False)

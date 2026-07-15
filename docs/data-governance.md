@@ -27,6 +27,11 @@ derivative retention for each exact source hash, exports hash-derived IDs rather
 preserves both original annotations, and locks adjudicated gold. No external pilot or human
 annotation occurred.
 
+Rights-manifest permission names are not processing modes. Current executable modes are only
+`analysis` (analysis + derivative retention) and `evaluation` (analysis + evaluation + derivative
+retention). Annotation, training, derivative retention, and redistribution remain independently
+recordable permissions but cannot invoke the perception pipeline.
+
 Changing retention, operation permission, expiry, source identity, or the declaration checksum
 after interruption invalidates resume before any new derivative is created. The self-checksum is
 not an authenticated signature; an operator assertion remains an assertion. Raw-frame retention is

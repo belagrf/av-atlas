@@ -40,11 +40,13 @@ user path. External programs are invoked with argument arrays, `shell=False`, an
 terminator. Files are never modified by inspection.
 
 Initial processing first checks that the input is a regular file, hashes it directly, derives its
-source ID through the canonical source-ID helper, and verifies either an exact-byte controlled
+source ID through the canonical source-ID helper, and verifies either a hash-bound controlled
 fixture marker or an explicit rights declaration. No FFprobe, FFmpeg, Tesseract, subtitle, shot, or
 perception process is invoked before that authorization succeeds. FFprobe then independently
 rehashes the source for inventory; a hash or source-ID difference from preflight is treated as a
-source change and aborts before the run directory is created.
+source change and aborts before the run directory is created. Authorization completes before parser
+invocation, and post-inspection identity verification detects source changes. A concurrent
+same-path modification race remains until a stable-input mechanism is implemented.
 
 Chunking uses half-open conceptual intervals represented by inclusive start/exclusive end integer
 milliseconds. The baseline uses 2,000 ms chunks with 250 ms overlap and 1,000 ms uniform samples.
@@ -95,6 +97,17 @@ gap, spatial compatibility, and arithmetic-mean confidence. Confidence compariso
 and absolute tolerance `1e-9`; malformed parallel arrays produce quality-report errors rather than
 exceptions.
 
+The validator also runs the authoritative `associate_temporal_text` function over the complete raw
+OCR record set and compares the canonical expected payload with the supplied artifact. This proves
+global coverage, exactly-once membership, unique and ordered track IDs, ordered members, ordered
+unique raw-text variants, and complete deterministic derivation. An empty track list is valid only
+for an empty raw OCR record set.
+
 Initial authorization, resume, and validation share schema, digest, source, operation, retention,
 and expiry checks; persisted runs additionally enforce run-manifest linkage. All checks precede
 native parsers or adapters. The declaration checksum is not a signature.
+
+The permission vocabulary remains the rights-manifest 1.0 vocabulary, but executable modes are
+narrower. `analysis` closes over analysis and derivative retention; `evaluation` closes over
+analysis, evaluation, and derivative retention. Annotation, training, retention, and redistribution
+cannot be selected as perception-processing modes.

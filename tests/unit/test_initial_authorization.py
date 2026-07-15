@@ -86,6 +86,7 @@ def test_non_fixture_without_rights_fails_before_parser_or_run_creation(
         ("source_hash", "analysis", "exact source"),
         ("source_id", "analysis", "exact source"),
         ("analysis_denied", "analysis", "requested operation"),
+        ("evaluation_without_analysis", "evaluation", "requested operation: analysis"),
         ("retention_denied", "analysis", "derivative_artifact_retention"),
         ("expired", "analysis", "expired"),
         ("operation_denied", "evaluation", "requested operation"),
@@ -110,6 +111,9 @@ def test_invalid_explicit_rights_fail_before_every_parser_and_derivative(
         value["source_id"] = "SRC_000000000000"
     elif mutation == "analysis_denied":
         value["permissions"]["analysis"] = False
+    elif mutation == "evaluation_without_analysis":
+        value["permissions"]["analysis"] = False
+        value["permissions"]["evaluation"] = True
     elif mutation == "retention_denied":
         value["permissions"]["derivative_artifact_retention"] = False
     elif mutation == "expired":
@@ -126,6 +130,44 @@ def test_invalid_explicit_rights_fail_before_every_parser_and_derivative(
             run_dir,
             rights_manifest=rights_path,
             operation=operation,
+        )
+    assert calls == []
+    assert not run_dir.exists()
+
+
+@pytest.mark.parametrize(
+    "run_mode",
+    ["annotation", "training", "redistribution", "derivative_artifact_retention"],
+)
+def test_unsupported_run_modes_fail_before_every_parser(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, run_mode: str
+) -> None:
+    media = tmp_path / "operator.bin"
+    media.write_bytes(b"authorized bytes")
+    rights_path = tmp_path / "rights.json"
+    create_rights_manifest(
+        media,
+        rights_path,
+        "test-operator",
+        "owned",
+        {
+            "analysis",
+            "annotation",
+            "training",
+            "evaluation",
+            "derivative_artifact_retention",
+            "redistribution",
+        },
+    )
+    calls = _forbid_parsers(monkeypatch)
+    run_dir = tmp_path / "run"
+    with pytest.raises(AtlasError, match="unsupported run mode"):
+        initialize_run(
+            media,
+            Path(__file__).parents[2] / "configs/baseline.yaml",
+            run_dir,
+            rights_manifest=rights_path,
+            operation=run_mode,
         )
     assert calls == []
     assert not run_dir.exists()
@@ -158,6 +200,41 @@ def test_valid_non_fixture_is_inspected_once_after_authorization(
     )
     assert calls == 1
     assert (run_dir / "inventory.json").is_file()
+
+
+def test_valid_evaluation_mode_requires_and_records_complete_permission_closure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    media = tmp_path / "operator.bin"
+    media.write_bytes(b"authorized evaluation bytes")
+    rights_path = tmp_path / "rights.json"
+    create_rights_manifest(
+        media,
+        rights_path,
+        "test-operator",
+        "owned",
+        {"analysis", "evaluation", "derivative_artifact_retention"},
+    )
+    calls = 0
+
+    def inspect(path: Path) -> dict[str, Any]:
+        nonlocal calls
+        calls += 1
+        return _inventory(path)
+
+    monkeypatch.setattr("av_atlas.pipeline.inspect_media", inspect)
+    monkeypatch.setattr("av_atlas.pipeline.tool_version", lambda name: None)
+    run_dir = tmp_path / "run"
+    initialize_run(
+        media,
+        Path(__file__).parents[2] / "configs/baseline.yaml",
+        run_dir,
+        stop_after="inventory",
+        rights_manifest=rights_path,
+        operation="evaluation",
+    )
+    assert calls == 1
+    assert json.loads((run_dir / "run_manifest.json").read_text())["operation"] == "evaluation"
 
 
 def test_valid_fixture_is_inspected_only_after_fixture_authorization(
