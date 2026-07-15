@@ -44,5 +44,10 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def source_id_from_sha256(content_sha256: str) -> str:
+    """Derive the canonical source identifier from an exact content digest."""
+    return f"SRC_{content_sha256[:12].upper()}"
+
+
 def safe_relative_path(target: Path, base: Path) -> str:
     return os.path.relpath(target.resolve(), base.resolve())

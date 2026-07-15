@@ -11,6 +11,7 @@ from jsonschema import Draft202012Validator
 from av_atlas.errors import AtlasError
 
 SCHEMA_FILES = {
+    "config": "config.schema.json",
     "event": "event-ledger.schema.json",
     "provenance": "provenance.schema.json",
     "run_manifest": "run-manifest.schema.json",
@@ -38,6 +39,7 @@ SCHEMA_FILES = {
     "ocr_runtime": "ocr-runtime.schema.json",
     "ocr_evaluation": "ocr-evaluation.schema.json",
     "ocr_benchmark": "ocr-benchmark.schema.json",
+    "ocr_text_tracks": "ocr-text-tracks.schema.json",
     "ocr_pilot_manifest": "ocr-pilot-manifest.schema.json",
     "ocr_human_annotation": "ocr-human-annotation.schema.json",
 }
@@ -60,5 +62,10 @@ def load_schema(name: str) -> dict[str, Any]:
 def validate_instance(name: str, value: Any, label: str) -> None:
     errors = sorted(Draft202012Validator(load_schema(name)).iter_errors(value), key=str)
     if errors:
-        details = "; ".join(error.message for error in errors[:3])
+        details = "; ".join(
+            f"{'.'.join(str(item) for item in error.absolute_path)}: {error.message}"
+            if error.absolute_path
+            else error.message
+            for error in errors[:3]
+        )
         raise AtlasError(f"schema validation failed for {label}: {details}")

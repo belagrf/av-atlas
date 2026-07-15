@@ -1,6 +1,12 @@
 {
-  "schema_version": "1.0.0",
+  "schema_version": "1.1.0",
   "generated_at": "2026-07-14",
+  "inventory_layers": {
+    "declared_dependency_metadata": "Project purpose, constraints, approval, and expected runtime fields; declarations are not host measurements.",
+    "measured_current_host_inventory": "Versions and file identities observed on the controlled host; each fresh OCR run writes a separately measured sanitized dependency inventory.",
+    "package_manager_claims": "Package names, versions, architectures, and source identities reported by the local Ubuntu package database.",
+    "independently_verified_hashes": "SHA-256 values computed directly over installed files. A checksum verifies bytes, not license conclusions."
+  },
   "components": [
     {
       "name": "FFmpeg",

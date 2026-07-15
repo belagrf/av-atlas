@@ -2,17 +2,20 @@ from __future__ import annotations
 
 import json
 import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
 
 from av_atlas.cli import main
 from av_atlas.config import BaselineConfig
+from av_atlas.errors import AtlasError
 from av_atlas.fixture import make_m2a_fixture, make_modality_edge_fixtures
 from av_atlas.io import sha256_file
 from av_atlas.media import inspect_media
-from av_atlas.rights import create_rights_manifest
+from av_atlas.rights import create_rights_manifest, manifest_digest
 from av_atlas.subtitles import extract_subtitles
+from av_atlas.validation import validate_run
 
 
 @pytest.fixture(scope="module")
@@ -234,3 +237,190 @@ def test_explicit_subtitle_track_selection(
     assert [cue["track_id"] for cue in output.cues] == ["TRACK_0003", "TRACK_0003"]
     statuses = {track["track_id"]: track["status"] for track in output.tracks["tracks"]}
     assert statuses == {"TRACK_0002": "not_selected", "TRACK_0003": "extracted"}
+
+
+@pytest.mark.parametrize(
+    ("mutation", "expected"),
+    [
+        ("retention", "derivative_artifact_retention"),
+        ("expired", "expired"),
+        ("source", "exact source"),
+        ("operation", "requested operation"),
+    ],
+)
+def test_resume_rights_mutations_fail_before_adapter_execution(
+    controlled_media: Path,
+    project_root: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    mutation: str,
+    expected: str,
+) -> None:
+    rights = _rights(
+        controlled_media,
+        tmp_path / "rights.json",
+        {"analysis", "evaluation", "derivative_artifact_retention"},
+    )
+    run_dir = tmp_path / "interrupted"
+    assert (
+        main(
+            [
+                "run",
+                str(controlled_media),
+                "--config",
+                str(project_root / "configs/m2a.yaml"),
+                "--rights-manifest",
+                str(rights),
+                "--output",
+                str(run_dir),
+                "--stop-after",
+                "inventory",
+            ]
+        )
+        == 0
+    )
+    rights_value = json.loads((run_dir / "rights_manifest.json").read_text())
+    if mutation == "retention":
+        rights_value["permissions"]["derivative_artifact_retention"] = False
+    elif mutation == "expired":
+        rights_value["expires_at"] = "2000-01-01T00:00:00+00:00"
+    elif mutation == "source":
+        rights_value["source_id"] = "SRC_000000000000"
+    else:
+        rights_value["permissions"]["analysis"] = False
+    rights_value["manifest_hash"] = manifest_digest(rights_value)
+    (run_dir / "rights_manifest.json").write_text(json.dumps(rights_value))
+    manifest = json.loads((run_dir / "run_manifest.json").read_text())
+    manifest["rights"]["manifest_hash"] = rights_value["manifest_hash"]
+    (run_dir / "run_manifest.json").write_text(json.dumps(manifest))
+
+    invoked = False
+
+    def forbidden_complete(*args: object, **kwargs: object) -> None:
+        nonlocal invoked
+        invoked = True
+        raise AssertionError("adapter processing must not start")
+
+    monkeypatch.setattr("av_atlas.pipeline._complete", forbidden_complete)
+    assert main(["resume", str(run_dir), "--media", str(controlled_media)]) == 2
+    assert invoked is False
+    assert not (run_dir / "shots.jsonl").exists()
+
+
+def test_validate_recomputes_rights_manifest_digest(
+    controlled_media: Path, project_root: Path, tmp_path: Path
+) -> None:
+    run_dir = tmp_path / "run"
+    assert (
+        main(
+            [
+                "run",
+                str(controlled_media),
+                "--config",
+                str(project_root / "configs/m2a.yaml"),
+                "--output",
+                str(run_dir),
+            ]
+        )
+        == 0
+    )
+    path = run_dir / "rights_manifest.json"
+    value = json.loads(path.read_text())
+    value["permissions"]["analysis"] = False
+    path.write_text(json.dumps(value))
+    with pytest.raises(AtlasError, match="rights manifest hash is invalid"):
+        validate_run(run_dir, write_report=False)
+
+
+def test_resume_rehashed_rights_with_stale_run_linkage_invokes_no_processing(
+    controlled_media: Path,
+    project_root: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run_dir = tmp_path / "interrupted-linkage"
+    assert (
+        main(
+            [
+                "run",
+                str(controlled_media),
+                "--config",
+                str(project_root / "configs/m2a.yaml"),
+                "--output",
+                str(run_dir),
+                "--stop-after",
+                "inventory",
+            ]
+        )
+        == 0
+    )
+    rights_path = run_dir / "rights_manifest.json"
+    rights = json.loads(rights_path.read_text())
+    rights["notes"] = "changed and rehashed after run linkage was accepted"
+    rights["manifest_hash"] = manifest_digest(rights)
+    rights_path.write_text(json.dumps(rights), encoding="utf-8")
+    invoked: list[str] = []
+
+    def forbidden(*args: object, **kwargs: object) -> None:
+        invoked.append("processing")
+        raise AssertionError("resume processing must not start with stale rights linkage")
+
+    monkeypatch.setattr("av_atlas.pipeline._complete", forbidden)
+    monkeypatch.setattr(subprocess, "run", forbidden)
+    assert main(["resume", str(run_dir), "--media", str(controlled_media)]) == 2
+    assert invoked == []
+    assert not (run_dir / "shots.jsonl").exists()
+
+
+def test_evaluation_permission_closure_is_enforced_on_resume_and_validation(
+    controlled_media: Path,
+    project_root: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    rights_path = _rights(
+        controlled_media,
+        tmp_path / "evaluation-rights.json",
+        {"analysis", "evaluation", "derivative_artifact_retention"},
+    )
+    run_dir = tmp_path / "evaluation-interrupted"
+    assert (
+        main(
+            [
+                "run",
+                str(controlled_media),
+                "--config",
+                str(project_root / "configs/m2a.yaml"),
+                "--rights-manifest",
+                str(rights_path),
+                "--operation",
+                "evaluation",
+                "--output",
+                str(run_dir),
+                "--stop-after",
+                "inventory",
+            ]
+        )
+        == 0
+    )
+    persisted = run_dir / "rights_manifest.json"
+    rights = json.loads(persisted.read_text())
+    rights["permissions"]["analysis"] = False
+    rights["manifest_hash"] = manifest_digest(rights)
+    persisted.write_text(json.dumps(rights), encoding="utf-8")
+    manifest_path = run_dir / "run_manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["rights"]["manifest_hash"] = rights["manifest_hash"]
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    invoked: list[str] = []
+
+    def forbidden(*args: object, **kwargs: object) -> None:
+        invoked.append("processing")
+        raise AssertionError("processing must not start without analysis permission")
+
+    monkeypatch.setattr("av_atlas.pipeline._complete", forbidden)
+    monkeypatch.setattr(subprocess, "run", forbidden)
+    assert main(["resume", str(run_dir), "--media", str(controlled_media)]) == 2
+    assert invoked == []
+    with pytest.raises(AtlasError, match="requested operation: analysis"):
+        validate_run(run_dir, write_report=False)

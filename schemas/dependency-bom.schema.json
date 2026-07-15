@@ -4,10 +4,12 @@
   "type": "object", "additionalProperties": false,
   "required": ["schema_version", "generated_at", "components", "checkpoints"],
   "properties": {
-    "schema_version": {"const": "1.0.0"}, "generated_at": {"type": "string"},
+    "schema_version": {"enum": ["1.0.0", "1.1.0"]}, "generated_at": {"type": "string"},
+    "inventory_layers": {"type": "object", "additionalProperties": false, "required": ["declared_dependency_metadata", "measured_current_host_inventory", "package_manager_claims", "independently_verified_hashes"], "properties": {"declared_dependency_metadata": {"type": "string"}, "measured_current_host_inventory": {"type": "string"}, "package_manager_claims": {"type": "string"}, "independently_verified_hashes": {"type": "string"}}},
     "components": {"type": "array", "items": {"$ref": "#/$defs/component"}},
     "checkpoints": {"type": "array", "items": {"$ref": "#/$defs/component"}}
   },
+  "allOf": [{"if": {"properties": {"schema_version": {"const": "1.1.0"}}}, "then": {"required": ["inventory_layers"]}}],
   "$defs": {"component": {
     "type": "object", "additionalProperties": false,
     "required": ["name", "purpose", "identifier", "version", "source", "checksum", "license_id", "license_source", "redistribution_constraints", "commercial_use_constraints", "data_use_constraints", "runtime_requirements", "network_required", "weights_status", "approval_record", "approval_date", "known_risks"],

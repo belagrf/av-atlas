@@ -1,12 +1,21 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://av-atlas.local/schemas/ocr-frame-results/1.0.0",
-  "type": "object",
+  "$id": "https://av-atlas.local/schemas/ocr-frame-results/1.1.0",
+  "type": "object", "additionalProperties": false,
   "required": ["schema_version", "frames"],
   "properties": {
-    "schema_version": {"const": "1.0.0"},
-    "adapter_state": {"enum": ["disabled", "unavailable", "skipped", "succeeded", "partial", "failed"]},
+    "schema_version": {"enum": ["1.0.0", "1.1.0"]},
+    "adapter_state": {"enum": ["disabled", "unavailable", "skipped", "succeeded", "partial", "partial_success", "failed"]},
+    "unit_counts": {
+      "type": "object", "additionalProperties": false,
+      "required": ["attempted", "successful", "failed", "timed_out", "unsupported", "emitted_observations"],
+      "properties": {
+        "attempted": {"type": "integer", "minimum": 0}, "successful": {"type": "integer", "minimum": 0},
+        "failed": {"type": "integer", "minimum": 0}, "timed_out": {"type": "integer", "minimum": 0},
+        "unsupported": {"type": "integer", "minimum": 0}, "emitted_observations": {"type": "integer", "minimum": 0}
+      }
+    },
     "frames": {"type": "array", "items": {"type": "object", "required": ["keyframe_id", "shot_id", "timestamp_ms", "source_frame_evidence_ref", "state", "warning"], "properties": {"keyframe_id": {"type": "string"}, "shot_id": {"type": "string"}, "timestamp_ms": {"type": "integer", "minimum": 0}, "source_frame_evidence_ref": {"type": "string"}, "state": {"enum": ["succeeded", "failed"]}, "warning": {"type": ["string", "null"]}}, "additionalProperties": false}}
   },
-  "additionalProperties": false
+  "allOf": [{"if": {"properties": {"schema_version": {"const": "1.1.0"}}}, "then": {"required": ["unit_counts"]}}]
 }

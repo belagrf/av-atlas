@@ -15,7 +15,7 @@ from av_atlas import __version__
 from av_atlas.errors import AtlasError
 from av_atlas.io import sha256_file, write_json
 from av_atlas.media import tool_version
-from av_atlas.rights import validate_rights
+from av_atlas.rights import load_and_validate_rights
 from av_atlas.schemas import validate_instance
 from av_atlas.subtitles import normalize_subtitle_text
 
@@ -129,8 +129,13 @@ def evaluate_run(run_dir: Path, gold_path: Path, tolerance_ms: int = 200) -> dic
     tracks_payload = _json(run_dir / "subtitle_tracks.json")
     adapter_payload = _json(run_dir / "adapter_results.json")
     manifest = _json(run_dir / "run_manifest.json")
-    rights = _json(run_dir / "rights_manifest.json")
-    validate_rights(rights, inventory["sha256"], inventory["source_id"], "evaluation")
+    load_and_validate_rights(
+        run_dir / "rights_manifest.json",
+        inventory["sha256"],
+        inventory["source_id"],
+        "evaluation",
+        expected_manifest_hash=manifest["rights"]["manifest_hash"],
+    )
 
     predicted_boundaries = [shot for shot in shots if shot["boundary_type"] != "source_start"]
     boundary_matches = _match_boundaries(predicted_boundaries, gold["shots"], tolerance_ms)

@@ -32,7 +32,7 @@ from av_atlas.ocr_pilot import (
     run_pilot_ocr,
 )
 from av_atlas.pipeline import export_run, initialize_run, resume_run
-from av_atlas.rights import OPERATIONS, create_rights_manifest
+from av_atlas.rights import OPERATIONS, create_rights_manifest, required_permissions_for_run_mode
 from av_atlas.validation import validate_run
 
 
@@ -75,15 +75,20 @@ def _parser() -> argparse.ArgumentParser:
         "inspect-subtitles", help="list embedded subtitle tracks without extraction"
     )
     inspect_subtitles.add_argument("media", type=Path)
-    commands.add_parser(
+    inspect_ocr_parser = commands.add_parser(
         "inspect-ocr", help="inspect the local OCR dependency without installing it"
+    )
+    inspect_ocr_parser.add_argument(
+        "--local-private-diagnostic",
+        action="store_true",
+        help="include full local paths; never attach this output to exported runs",
     )
     run = commands.add_parser("run", help="process a sidecar fixture into a complete run")
     run.add_argument("media", type=Path)
     run.add_argument("--config", type=Path, required=True)
     run.add_argument("--output", type=Path, required=True)
     run.add_argument("--rights-manifest", type=Path)
-    run.add_argument("--operation", choices=OPERATIONS, default="analysis")
+    run.add_argument("--operation", type=_run_mode, default="analysis")
     run.add_argument("--stop-after", choices=["inventory"], help=argparse.SUPPRESS)
     resume = commands.add_parser("resume", help="idempotently continue an interrupted run")
     resume.add_argument("run_dir", type=Path)
@@ -150,6 +155,14 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _run_mode(value: str) -> str:
+    try:
+        required_permissions_for_run_mode(value)
+    except AtlasError as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from exc
+    return value
+
+
 def _doctor() -> int:
     required = {
         "python": platform.python_version(),
@@ -179,7 +192,13 @@ def main(arguments: list[str] | None = None) -> int:
         if args.command == "doctor":
             return _doctor()
         if args.command == "inspect-ocr":
-            print(json.dumps(inspect_ocr(), indent=2, sort_keys=True))
+            print(
+                json.dumps(
+                    inspect_ocr(include_private_paths=args.local_private_diagnostic),
+                    indent=2,
+                    sort_keys=True,
+                )
+            )
             return 0
         if args.command == "make-fixture":
             media = {"m1": make_fixture, "m2a": make_m2a_fixture, "m2b": make_m2b_fixture}[

@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from av_atlas.errors import AtlasError
-from av_atlas.io import sha256_file
+from av_atlas.io import sha256_file, source_id_from_sha256
 
 
 def _run(
@@ -126,7 +126,7 @@ def inspect_media(path: Path) -> dict[str, Any]:
     source_hash = sha256_file(path)
     return {
         "schema_version": "1.0.0",
-        "source_id": f"SRC_{source_hash[:12].upper()}",
+        "source_id": source_id_from_sha256(source_hash),
         "sha256": source_hash,
         "size_bytes": path.stat().st_size,
         "duration_ms": duration_ms,

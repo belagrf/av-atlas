@@ -7,7 +7,7 @@ import subprocess
 from pathlib import Path
 
 from av_atlas.errors import AtlasError
-from av_atlas.io import sha256_file, write_json
+from av_atlas.io import sha256_file, source_id_from_sha256, write_json
 from av_atlas.media import tool_version
 from av_atlas.schemas import validate_instance
 
@@ -177,7 +177,7 @@ def _write_fixture_manifest(
         "fixture_id": fixture_id,
         "profile": profile,
         "generator_version": "1.0.0",
-        "source_id": f"SRC_{content_hash[:12].upper()}",
+        "source_id": source_id_from_sha256(content_hash),
         "content_sha256": content_hash,
         "ffmpeg_version": tool_version("ffmpeg") or "unavailable",
         "parameters": parameters,

@@ -18,10 +18,8 @@ from av_atlas.io import atomic_write_text, safe_relative_path, sha256_file, writ
 from av_atlas.media import enforce_media_limits, inspect_media, tool_version
 from av_atlas.ocr import TesseractOcrAdapter
 from av_atlas.rights import (
-    controlled_fixture_manifest,
-    fixture_rights,
-    load_rights_manifest,
-    validate_rights,
+    authorize_media_preflight,
+    load_and_validate_rights,
 )
 from av_atlas.schemas import validate_instance
 from av_atlas.shots import ShotAdapter
@@ -135,7 +133,12 @@ def _provenance(inventory: dict[str, Any], rights: dict[str, Any]) -> dict[str, 
 
 
 def _records(
-    observations: list[Observation], source_id: str, duration_ms: int, status: str, run_id: str
+    observations: list[Observation],
+    source_id: str,
+    duration_ms: int,
+    status: str,
+    run_id: str,
+    chunk_values: list[dict[str, int]],
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     evidence: dict[str, dict[str, Any]] = {}
     for observation in observations:
@@ -156,6 +159,13 @@ def _records(
     records: list[dict[str, Any]] = []
     claim_index = 0
     for event_index, ((start_ms, end_ms), group) in enumerate(sorted(grouped.items()), 1):
+        applicable_chunks = [
+            f"CHK_{index:04d}"
+            for index, chunk in enumerate(chunk_values, 1)
+            if int(chunk["start_ms"]) < end_ms and int(chunk["end_ms"]) > start_ms
+        ]
+        if not applicable_chunks:
+            raise AtlasError(f"event interval {start_ms}-{end_ms} resolves to no generated chunk")
         claims: list[dict[str, Any]] = []
         speech: list[dict[str, Any]] = []
         entities = sorted({item.speaker_id for item in group if item.speaker_id is not None})
@@ -183,7 +193,7 @@ def _records(
                 )
         records.append(
             {
-                "schema_version": "1.0.0",
+                "schema_version": "1.1.0",
                 "event_id": f"EVT_{event_index:06d}",
                 "revision": 1 if status == "provisional" else 2,
                 "start_ms": start_ms,
@@ -197,7 +207,8 @@ def _records(
                 "status": status,
                 "provenance": {
                     "source_id": source_id,
-                    "chunk_id": f"CHK_{start_ms // 2000 + 1:04d}",
+                    "chunk_id": applicable_chunks[0],
+                    "chunk_ids": applicable_chunks,
                     "run_id": run_id,
                 },
             }
@@ -293,29 +304,21 @@ def initialize_run(
     rights_manifest: Path | None = None,
     operation: str = "analysis",
 ) -> None:
+    authorization = authorize_media_preflight(media, rights_manifest, operation)
     config = BaselineConfig.load(config_path)
+    if run_dir.exists() and any(run_dir.iterdir()):
+        raise AtlasError(f"run directory is not empty; refusing to overwrite: {run_dir}")
     inventory = inspect_media(media)
+    if (
+        inventory["sha256"] != authorization.source_sha256
+        or inventory["source_id"] != authorization.source_id
+    ):
+        raise AtlasError("source changed between authorization preflight and media inventory")
     enforce_media_limits(
         inventory, config.max_duration_ms, config.max_video_width, config.max_video_height
     )
-    fixture_marker = controlled_fixture_manifest(media)
-    if rights_manifest is None:
-        if fixture_marker is None:
-            raise AtlasError(
-                "non-fixture media requires --rights-manifest bound to the exact source hash"
-            )
-        rights = fixture_rights(inventory)
-    else:
-        rights = load_rights_manifest(rights_manifest)
-    validate_rights(rights, inventory["sha256"], inventory["source_id"], operation)
-    validate_rights(
-        rights,
-        inventory["sha256"],
-        inventory["source_id"],
-        "derivative_artifact_retention",
-    )
-    if run_dir.exists() and any(run_dir.iterdir()):
-        raise AtlasError(f"run directory is not empty; refusing to overwrite: {run_dir}")
+    fixture_marker = authorization.fixture_manifest
+    rights = authorization.rights_declaration
     run_dir.mkdir(parents=True, exist_ok=True)
     config_snapshot = run_dir / "config.snapshot.yaml"
     atomic_write_text(config_snapshot, config_path.read_text(encoding="utf-8"))
@@ -362,6 +365,21 @@ def initialize_run(
 def resume_run(run_dir: Path, media_override: Path | None = None) -> None:
     state = _read_json(run_dir / "state.json")
     manifest = _read_json(run_dir / "run_manifest.json")
+    validate_instance("run_manifest", manifest, "run_manifest.json")
+    inventory = _read_json(run_dir / "inventory.json")
+    validate_instance("inventory", inventory, "inventory.json")
+    if (
+        inventory["sha256"] != manifest["source"]["sha256"]
+        or inventory["source_id"] != manifest["source"]["source_id"]
+    ):
+        raise AtlasError("run manifest source linkage does not match inventory")
+    load_and_validate_rights(
+        run_dir / "rights_manifest.json",
+        str(manifest["source"]["sha256"]),
+        str(manifest["source"]["source_id"]),
+        str(manifest["operation"]),
+        expected_manifest_hash=str(manifest["rights"]["manifest_hash"]),
+    )
     if manifest.get("status") == "complete":
         return
     if state["source_path"] == "EXTERNAL_SOURCE_REQUIRED":
@@ -371,13 +389,10 @@ def resume_run(run_dir: Path, media_override: Path | None = None) -> None:
     else:
         media = (run_dir / str(state["source_path"])).resolve()
     config_path = (run_dir / str(state["config_path"])).resolve()
-    inventory = _read_json(run_dir / "inventory.json")
-    if sha256_file(media) != inventory["sha256"]:
+    if sha256_file(media) != manifest["source"]["sha256"]:
         raise AtlasError("source hash changed since run initialization")
     if sha256_file(config_path) != manifest["configuration"]["sha256"]:
         raise AtlasError("configuration hash changed since run initialization")
-    rights = _read_json(run_dir / "rights_manifest.json")
-    validate_rights(rights, inventory["sha256"], inventory["source_id"], str(manifest["operation"]))
     _complete(run_dir, media, BaselineConfig.load(config_path))
 
 
@@ -414,9 +429,16 @@ def _complete(run_dir: Path, media: Path, config: BaselineConfig) -> None:
     if not observations and not {"subtitle", "shot"}.intersection(config.adapters):
         raise AtlasError("no sidecar observations are available; explicit unavailable state")
     provisional, evidence = _records(
-        observations, inventory["source_id"], duration_ms, "provisional", run_dir.name
+        observations,
+        inventory["source_id"],
+        duration_ms,
+        "provisional",
+        run_dir.name,
+        chunk_values,
     )
-    final, _ = _records(observations, inventory["source_id"], duration_ms, "final", run_dir.name)
+    final, _ = _records(
+        observations, inventory["source_id"], duration_ms, "final", run_dir.name, chunk_values
+    )
     evidence["evidence"].update(extra_evidence)
     write_json(run_dir / "evidence_index.json", evidence)
     write_jsonl(run_dir / "events.provisional.jsonl", provisional)
@@ -440,7 +462,7 @@ def _complete(run_dir: Path, media: Path, config: BaselineConfig) -> None:
     write_json(
         run_dir / "adapter_results.json",
         {
-            "schema_version": "1.0.0",
+            "schema_version": "1.1.0",
             "results": [result.as_record() for result in adapter_results],
         },
     )

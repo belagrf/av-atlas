@@ -34,3 +34,8 @@ The M2B controlled-baseline release reverified these identities without installi
 preparation adds no package, model, language data, or checkpoint. The M2C decision memo is research
 planning only; its candidate classes are not approved BOM components. The checkpoint inventory
 remains empty.
+
+M2B.1 separates declared project metadata, measured current-host inventory, package-manager claims,
+and hashes computed directly over installed files. Ordinary run exports use a hash-derived OCR
+identity plus sanitized path classes and basenames. A package license is not hardcoded when its
+installed metadata cannot be read or does not identify it; uncertainty is reported instead.
