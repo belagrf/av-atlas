@@ -202,7 +202,7 @@ def test_path_replacement_during_copy_is_rejected(
     monkeypatch.setattr(stable_input, "COPY_CHUNK_BYTES", 4)
     monkeypatch.setattr(stable_input, "_read_chunk", replace_after_first_read)
     with (
-        pytest.raises(AtlasError, match="path was replaced"),
+        pytest.raises(AtlasError, match="metadata changed|path was replaced"),
         verified_stable_input(source, _digest(original_payload), temporary_root=tmp_path),
     ):
         raise AssertionError("unreachable")
