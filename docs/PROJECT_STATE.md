@@ -1,6 +1,6 @@
 # Project state
 
-Last verified: 2026-07-14 (Europe/Berlin)
+Last verified: 2026-07-15 (Europe/Berlin)
 
 ## Milestone status
 
@@ -18,6 +18,10 @@ Last verified: 2026-07-14 (Europe/Berlin)
   packaged Tesseract/English data executed on the unchanged frozen set. Evidence-linked OCR,
   component quality, one/two/four-worker resources, negative rights/security paths, and normal and
   interrupted resume were measured and validated. This is frame OCR only, not semantic vision.
+- **M2B.1 — reviewed hardening complete; v1.1 patch record frozen.** Permission closure, strict
+  configuration, coherent partial results, actual chunk provenance, immutable raw OCR plus secondary
+  temporal tracks, complete derived-artifact validation, path privacy, and clean-checkout CI are
+  complete for the synthetic controlled baseline. Real-media evaluation remains pending.
 - **M2 — in progress, not complete.** ASR/alignment, diarization, acoustic,
   and semantic visual perception, a human-adjudicated pilot, direct-VLM/loose-baseline comparisons,
   and the full M2 continuation gate in `AV-Atlas_GOAL.md` have not been delivered.
@@ -885,3 +889,67 @@ security documentation; CLI, rights, and validation source; and unit/integration
 run-mode closure, parser/subprocess non-invocation, resume/validation closure, and complete OCR-track
 derivation. Generated runs remain ignored. No accepted artifact, schema, tag, release, real-media
 input, or raw OCR observation changed; no M2C work occurred.
+
+## 2026-07-15 — Post-merge M2B.1 and controlled patch release preparation
+
+PR 10 was squash-merged only after its head was pinned to
+`ff6449f0d1d05ab67b622200a3679b1329971616` and CI/CodeQL passed. The reviewed hardening source on
+`main` is `4646f40e3c424a569fc8379c37df2fc67f99b7dd`. Issues 7, 8, and 9 closed through the PR;
+stable-input security issue 11 remains open. Standalone-inspection governance issue 12 was opened
+without choosing between a rights-gated preflight and a narrow read-only exemption. Both issues are
+gates for the authorized real-media pilot.
+
+The post-merge local gate passed: lock check (19 packages), locked offline sync (18 checked), Ruff
+format over 44 files, Ruff lint, mypy over 21 source files, 140 tests in 55.04 seconds, and doctor.
+Fresh ignored M1, M2A, M2B, M2B.1, and inventory-interrupted M2B.1 runs all validated with zero
+errors. M1/M2A/M2B validation recorded 17/31/68 artifact hashes; current M2B.1 emitted 13 raw OCR
+observations and 13 secondary tracks. Post-merge public clean-checkout CI
+`https://github.com/belagrf/av-atlas/actions/runs/29434632938` and CodeQL
+`https://github.com/belagrf/av-atlas/actions/runs/29434632160` both succeeded.
+
+The accepted 64-artifact v1 run validates read-only with no report rewrite. Its fixture, gold,
+configuration, OCR, evaluation, benchmark, run-manifest, and release-manifest hashes remain
+respectively
+`6d1f79c6a63b6a8d5510bcd67a74e522096fe97b6c2bba68587f0213ccc682a8`,
+`e62e392aa45406f939edc1f2093d07f1dcf175c0c4ea9085cbeae3edde50bc1a`,
+`8f5545df1c78e5845e19e3ae0299a86cc7c950cb9c3ba7e7b5fee217f1a45c55`,
+`f851aef0d8a1c215023cd71b38120a2f317a10be3dd24567f2f023449acd6060`,
+`a1011542165e3b8974857aaee68bbaa8185987cbb3ca0353ad4afecda38803ad`,
+`479087002a126b1d442ca2e4d768bafd3e266e9f542dba92a01ea075a3280455`,
+`6779769594db6a7457ee30b7d9ffbdacc8ec345120433125e7e846978359b440`, and
+`e545855c11ee23542939a35aecf03d00c6f12bbd056d6d4bcae43df139b7c9b2`.
+
+A separate fresh release-branch replay retained the fixture, gold, configuration, and raw OCR
+hashes and added content-stable tracks
+`f27d60f51c06cead4d0b6159b47865fd635a010e2faba9902057ae1c9cd4b9c2` and sanitized OCR inventory
+`5ab8663ce63b7d6303ce84e3ec62ab3a9dd1ec55283e8f0c6852dd88740d5cce`.
+Runtime/software-bearing hashes are evaluation
+`b2bc510bfffcda2792bec62069cde2f1701e513e837f1c808525331bcf3bd1f5`, benchmark
+`5b5c753ebe93b652f7d29b8f1afcd82911916f16196ebbfef47fe4c16697bea7`, BOM
+`abca366e47275ef2d5ff2825b53b0d47436e03a56e29a696f903cb194d188868`, and run manifest
+`633c4ed36e477179cd513c8270fc28275b64c6046e6ec2a44645e8a191661781`.
+Completed and interrupted/repeated resume comparison digests are
+`7b754c8808e578e54905f223569f1a06c410642968ecdab72cfe1ac68980a428` and
+`1f22e6ffc956d074a50939c199fbe3a0b55c64b11d26feed503c10a0c5aa754c`;
+the corresponding per-file maps remained identical.
+
+The release-branch replay measured exact match 0.75, CER 0.0125, WER
+0.07692307692307693, text-presence precision/recall/F1 1/1/1, 13 observations, 13 tracks, zero
+unresolved evidence, invalid timestamps, retries, timeouts, or adapter-state errors, 2.584538 wall
+seconds, 1.941979 CPU seconds, 180,556 KiB peak single-process RSS, and 1.5476651249747477 frames/s.
+The 1/2/4-worker wall times were 1.912063/1.714091/1.557332 seconds and all outputs were semantically
+identical. These are four-frame synthetic measurements, not real-media accuracy.
+
+The v1.1 machine-readable release record SHA-256 is
+`fbdc8e171811794d37bbdb018179ba736647795ed053d01cada4580fe5d29d73`. The publication manifest
+uses a normalized self-entry and its detached final file hash is reported after final rendering to
+avoid circular self-reference. The package version remains 0.2.1. No project or data license was
+selected; patent/publication review, native-parser sandboxing, stable input, standalone inspection,
+retained-frame lifecycle, and the double-annotated pilot remain unresolved. No real media was
+processed, no model or foundation model was trained, full M2 remains incomplete, and M2C was not
+implemented.
+
+The release branch then repeated all prescribed gates on its documentation and release-tooling
+tree: 19 packages resolved, 18 checked offline, 44 files formatted, Ruff and mypy clean, 140 tests
+passed in 42.39 seconds, and doctor passed. Publication metadata changes do not alter production
+processing behavior.

@@ -49,7 +49,7 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def build(root: Path, paths: list[str]) -> dict[str, object]:
+def build(root: Path, paths: list[str], scope: str) -> dict[str, object]:
     entries = []
     for relative in sorted(set(paths)):
         file_path = root / relative
@@ -68,7 +68,7 @@ def build(root: Path, paths: list[str]) -> dict[str, object]:
         )
     manifest: dict[str, object] = {
         "schema_version": "1.0.0",
-        "scope": "files tracked by the m2b-controlled-v1 public release",
+        "scope": scope,
         "self_hash_rule": (
             "The manifest entry uses SHA-256 of canonical JSON with its own sha256 value set to "
             "64 zeroes; the detached actual file SHA-256 is reported in release verification."
@@ -95,9 +95,14 @@ def main() -> int:
     parser.add_argument("--root", type=Path, default=Path.cwd())
     parser.add_argument("--paths-file", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument(
+        "--scope",
+        default="files tracked by the m2b-controlled-v1 public release",
+        help="human-readable release scope; the v1 wording remains the compatibility default",
+    )
     args = parser.parse_args()
     paths = [line for line in args.paths_file.read_text(encoding="utf-8").splitlines() if line]
-    value = build(args.root, paths)
+    value = build(args.root, paths, args.scope)
     args.output.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return 0
 

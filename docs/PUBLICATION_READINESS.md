@@ -32,15 +32,33 @@ does not grant reuse rights beyond applicable law.
 
 ## Measured local gate
 
-On 2026-07-14, `uv lock --check`, locked offline sync, Ruff formatting/lint, mypy over 20 source
-files, and doctor passed. Pytest passed 52/52 in 63.40 seconds with the installed Tesseract tests
-executing. Fresh ignored M1, M2A, and M2B fixtures/runs validated with zero errors. M2A retained
-shot/subtitle F1 1.0. M2B produced the accepted 13-observation semantic hash and quality metrics;
-the fresh resource timings were treated as runtime metadata. Two completed resumes preserved all 64
-M2B manifest-tracked artifacts, with comparison digest
-`308e6943ae828b4e12e9a30b21a332bde8f707ccf4408a202b9ba6ac1b2018c7` before and after.
+On 2026-07-15, the post-merge source and v1.1 release branch each passed `uv lock --check`, locked
+offline sync, Ruff formatting over 44 files, Ruff lint, mypy over 21 source files, and doctor. The
+final release-branch suite passed 140/140 tests in 42.39 seconds with the installed Tesseract path
+executing. Fresh ignored M1, M2A, M2B, M2B.1, and interrupted/repeated-resume fixtures/runs validated
+with zero errors. The accepted v1 run also validated read-only without rewriting its evidence.
 
-The first public CI run transparently failed because one regression test referenced an intentionally
-excluded local historical M0 run directory. The test now skips with an explicit publication-policy
-reason only when that local evidence is absent; it still executes locally when the preserved run is
-available. Tesseract tests are unaffected and must execute in CI.
+Fresh v1.1 OCR retained the accepted 13-observation semantic hash, added 13 deterministic secondary
+tracks, and preserved all per-file maps across completed and interrupted repeated resume. Runtime
+evaluation and worker measurements remain explicitly separate from content-stable hashes.
+Post-merge clean-checkout CI and CodeQL both passed on
+`4646f40e3c424a569fc8379c37df2fc67f99b7dd`.
+
+The first v1 public CI failure remains visible in GitHub history: a regression referenced an
+intentionally excluded historical M0 run. The subsequent clean-checkout fix and M2B.1 hardening do
+not depend on ignored local evidence. Tesseract tests execute in current CI.
+
+## v1.1 final candidate scan
+
+The v1.1 manifest covers all 121 proposed tracked paths. A second independently rendered manifest
+was byte-identical and its path set exactly matched the reviewed candidate list. Filename, content,
+MIME, size, symlink, Git LFS, credential, home-path, email, media, derivative, rights-workspace,
+annotation, dataset, traineddata, checkpoint, weight, archive, and run-directory scans found no
+publishable blocker. The only file above 1 MiB is the already approved 1,282,425-byte concept PDF;
+it is unencrypted and its author metadata is `OpenAI`. There are no tracked symlinks or LFS objects.
+
+Home-path and email matches are limited to documented scan statements and inert negative-test
+sentinels (`/home/operator/...` and `operator@example.invalid`) whose tests prove redaction. No
+private media, private derivative, private rights declaration, credential, personal path, or
+private annotation is included. The detached publication-manifest hash is computed after this final
+record and reported in release verification, avoiding a circular hash claim inside a hashed input.

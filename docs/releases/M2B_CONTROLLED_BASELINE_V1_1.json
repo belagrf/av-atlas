@@ -1,0 +1,208 @@
+{
+  "schema_version": "1.0.0",
+  "release_id": "M2B_CONTROLLED_BASELINE_V1_1",
+  "package_version": "0.2.1",
+  "source_commit": "4646f40e3c424a569fc8379c37df2fc67f99b7dd",
+  "scope": "four-frame project-authored synthetic controlled fixture and M2B.1 engineering hardening only",
+  "status": "M2B.1 rights, configuration, partial-result, provenance, temporal-track, validation, privacy, and clean-checkout hardening complete for the controlled synthetic baseline. Authorized real-media evaluation remains pending.",
+  "claims": {
+    "av_atlas_model_trained": false,
+    "foundation_model_trained": false,
+    "full_m2_complete": false,
+    "real_media_accuracy": false,
+    "semantic_visual_understanding": false
+  },
+  "controlled_fixture": {
+    "frames": 4,
+    "ocr_observations": 13,
+    "region_metrics_supported": false,
+    "region_metric_limitation": "The frozen v1 gold region arrays are empty."
+  },
+  "hardening": {
+    "actual_chunk_provenance": true,
+    "clean_tracked_checkout_reproducibility": true,
+    "complete_temporal_track_recomputation": true,
+    "configuration_types_strict": true,
+    "initial_authorization_before_ffprobe": true,
+    "malformed_artifact_errors_controlled": true,
+    "ocr_dependency_paths_sanitized": true,
+    "partial_success_unit_accounting": true,
+    "post_inspection_identity_verification": true,
+    "raw_ocr_authoritative": true,
+    "temporal_tracks_secondary": true
+  },
+  "permission_matrix": {
+    "analysis": [
+      "analysis",
+      "derivative_artifact_retention"
+    ],
+    "evaluation": [
+      "analysis",
+      "evaluation",
+      "derivative_artifact_retention"
+    ],
+    "unsupported_run_modes": [
+      "annotation",
+      "training",
+      "derivative_artifact_retention",
+      "redistribution"
+    ]
+  },
+  "dependencies": {
+    "tesseract": {
+      "architecture": "amd64",
+      "leptonica": "1.82.0",
+      "license": "Apache-2.0 verified from installed package metadata",
+      "package_version": "5.3.4-1build5",
+      "sha256": "9f831cab7525c3dab04af41bda35182af7ea1df9dceeaaa2f3bf207ac45c06a5",
+      "version": "5.3.4"
+    },
+    "eng_traineddata": {
+      "license": "Apache-2.0 verified from installed package metadata",
+      "package_version": "1:4.1.0-2",
+      "sha256": "7d4322bd2a7749724879683fc3912cb542f19906c83bcc1a52132556427170b2",
+      "size_bytes": 4113088
+    }
+  },
+  "preserved_v1_hashes": {
+    "benchmark": "479087002a126b1d442ca2e4d768bafd3e266e9f542dba92a01ea075a3280455",
+    "configuration": "8f5545df1c78e5845e19e3ae0299a86cc7c950cb9c3ba7e7b5fee217f1a45c55",
+    "evaluation": "a1011542165e3b8974857aaee68bbaa8185987cbb3ca0353ad4afecda38803ad",
+    "fixture": "6d1f79c6a63b6a8d5510bcd67a74e522096fe97b6c2bba68587f0213ccc682a8",
+    "gold": "e62e392aa45406f939edc1f2093d07f1dcf175c0c4ea9085cbeae3edde50bc1a",
+    "observations": "f851aef0d8a1c215023cd71b38120a2f317a10be3dd24567f2f023449acd6060",
+    "release_manifest": "e545855c11ee23542939a35aecf03d00c6f12bbd056d6d4bcae43df139b7c9b2",
+    "run_manifest": "6779769594db6a7457ee30b7d9ffbdacc8ec345120433125e7e846978359b440"
+  },
+  "v1_1_replay_hashes": {
+    "content_stable": {
+      "configuration": "8f5545df1c78e5845e19e3ae0299a86cc7c950cb9c3ba7e7b5fee217f1a45c55",
+      "fixture": "6d1f79c6a63b6a8d5510bcd67a74e522096fe97b6c2bba68587f0213ccc682a8",
+      "gold": "e62e392aa45406f939edc1f2093d07f1dcf175c0c4ea9085cbeae3edde50bc1a",
+      "ocr_dependency_inventory": "5ab8663ce63b7d6303ce84e3ec62ab3a9dd1ec55283e8f0c6852dd88740d5cce",
+      "raw_ocr_observations": "f851aef0d8a1c215023cd71b38120a2f317a10be3dd24567f2f023449acd6060",
+      "temporal_ocr_tracks": "f27d60f51c06cead4d0b6159b47865fd635a010e2faba9902057ae1c9cd4b9c2"
+    },
+    "runtime_or_software_bearing": {
+      "bom_snapshot": "abca366e47275ef2d5ff2825b53b0d47436e03a56e29a696f903cb194d188868",
+      "ocr_evaluation": "b2bc510bfffcda2792bec62069cde2f1701e513e837f1c808525331bcf3bd1f5",
+      "run_manifest": "633c4ed36e477179cd513c8270fc28275b64c6046e6ec2a44645e8a191661781",
+      "worker_benchmark": "5b5c753ebe93b652f7d29b8f1afcd82911916f16196ebbfef47fe4c16697bea7"
+    },
+    "resume_comparisons": {
+      "completed": "7b754c8808e578e54905f223569f1a06c410642968ecdab72cfe1ac68980a428",
+      "interrupted_and_repeated": "1f22e6ffc956d074a50939c199fbe3a0b55c64b11d26feed503c10a0c5aa754c",
+      "byte_identical": true
+    }
+  },
+  "synthetic_metrics": {
+    "adapter_state_correctness": true,
+    "derived_tracks": 13,
+    "evaluated_frames": 4,
+    "exact_text_match": 0.75,
+    "normalized_cer": 0.0125,
+    "normalized_wer": 0.07692307692307693,
+    "observations": 13,
+    "peak_rss_kb": 180556,
+    "presence_f1": 1.0,
+    "presence_precision": 1.0,
+    "presence_recall": 1.0,
+    "region_precision": null,
+    "region_recall": null,
+    "wall_seconds": 2.584538,
+    "cpu_seconds": 1.941979,
+    "frames_per_second": 1.5476651249747477
+  },
+  "workers": [
+    {
+      "configuration_sha256": "7020e5ea8bb54c00d99963dd0eed00a02f521859cbe222400232969c5a83fd3c",
+      "cpu_seconds": 1.896013,
+      "frames_per_second": 2.091981631168112,
+      "peak_rss_kb": 180424,
+      "wall_seconds": 1.912063,
+      "workers": 1
+    },
+    {
+      "configuration_sha256": "6fb1b15f8c0e6411c8ef9d10493d2f0654f20aaea9007f1e2e1be385bf48b33e",
+      "cpu_seconds": 1.906876,
+      "frames_per_second": 2.3335983803188296,
+      "peak_rss_kb": 180552,
+      "wall_seconds": 1.714091,
+      "workers": 2
+    },
+    {
+      "configuration_sha256": "cdd9168fdf983922ed0233f8b2d81d865ee49e98a5f1096a920e707181a5c08d",
+      "cpu_seconds": 1.953582,
+      "frames_per_second": 2.5684946471343415,
+      "peak_rss_kb": 180556,
+      "wall_seconds": 1.557332,
+      "workers": 4
+    }
+  ],
+  "schema_contracts": {
+    "adapter_results": "1.1.0",
+    "configuration": "1.1.0 contract; 1.0.0 instance version",
+    "dependency_bom": "1.1.0 runtime record accepted",
+    "event_ledger": "1.0.0 and 1.1.0 accepted",
+    "ocr_benchmark": "1.0.0",
+    "ocr_dependency": "1.0.0 and 1.1.0 accepted",
+    "ocr_evaluation": "1.0.0",
+    "ocr_frame_results": "1.0.0 and 1.1.0 accepted",
+    "ocr_observation": "1.0.0",
+    "ocr_text_tracks": "1.0.0",
+    "rights_manifest": "1.0.0",
+    "run_manifest": "1.0.0"
+  },
+  "schema_hashes": {
+    "adapter_results": "4dba61fff21da82fa9252bef68112e3de7af9e993e7ec6c76f827e6f50c4b7fe",
+    "configuration": "d34f49423f069ba166930527727341b547b903fc378f31482fc487c36746f39d",
+    "dependency_bom": "6f33125c3aa1e2def3bbb8dd8643dc8020c2d8aa9b8cc0df10a90eba629c4d48",
+    "event_ledger": "a8d582affa85b36011e61c9ce80910e69d58a93c9d6ca1836c4c610e6b8a7093",
+    "ocr_dependency": "8d80d510cc498e110d01ce8d6b1c42f25afe24cae118fe99bd5a702ca3d1a6dc",
+    "ocr_benchmark": "f07e1519a937b1d6408ee92249185bc4ba263c1d50f3cef15f305128078a87e5",
+    "ocr_evaluation": "28c639314fdc4bdbd5789e68251e3003071861df276564589c123074a53b9d4a",
+    "ocr_frame_results": "5f056f86ab83fd7b172bb2dd67027968af9e6d97c3a18646596c70d69283bd9a",
+    "ocr_gold": "01189133b7185d3cf0d17dbaf7c34cb9700e7d17ae5d98fede470f747070efc3",
+    "ocr_observation": "8e70e97e07df18374d986691c34da1311115a11af8659eae07148555e96e21f3",
+    "ocr_text_tracks": "6395e6475efc54865e88b7a64443087ac1d3b9f278e661697bb3cd12b416a518",
+    "rights_manifest": "1c48df345ff75be7742fbd2a0eb22e48e656c5e6e670fb2a5ec44bad571decd5",
+    "run_manifest": "59053ec2bcdf0752f32889bc00b9322da6d98831ce83120208237225a3cc5b4d"
+  },
+  "quality_gates": {
+    "codeql": {
+      "result": "success",
+      "url": "https://github.com/belagrf/av-atlas/actions/runs/29434632160"
+    },
+    "doctor": "pass",
+    "main_ci": {
+      "result": "success",
+      "url": "https://github.com/belagrf/av-atlas/actions/runs/29434632938"
+    },
+    "mypy_source_files": 21,
+    "pytest_failed": 0,
+    "pytest_passed": 140,
+    "ruff_format_files": 44,
+    "ruff_lint": "pass",
+    "uv_lock": "pass",
+    "uv_sync_offline": "pass"
+  },
+  "governance": {
+    "project_license": "unresolved; public visibility grants no reuse rights beyond applicable law",
+    "rights_self_hash": "integrity checksum, not an authenticated signature",
+    "standalone_inspection_issue": "https://github.com/belagrf/av-atlas/issues/12",
+    "stable_input_security_issue": "https://github.com/belagrf/av-atlas/issues/11"
+  },
+  "limitations": [
+    "Native FFmpeg and Tesseract parsing is not OS-sandboxed.",
+    "A concurrent same-path source mutation race remains pending issue 11.",
+    "Standalone inspection authorization policy is unresolved in issue 12.",
+    "Retained raw-frame lifecycle is unsupported.",
+    "Authorized double-annotated real-media evaluation is pending.",
+    "Project license selection is unresolved.",
+    "Patent and publication review are unresolved.",
+    "Full M2 remains incomplete.",
+    "M2C is unimplemented."
+  ],
+  "detached_hash_note": "The rendered release-manifest and publication-manifest file hashes are computed after final rendering to avoid self-reference and are reported in release verification. The publication manifest additionally records its normalized self-hash under its own file entry.",
+  "resume_digest_algorithm": "SHA-256 of newline-delimited '<current-file-sha256><two spaces><manifest-relative-path>' rows sorted by the run-manifest artifact path; equality is also checked on every per-file map entry"
+}

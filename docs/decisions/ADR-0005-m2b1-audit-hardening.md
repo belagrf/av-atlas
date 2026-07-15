@@ -1,7 +1,7 @@
 # ADR-0005: M2B.1 audit hardening contracts
 
-- Status: proposed in `audit/m2b1-hardening`
-- Date: 2026-07-14
+- Status: accepted in `4646f40e3c424a569fc8379c37df2fc67f99b7dd`
+- Date: 2026-07-15
 - Milestone: M2B.1 source-audit hardening; no M2C implementation
 
 ## Decision
@@ -30,5 +30,5 @@ actually read and files actually hashed.
 ## Consequences
 
 New runs use additive 1.1 contracts and a derived OCR text-track artifact. Accepted M2B v1 inputs,
-outputs, tag, and release are not rewritten. A later patch release may carry these changes after
-review; this assignment creates no tag or release. No M2C capability is introduced.
+outputs, tag, and release are not rewritten. The separately reviewed and authorized v1.1 patch
+release carries these changes under a distinct immutable tag. No M2C capability is introduced.

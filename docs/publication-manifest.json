@@ -117,8 +117,8 @@
       "path": "README.md",
       "reason_for_inclusion": "architecture, governance, research, or project contract",
       "redistribution_basis": "explicit operator authorization for public disclosure",
-      "sha256": "0d7d1a475e685364699f3e11b9084b9cc1e3cfe8023e723435955748f0d93d53",
-      "size_bytes": 8179
+      "sha256": "cede4cf2655572fc4818696c51ec0b0265d1b041c301b7ebabfdf196d160beb8",
+      "size_bytes": 10127
     },
     {
       "applicable_license": "unresolved; no project reuse license selected",
@@ -177,8 +177,8 @@
       "path": "docs/PROJECT_STATE.md",
       "reason_for_inclusion": "architecture, governance, research, or project contract",
       "redistribution_basis": "explicit operator authorization for public disclosure",
-      "sha256": "d8ff304e6c3d48f4b2de3f833b6701c439731f2f8df739c987520fe4e753c7b5",
-      "size_bytes": 40986
+      "sha256": "54664c3511f0560d02e03f92c38f1eecf9a614f88824b83f622ea8713ece99ca",
+      "size_bytes": 61916
     },
     {
       "applicable_license": "unresolved; no project reuse license selected",
@@ -187,8 +187,8 @@
       "path": "docs/PUBLICATION_READINESS.md",
       "reason_for_inclusion": "architecture, governance, research, or project contract",
       "redistribution_basis": "explicit operator authorization for public disclosure",
-      "sha256": "892954434656527ee5fc2a0e97f3f2bc86529c07b4026f20f759fbff5dad6426",
-      "size_bytes": 2752
+      "sha256": "159f05a7b5e91b6053f99a975bf398182eae8376f5d59605c6547c2321ea87c9",
+      "size_bytes": 4012
     },
     {
       "applicable_license": "unresolved; no project reuse license selected",
@@ -207,8 +207,8 @@
       "path": "docs/PUBLIC_RELEASE_DECISION.md",
       "reason_for_inclusion": "architecture, governance, research, or project contract",
       "redistribution_basis": "explicit operator authorization for public disclosure",
-      "sha256": "613fd2ea6d61d28a86a21f5d9a5c25e3d52a355d48c4d719c11d975e274501c0",
-      "size_bytes": 1068
+      "sha256": "98779cd8c27009d266c422424b154b9df5c50292d52a6f5e76065a4a22d0a148",
+      "size_bytes": 2617
     },
     {
       "applicable_license": "unresolved; no project reuse license selected",
@@ -217,8 +217,8 @@
       "path": "docs/architecture.md",
       "reason_for_inclusion": "architecture, governance, research, or project contract",
       "redistribution_basis": "explicit operator authorization for public disclosure",
-      "sha256": "ec0fa05cc56fcb7e2cf356eb69343c8df7da5914815c06630eb02323cae19f6c",
-      "size_bytes": 4480
+      "sha256": "7994e50f846fa6e380c5b9392876b6607283dc1e30ff0e601f06bd9f7e555ba3",
+      "size_bytes": 7469
     },
     {
       "applicable_license": "unresolved; no project reuse license selected",
@@ -227,8 +227,8 @@
       "path": "docs/data-governance.md",
       "reason_for_inclusion": "architecture, governance, research, or project contract",
       "redistribution_basis": "explicit operator authorization for public disclosure",
-      "sha256": "df1401f6d0addb6f38e56395b13c8e942e46d87a5d87c002caead9aff0fb4286",
-      "size_bytes": 1925
+      "sha256": "8298b2d1bd63a1f9d17ba8d33ca61c1cd14aebffe2635efbc5ac117e7e856894",
+      "size_bytes": 2654
     },
     {
       "applicable_license": "unresolved; no project reuse license selected",
@@ -274,11 +274,21 @@
       "applicable_license": "unresolved; no project reuse license selected",
       "classification": "documentation",
       "generated": false,
+      "path": "docs/decisions/ADR-0005-m2b1-audit-hardening.md",
+      "reason_for_inclusion": "architecture, governance, research, or project contract",
+      "redistribution_basis": "explicit operator authorization for public disclosure",
+      "sha256": "a3c394a483e024a8700de6341b8a067ea9093863f367ca62a5c91039c3bcc5a9",
+      "size_bytes": 1938
+    },
+    {
+      "applicable_license": "unresolved; no project reuse license selected",
+      "classification": "documentation",
+      "generated": false,
       "path": "docs/dependency-bom.json",
       "reason_for_inclusion": "architecture, governance, research, or project contract",
       "redistribution_basis": "explicit operator authorization for public disclosure",
-      "sha256": "bba7e5f47bc07c30a17dbbb24f57fec96f843681883471a8448a4e4a3768ce04",
-      "size_bytes": 10175
+      "sha256": "2a9b873032b3b93fd47bf31399f48f87f6a9f47295fcbda723d51d6f3dbb86f3",
+      "size_bytes": 10824
     },
     {
       "applicable_license": "unresolved; no project reuse license selected",
@@ -287,8 +297,8 @@
       "path": "docs/dependency-bom.md",
       "reason_for_inclusion": "architecture, governance, research, or project contract",
       "redistribution_basis": "explicit operator authorization for public disclosure",
-      "sha256": "7f3c85471ebbbb5eb53550bd61ac2afe429f782fe62b38694406ae5470428950",
-      "size_bytes": 2185
+      "sha256": "9807cdc8b88ac865e147da9569181f5c3a3def5c8cb6dd5d0e68641f0aa4617b",
+      "size_bytes": 2569
     },
     {
       "applicable_license": "unresolved; no project reuse license selected",
@@ -297,8 +307,8 @@
       "path": "docs/evaluation.md",
       "reason_for_inclusion": "architecture, governance, research, or project contract",
       "redistribution_basis": "explicit operator authorization for public disclosure",
-      "sha256": "e2f67f39539a80beefdd196c598cd37a5ed1a8dcb2512c79de54848e421f1365",
-      "size_bytes": 2147
+      "sha256": "023baf02f475f71281af132d4c9eb3342c43598f8fc9227e9232254e8aaa7e73",
+      "size_bytes": 2721
     },
     {
       "applicable_license": "unresolved; no project reuse license selected",
@@ -317,8 +327,8 @@
       "path": "docs/publication-manifest.json",
       "reason_for_inclusion": "machine-readable disclosure inventory",
       "redistribution_basis": "explicit operator authorization for public disclosure",
-      "sha256": "3412fff33f610ccace66c3e79381de828acd1dc228df209c834f5b60eb7696a9",
-      "size_bytes": 51234
+      "sha256": "8d6d0a26cfb4d492d7039e528c01ed9e275eb6beda8d0dbd1f681feed0f8c1c4",
+      "size_bytes": 58015
     },
     {
       "applicable_license": "unresolved; no project reuse license selected",
@@ -344,11 +354,31 @@
       "applicable_license": "unresolved; no project reuse license selected",
       "classification": "sanitized-release-record",
       "generated": true,
+      "path": "docs/releases/M2B_CONTROLLED_BASELINE_V1_1.json",
+      "reason_for_inclusion": "hash-bound controlled-baseline record",
+      "redistribution_basis": "explicit operator authorization for public disclosure",
+      "sha256": "fbdc8e171811794d37bbdb018179ba736647795ed053d01cada4580fe5d29d73",
+      "size_bytes": 9310
+    },
+    {
+      "applicable_license": "unresolved; no project reuse license selected",
+      "classification": "sanitized-release-record",
+      "generated": true,
+      "path": "docs/releases/M2B_CONTROLLED_BASELINE_V1_1.md",
+      "reason_for_inclusion": "hash-bound controlled-baseline record",
+      "redistribution_basis": "explicit operator authorization for public disclosure",
+      "sha256": "aeedf4b90e408f5e2878aaf15e5766df5f7998cdfe81da846aca2134cd51a221",
+      "size_bytes": 9937
+    },
+    {
+      "applicable_license": "unresolved; no project reuse license selected",
+      "classification": "sanitized-release-record",
+      "generated": true,
       "path": "docs/releases/M2B_CONTROLLED_REPRODUCTION.md",
       "reason_for_inclusion": "hash-bound controlled-baseline record",
       "redistribution_basis": "explicit operator authorization for public disclosure",
-      "sha256": "ab829ddd526e455c11b1b5334ddc1004a50ebbee4b3c6f67b93167c4a0760830",
-      "size_bytes": 2602
+      "sha256": "4818d245e2831e9ee16bb779703ea17c8c7b2bbc3793085b31e3236f2fecb785",
+      "size_bytes": 6040
     },
     {
       "applicable_license": "unresolved; no project reuse license selected",
@@ -367,8 +397,8 @@
       "path": "docs/security.md",
       "reason_for_inclusion": "architecture, governance, research, or project contract",
       "redistribution_basis": "explicit operator authorization for public disclosure",
-      "sha256": "e88a8dfd4f619f995498b251d0acb4ad3045a4424fbd8abbe8f802c74960e7f0",
-      "size_bytes": 2792
+      "sha256": "b2a50e6b801e2b3a5264f69324e26b705ebeb633868d630c821830e623bb77cd",
+      "size_bytes": 5192
     },
     {
       "applicable_license": "unresolved; no project reuse license selected",
@@ -397,8 +427,8 @@
       "path": "schemas/adapter-results.schema.json",
       "reason_for_inclusion": "versioned structured-record contract",
       "redistribution_basis": "explicit operator authorization for public disclosure",
-      "sha256": "deb52631edbd830b8c2512636871c10072d100d77f88a831cec4af519dd8fca8",
-      "size_bytes": 912
+      "sha256": "4dba61fff21da82fa9252bef68112e3de7af9e993e7ec6c76f827e6f50c4b7fe",
+      "size_bytes": 2771
     },
     {
       "applicable_license": "unresolved; no project reuse license selected",
@@ -424,11 +454,21 @@
       "applicable_license": "unresolved; no project reuse license selected",
       "classification": "schema",
       "generated": false,
+      "path": "schemas/config.schema.json",
+      "reason_for_inclusion": "versioned structured-record contract",
+      "redistribution_basis": "explicit operator authorization for public disclosure",
+      "sha256": "d34f49423f069ba166930527727341b547b903fc378f31482fc487c36746f39d",
+      "size_bytes": 3285
+    },
+    {
+      "applicable_license": "unresolved; no project reuse license selected",
+      "classification": "schema",
+      "generated": false,
       "path": "schemas/dependency-bom.schema.json",
       "reason_for_inclusion": "versioned structured-record contract",
       "redistribution_basis": "explicit operator authorization for public disclosure",
-      "sha256": "a4782471ca19f138a90f25e3a0fc5f422f88f6a90216660e4da469b7037d9a8b",
-      "size_bytes": 1730
+      "sha256": "6f33125c3aa1e2def3bbb8dd8643dc8020c2d8aa9b8cc0df10a90eba629c4d48",
+      "size_bytes": 2298
     },
     {
       "applicable_license": "unresolved; no project reuse license selected",
@@ -447,8 +487,8 @@
       "path": "schemas/event-ledger.schema.json",
       "reason_for_inclusion": "versioned structured-record contract",
       "redistribution_basis": "explicit operator authorization for public disclosure",
-      "sha256": "66661dea84266695bdf8fe70b8f57cfd99f4aa82ed6cdaff6c4a25746bed8d50",
-      "size_bytes": 2621
+      "sha256": "a8d582affa85b36011e61c9ce80910e69d58a93c9d6ca1836c4c610e6b8a7093",
+      "size_bytes": 2910
     },
     {
       "applicable_license": "unresolved; no project reuse license selected",
@@ -517,8 +557,8 @@
       "path": "schemas/ocr-dependency.schema.json",
       "reason_for_inclusion": "versioned structured-record contract",
       "redistribution_basis": "explicit operator authorization for public disclosure",
-      "sha256": "c5de77fa7b29affc5dd4e18f2c9f865444f07e2ea242f7b9d5c84efddacc489b",
-      "size_bytes": 1559
+      "sha256": "8d80d510cc498e110d01ce8d6b1c42f25afe24cae118fe99bd5a702ca3d1a6dc",
+      "size_bytes": 1718
     },
     {
       "applicable_license": "unresolved; no project reuse license selected",
@@ -537,8 +577,8 @@
       "path": "schemas/ocr-frame-results.schema.json",
       "reason_for_inclusion": "versioned structured-record contract",
       "redistribution_basis": "explicit operator authorization for public disclosure",
-      "sha256": "92818ca60dc9991451db193e1eeaf31ad7dc977bedd16984b5957be259d2a378",
-      "size_bytes": 862
+      "sha256": "5f056f86ab83fd7b172bb2dd67027968af9e6d97c3a18646596c70d69283bd9a",
+      "size_bytes": 1549
     },
     {
       "applicable_license": "unresolved; no project reuse license selected",
@@ -589,6 +629,16 @@
       "redistribution_basis": "explicit operator authorization for public disclosure",
       "sha256": "12c789035b00e0f474428ee77615cddd678f27a099a7d55ac63b50e3f62de283",
       "size_bytes": 1206
+    },
+    {
+      "applicable_license": "unresolved; no project reuse license selected",
+      "classification": "schema",
+      "generated": false,
+      "path": "schemas/ocr-text-tracks.schema.json",
+      "reason_for_inclusion": "versioned structured-record contract",
+      "redistribution_basis": "explicit operator authorization for public disclosure",
+      "sha256": "6395e6475efc54865e88b7a64443087ac1d3b9f278e661697bb3cd12b416a518",
+      "size_bytes": 2107
     },
     {
       "applicable_license": "unresolved; no project reuse license selected",
@@ -697,8 +747,8 @@
       "path": "src/av_atlas/adapters.py",
       "reason_for_inclusion": "implementation or deterministic publication tooling",
       "redistribution_basis": "explicit operator authorization for public disclosure",
-      "sha256": "8febac6ae13b3db9ac20598bea69711a575efec217a19658ac997c2f13b0f4f9",
-      "size_bytes": 2472
+      "sha256": "19b48ae1eda47df4f9f0d354dad10be0861ae765ca12ab4043039721335a2634",
+      "size_bytes": 2563
     },
     {
       "applicable_license": "unresolved; no project reuse license selected",
@@ -707,8 +757,8 @@
       "path": "src/av_atlas/cli.py",
       "reason_for_inclusion": "implementation or deterministic publication tooling",
       "redistribution_basis": "explicit operator authorization for public disclosure",
-      "sha256": "ae4c8d4aa79718c3026a8c235c3c65180964b0b8d37aaba1f3b51cdd09ff37c2",
-      "size_bytes": 12440
+      "sha256": "f8ab7e9d32b16edb686d66a269acb65026a6108147b56c53780ac1df2f1a7165",
+      "size_bytes": 13047
     },
     {
       "applicable_license": "unresolved; no project reuse license selected",
@@ -717,8 +767,8 @@
       "path": "src/av_atlas/config.py",
       "reason_for_inclusion": "implementation or deterministic publication tooling",
       "redistribution_basis": "explicit operator authorization for public disclosure",
-      "sha256": "412ab82f8965c0fdad4833a8bbd91dcbffa052c33f10cc570e07eba346c1eb37",
-      "size_bytes": 8586
+      "sha256": "6ba35cc5a011f61029b026f921053b1ac3feacc79bc41eb1f5906ccbbf886892",
+      "size_bytes": 7386
     },
     {
       "applicable_license": "unresolved; no project reuse license selected",
@@ -727,8 +777,8 @@
       "path": "src/av_atlas/contracts.py",
       "reason_for_inclusion": "implementation or deterministic publication tooling",
       "redistribution_basis": "explicit operator authorization for public disclosure",
-      "sha256": "7649cde5cabb49cad99fefddf463a02e7de8615e1a857e70b36880b355047dfd",
-      "size_bytes": 3260
+      "sha256": "7a7c9881bc15bc46c92374eea63d4fbc12851f77b9530866877328933e2d8095",
+      "size_bytes": 3791
     },
     {
       "applicable_license": "unresolved; no project reuse license selected",
@@ -747,8 +797,8 @@
       "path": "src/av_atlas/evaluation.py",
       "reason_for_inclusion": "implementation or deterministic publication tooling",
       "redistribution_basis": "explicit operator authorization for public disclosure",
-      "sha256": "b5302ef5a752542f36ec07e9b31c893da6a948b4d38fa112b7a11c543a6a270f",
-      "size_bytes": 14067
+      "sha256": "acd31cfc831820c4aec522f9381312f93f48b2dd13800a54f9d53d59408ad45c",
+      "size_bytes": 14165
     },
     {
       "applicable_license": "unresolved; no project reuse license selected",
@@ -757,8 +807,8 @@
       "path": "src/av_atlas/fixture.py",
       "reason_for_inclusion": "implementation or deterministic publication tooling",
       "redistribution_basis": "explicit operator authorization for public disclosure",
-      "sha256": "78316d74048d467b71930a9b0d60ac44a68428f8e56a2b7e110990d8c1527fba",
-      "size_bytes": 14402
+      "sha256": "3e6bdd94dd4bae6f551aaff45be89345d860728a3fef18469099e72586e16c89",
+      "size_bytes": 14426
     },
     {
       "applicable_license": "unresolved; no project reuse license selected",
@@ -767,8 +817,8 @@
       "path": "src/av_atlas/io.py",
       "reason_for_inclusion": "implementation or deterministic publication tooling",
       "redistribution_basis": "explicit operator authorization for public disclosure",
-      "sha256": "eab597677dbd89fd3aa83c3689e7062e7377078cb1b8f73abf674e6eacd9000b",
-      "size_bytes": 1451
+      "sha256": "b088143b69e9ac9c57bc11b8526978eac12d5168baf8e517a7b2481c93bdf9e0",
+      "size_bytes": 1635
     },
     {
       "applicable_license": "unresolved; no project reuse license selected",
@@ -777,8 +827,8 @@
       "path": "src/av_atlas/media.py",
       "reason_for_inclusion": "implementation or deterministic publication tooling",
       "redistribution_basis": "explicit operator authorization for public disclosure",
-      "sha256": "853bcf85871c394bfffd111b58228a1de3e2de63589a0376f071a132f171bb78",
-      "size_bytes": 5582
+      "sha256": "0aec095e8e20d1aa762bb7c011771ffe18d796a28bb466e45fe27900271c1246",
+      "size_bytes": 5606
     },
     {
       "applicable_license": "unresolved; no project reuse license selected",
@@ -787,8 +837,8 @@
       "path": "src/av_atlas/ocr.py",
       "reason_for_inclusion": "implementation or deterministic publication tooling",
       "redistribution_basis": "explicit operator authorization for public disclosure",
-      "sha256": "68e836ba04c0545ed1cd8519ebde8b666b5cd9b83afbb0a45da285dd9afc048b",
-      "size_bytes": 24705
+      "sha256": "f76ed21c06313d8d7aa1139d5bb4aa13ab59dcedfaaf57b3ba7c42bd10139b2d",
+      "size_bytes": 30569
     },
     {
       "applicable_license": "unresolved; no project reuse license selected",
@@ -797,8 +847,8 @@
       "path": "src/av_atlas/ocr_evaluation.py",
       "reason_for_inclusion": "implementation or deterministic publication tooling",
       "redistribution_basis": "explicit operator authorization for public disclosure",
-      "sha256": "ded46caa73495e335d732e81ee7ac51898dff21dcee0ae175cbf8241a1730eea",
-      "size_bytes": 16712
+      "sha256": "45f01d732c1921f1613c11339521b978c5983ba8f6f5bde035be8dee195012b8",
+      "size_bytes": 19739
     },
     {
       "applicable_license": "unresolved; no project reuse license selected",
@@ -814,11 +864,21 @@
       "applicable_license": "unresolved; no project reuse license selected",
       "classification": "source-code",
       "generated": false,
+      "path": "src/av_atlas/ocr_tracks.py",
+      "reason_for_inclusion": "implementation or deterministic publication tooling",
+      "redistribution_basis": "explicit operator authorization for public disclosure",
+      "sha256": "85f947dbe821bb3fa8bde90619f1d27e9758ef43b7f5fa29ab3ddb4cfaa4f3f9",
+      "size_bytes": 3786
+    },
+    {
+      "applicable_license": "unresolved; no project reuse license selected",
+      "classification": "source-code",
+      "generated": false,
       "path": "src/av_atlas/pipeline.py",
       "reason_for_inclusion": "implementation or deterministic publication tooling",
       "redistribution_basis": "explicit operator authorization for public disclosure",
-      "sha256": "1807eee93442ce92141026d1149ecd619b3366533360ffb3dcfd98f1dae06b64",
-      "size_bytes": 19097
+      "sha256": "6287770f11d4439b2e54a8ef47fad3c483f608837360ab146a1edc286a481d11",
+      "size_bytes": 19880
     },
     {
       "applicable_license": "unresolved; no project reuse license selected",
@@ -827,8 +887,8 @@
       "path": "src/av_atlas/rights.py",
       "reason_for_inclusion": "implementation or deterministic publication tooling",
       "redistribution_basis": "explicit operator authorization for public disclosure",
-      "sha256": "f1e81b6d1646f134356c44a75c5e661a959fc60ce2af125696199d3c3428e48d",
-      "size_bytes": 5072
+      "sha256": "33a22ffe55172f2d968c7d811e613641e26eff47f8477698499ee3849248d84f",
+      "size_bytes": 9537
     },
     {
       "applicable_license": "unresolved; no project reuse license selected",
@@ -837,8 +897,8 @@
       "path": "src/av_atlas/schemas.py",
       "reason_for_inclusion": "implementation or deterministic publication tooling",
       "redistribution_basis": "explicit operator authorization for public disclosure",
-      "sha256": "a88fabdde719c0ffc54da81a54c94435b99ce6f01a8d3a855c7246b28013ad94",
-      "size_bytes": 2473
+      "sha256": "e8d19f03d9376e19fbb298019f75c291e12538eb18057d0faf3dd62bcb788158",
+      "size_bytes": 2723
     },
     {
       "applicable_license": "unresolved; no project reuse license selected",
@@ -847,8 +907,8 @@
       "path": "src/av_atlas/shots.py",
       "reason_for_inclusion": "implementation or deterministic publication tooling",
       "redistribution_basis": "explicit operator authorization for public disclosure",
-      "sha256": "e0cc25577c544f535ff201b1433dc2c2143ba09fc367d3e7b7b2ccdc37bb35f2",
-      "size_bytes": 13098
+      "sha256": "d68679630b0ce49ccfe8cf9d8ee964421746dad02394764ec0858227c0a9b790",
+      "size_bytes": 13702
     },
     {
       "applicable_license": "unresolved; no project reuse license selected",
@@ -857,8 +917,8 @@
       "path": "src/av_atlas/subtitles.py",
       "reason_for_inclusion": "implementation or deterministic publication tooling",
       "redistribution_basis": "explicit operator authorization for public disclosure",
-      "sha256": "f6f05fe166c76031337f102f69750e4006abf38e44295d162327e8a6b587d6ca",
-      "size_bytes": 11486
+      "sha256": "b8c05a1af1d4bdfcf4c7b3c2fcba194d6ae2889583c7fdd4dd4337089872f7fb",
+      "size_bytes": 12336
     },
     {
       "applicable_license": "unresolved; no project reuse license selected",
@@ -877,8 +937,8 @@
       "path": "src/av_atlas/validation.py",
       "reason_for_inclusion": "implementation or deterministic publication tooling",
       "redistribution_basis": "explicit operator authorization for public disclosure",
-      "sha256": "eec2e7d47a1ab33a8de20173d61719056b8aba48d8c2edfc280289e7832dbb7c",
-      "size_bytes": 16581
+      "sha256": "8a36d6b418c9a34540a3ab722340c1d04c13418087e3f39334d045015f0e4e36",
+      "size_bytes": 31400
     },
     {
       "applicable_license": "unresolved; no project reuse license selected",
@@ -887,8 +947,8 @@
       "path": "tests/contract/test_schemas.py",
       "reason_for_inclusion": "quality, contract, regression, or security test",
       "redistribution_basis": "explicit operator authorization for public disclosure",
-      "sha256": "b2aff2bea0b7c8276e0922f424c586a9a93ff0477140c54faf09c09a37541ef1",
-      "size_bytes": 874
+      "sha256": "f6964374264030804196858c624b866816802221e4cf369ef935bfeeaad117e4",
+      "size_bytes": 2173
     },
     {
       "applicable_license": "unresolved; no project reuse license selected",
@@ -927,8 +987,8 @@
       "path": "tests/integration/test_end_to_end.py",
       "reason_for_inclusion": "quality, contract, regression, or security test",
       "redistribution_basis": "explicit operator authorization for public disclosure",
-      "sha256": "75a645db26e915e361ddf7ee7a8dbe8b1bebe6d3d51940db875bbaaa2678bbbe",
-      "size_bytes": 6485
+      "sha256": "6c1bacf87a2d5c19bb2c02a16620ba151ce772aa8b8f88fbb02245c47c6b345c",
+      "size_bytes": 10805
     },
     {
       "applicable_license": "unresolved; no project reuse license selected",
@@ -937,8 +997,8 @@
       "path": "tests/integration/test_m2a_end_to_end.py",
       "reason_for_inclusion": "quality, contract, regression, or security test",
       "redistribution_basis": "explicit operator authorization for public disclosure",
-      "sha256": "92b98417c5fae8e4b148b575e8fa576903ef49ccc4d16ec72c1df9c8b2927d5d",
-      "size_bytes": 7440
+      "sha256": "7da09d84464fbe83a4c00320a7acf1ec41e954fa69d3c2a3de894c4486f93064",
+      "size_bytes": 13958
     },
     {
       "applicable_license": "unresolved; no project reuse license selected",
@@ -964,11 +1024,41 @@
       "applicable_license": "unresolved; no project reuse license selected",
       "classification": "test-code",
       "generated": false,
+      "path": "tests/unit/test_chunk_provenance.py",
+      "reason_for_inclusion": "quality, contract, regression, or security test",
+      "redistribution_basis": "explicit operator authorization for public disclosure",
+      "sha256": "6db0c4f0a656c67940934d12997b8ef469c64afcbab46038f2de56564e733bba",
+      "size_bytes": 1189
+    },
+    {
+      "applicable_license": "unresolved; no project reuse license selected",
+      "classification": "test-code",
+      "generated": false,
+      "path": "tests/unit/test_config.py",
+      "reason_for_inclusion": "quality, contract, regression, or security test",
+      "redistribution_basis": "explicit operator authorization for public disclosure",
+      "sha256": "b3e3a24327cb9423a1873ea2feeae6f0bdb36e1198cdcf6dd68f57fc4e55aa46",
+      "size_bytes": 1815
+    },
+    {
+      "applicable_license": "unresolved; no project reuse license selected",
+      "classification": "test-code",
+      "generated": false,
       "path": "tests/unit/test_contracts.py",
       "reason_for_inclusion": "quality, contract, regression, or security test",
       "redistribution_basis": "explicit operator authorization for public disclosure",
       "sha256": "8cfaa4725af047970e0cbc7d9866195521084242a8651ed615ee834dc5b22366",
       "size_bytes": 1086
+    },
+    {
+      "applicable_license": "unresolved; no project reuse license selected",
+      "classification": "test-code",
+      "generated": false,
+      "path": "tests/unit/test_initial_authorization.py",
+      "reason_for_inclusion": "quality, contract, regression, or security test",
+      "redistribution_basis": "explicit operator authorization for public disclosure",
+      "sha256": "711588bd02bdffc4f582c69a52c6391c4a2f47552809e83ef577087be5618255",
+      "size_bytes": 10220
     },
     {
       "applicable_license": "unresolved; no project reuse license selected",
@@ -987,8 +1077,18 @@
       "path": "tests/unit/test_ocr.py",
       "reason_for_inclusion": "quality, contract, regression, or security test",
       "redistribution_basis": "explicit operator authorization for public disclosure",
-      "sha256": "d14eea6fe68c2aad5edf1738b57b67da4faa434fed81e39594d1a1d7db5f4723",
-      "size_bytes": 2458
+      "sha256": "f63c00dbdb25bce9bd3d7f5fc66ffd05165c3f5d594d16311e89fefb65bd6146",
+      "size_bytes": 4649
+    },
+    {
+      "applicable_license": "unresolved; no project reuse license selected",
+      "classification": "test-code",
+      "generated": false,
+      "path": "tests/unit/test_ocr_evaluation.py",
+      "reason_for_inclusion": "quality, contract, regression, or security test",
+      "redistribution_basis": "explicit operator authorization for public disclosure",
+      "sha256": "97526daa05d2b0ccf0bc61e4b18812b6e06503372f1a817d4a67f0b9248367da",
+      "size_bytes": 4105
     },
     {
       "applicable_license": "unresolved; no project reuse license selected",
@@ -1004,11 +1104,41 @@
       "applicable_license": "unresolved; no project reuse license selected",
       "classification": "test-code",
       "generated": false,
+      "path": "tests/unit/test_ocr_tracks.py",
+      "reason_for_inclusion": "quality, contract, regression, or security test",
+      "redistribution_basis": "explicit operator authorization for public disclosure",
+      "sha256": "010247f38f3d49af2c6138c45e51078aedbc25f5411fd86736b04341491ec95d",
+      "size_bytes": 1379
+    },
+    {
+      "applicable_license": "unresolved; no project reuse license selected",
+      "classification": "test-code",
+      "generated": false,
+      "path": "tests/unit/test_partial_adapters.py",
+      "reason_for_inclusion": "quality, contract, regression, or security test",
+      "redistribution_basis": "explicit operator authorization for public disclosure",
+      "sha256": "8a54c0020eb492ca2efa0f14a8dbef7b0eeccd292fcc48dffc85af2ced704481",
+      "size_bytes": 6804
+    },
+    {
+      "applicable_license": "unresolved; no project reuse license selected",
+      "classification": "test-code",
+      "generated": false,
       "path": "tests/unit/test_rights.py",
       "reason_for_inclusion": "quality, contract, regression, or security test",
       "redistribution_basis": "explicit operator authorization for public disclosure",
-      "sha256": "d2f886adf0df4eca1e2d7618bb29149283dbd4a487c811e048b0efba026e4e35",
-      "size_bytes": 2558
+      "sha256": "f2fa17f56d1f474a89bf325cf1802087ff783aeef81677cb964550561c5b1fc2",
+      "size_bytes": 3672
+    },
+    {
+      "applicable_license": "unresolved; no project reuse license selected",
+      "classification": "test-code",
+      "generated": false,
+      "path": "tests/unit/test_run_mode_permissions.py",
+      "reason_for_inclusion": "quality, contract, regression, or security test",
+      "redistribution_basis": "explicit operator authorization for public disclosure",
+      "sha256": "a5b5057525d96f71deb55aa071523462f877af363885d44e31146c02c1f8891a",
+      "size_bytes": 3428
     },
     {
       "applicable_license": "unresolved; no project reuse license selected",
@@ -1042,13 +1172,23 @@
     },
     {
       "applicable_license": "unresolved; no project reuse license selected",
+      "classification": "test-code",
+      "generated": false,
+      "path": "tests/unit/test_validation_ocr_tracks.py",
+      "reason_for_inclusion": "quality, contract, regression, or security test",
+      "redistribution_basis": "explicit operator authorization for public disclosure",
+      "sha256": "ce445fb743787ae34f0d469187461ebc70dbd9746bbd4eb475aaf75108b5e302",
+      "size_bytes": 9199
+    },
+    {
+      "applicable_license": "unresolved; no project reuse license selected",
       "classification": "source-code",
       "generated": false,
       "path": "tools/build_publication_manifest.py",
       "reason_for_inclusion": "implementation or deterministic publication tooling",
       "redistribution_basis": "explicit operator authorization for public disclosure",
-      "sha256": "e23266b9d438035f31b8860aa7ba11e21a022475c9e75dc9d0d5a9a08cb0c814",
-      "size_bytes": 4683
+      "sha256": "d851910ae69abbdbb828a139e6490c2517ff4d45a0c05a417cca1cd3caf693d2",
+      "size_bytes": 4875
     },
     {
       "applicable_license": "unresolved; no project reuse license selected",
@@ -1072,6 +1212,6 @@
     }
   ],
   "schema_version": "1.0.0",
-  "scope": "files tracked by the m2b-controlled-v1 public release",
+  "scope": "files tracked by the m2b-controlled-v1.1 public release",
   "self_hash_rule": "The manifest entry uses SHA-256 of canonical JSON with its own sha256 value set to 64 zeroes; the detached actual file SHA-256 is reported in release verification."
 }
