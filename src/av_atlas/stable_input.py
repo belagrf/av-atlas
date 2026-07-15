@@ -8,10 +8,10 @@ import shutil
 import stat
 import sys
 import tempfile
+from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterator
 
 from av_atlas.errors import AtlasError
 from av_atlas.io import source_id_from_sha256
@@ -147,7 +147,8 @@ def _copy_verified(
             copied += len(chunk)
             if copied > max_snapshot_bytes:
                 raise AtlasError(
-                    f"media source exceeded stable snapshot limit {max_snapshot_bytes} while copying"
+                    "media source exceeded stable snapshot limit "
+                    f"{max_snapshot_bytes} while copying"
                 )
             digest.update(chunk)
             _write_all(destination_descriptor, chunk)
