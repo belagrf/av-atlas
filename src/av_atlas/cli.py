@@ -9,6 +9,7 @@ import platform
 import shutil
 import sys
 from pathlib import Path
+from typing import Any
 
 from av_atlas import __version__
 from av_atlas.errors import AtlasError
@@ -33,6 +34,7 @@ from av_atlas.ocr_pilot import (
 )
 from av_atlas.pipeline import export_run, initialize_run, resume_run
 from av_atlas.rights import OPERATIONS, create_rights_manifest, required_permissions_for_run_mode
+from av_atlas.stable_input import authorized_stable_input
 from av_atlas.validation import validate_run
 
 
@@ -68,13 +70,15 @@ def _parser() -> argparse.ArgumentParser:
     rights.add_argument("--notes", default="")
     rights.add_argument("--independently-reviewed", action="store_true")
     rights.add_argument("--review-record")
-    inspect = commands.add_parser("inspect", help="inventory a media source without modifying it")
+    inspect = commands.add_parser("inspect", help="rights-gated inventory of a media source")
     inspect.add_argument("media", type=Path)
+    inspect.add_argument("--rights-manifest", type=Path)
     inspect.add_argument("--output", type=Path)
     inspect_subtitles = commands.add_parser(
-        "inspect-subtitles", help="list embedded subtitle tracks without extraction"
+        "inspect-subtitles", help="rights-gated listing of embedded subtitle tracks"
     )
     inspect_subtitles.add_argument("media", type=Path)
+    inspect_subtitles.add_argument("--rights-manifest", type=Path)
     inspect_ocr_parser = commands.add_parser(
         "inspect-ocr", help="inspect the local OCR dependency without installing it"
     )
@@ -163,6 +167,19 @@ def _run_mode(value: str) -> str:
     return value
 
 
+def _authorized_inventory(
+    media: Path, rights_manifest: Path | None
+) -> dict[str, Any]:
+    with authorized_stable_input(media, rights_manifest, "analysis") as access:
+        inventory = inspect_media(access.stable.path)
+        if (
+            inventory["sha256"] != access.authorization.source_sha256
+            or inventory["source_id"] != access.authorization.source_id
+        ):
+            raise AtlasError("stable media inventory does not match authorized source identity")
+        return inventory
+
+
 def _doctor() -> int:
     required = {
         "python": platform.python_version(),
@@ -222,13 +239,13 @@ def main(arguments: list[str] | None = None) -> int:
             )
             print(json.dumps(value, indent=2, sort_keys=True))
         elif args.command == "inspect":
-            inventory = inspect_media(args.media)
+            inventory = _authorized_inventory(args.media, args.rights_manifest)
             if args.output:
                 write_json(args.output, inventory)
             else:
                 print(json.dumps(inventory, indent=2, sort_keys=True))
         elif args.command == "inspect-subtitles":
-            inventory = inspect_media(args.media)
+            inventory = _authorized_inventory(args.media, args.rights_manifest)
             tracks = [
                 stream for stream in inventory["streams"] if stream["codec_type"] == "subtitle"
             ]
