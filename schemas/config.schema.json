@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://av-atlas.local/schemas/config/1.1.0",
+  "$id": "https://av-atlas.local/schemas/config/1.2.0",
   "type": "object",
   "additionalProperties": false,
   "required": ["schema_version", "chunk_duration_ms", "chunk_overlap_ms", "sample_interval_ms", "adapters"],
@@ -35,7 +35,9 @@
         "max_duration_ms": {"type": "integer", "minimum": 1},
         "max_video_width": {"type": "integer", "minimum": 1},
         "max_video_height": {"type": "integer", "minimum": 1},
-        "max_keyframes": {"type": "integer", "minimum": 1}
+        "max_keyframes": {"type": "integer", "minimum": 1},
+        "max_source_bytes": {"type": "integer", "minimum": 1, "maximum": 68719476736},
+        "max_temporary_storage_bytes": {"type": "integer", "minimum": 1, "maximum": 68719476736}
       }
     },
     "ocr": {

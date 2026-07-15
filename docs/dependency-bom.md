@@ -39,3 +39,10 @@ M2B.1 separates declared project metadata, measured current-host inventory, pack
 and hashes computed directly over installed files. Ordinary run exports use a hash-derived OCR
 identity plus sanitized path classes and basenames. A package license is not hardcoded when its
 installed metadata cannot be read or does not identify it; uncertainty is reported instead.
+
+M2B.2 adds no third-party dependency, checkpoint, or language data. Its copy, hashing, file-mode,
+descriptor, synchronization, and advisory-lock controls use the Python standard library and local
+operating-system interfaces. The private descriptor-relative recovery path was exercised on Linux;
+platforms without POSIX-style directory descriptors or `flock` fail closed before acquisition. The
+machine-readable dependency inventory and empty checkpoint list are
+therefore unchanged.

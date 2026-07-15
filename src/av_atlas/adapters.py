@@ -14,10 +14,13 @@ from av_atlas.errors import AtlasError
 
 @dataclass(frozen=True)
 class AdapterContext:
+    # ``media`` is always the verified transient snapshot for native adapters.
     media: Path
     inventory: dict[str, Any]
     run_dir: Path
     config: BaselineConfig
+    # Controlled fixture sidecars are inert structured inputs, not native-parser media.
+    sidecar_media: Path | None = None
 
 
 class AdapterExecution(Protocol):
@@ -70,7 +73,10 @@ class SidecarAdapter:
         return observations
 
     def run(self, context: AdapterContext) -> SidecarOutput:
-        values = self.observe(context.media, int(context.inventory["duration_ms"]))
+        values = self.observe(
+            context.sidecar_media or context.media,
+            int(context.inventory["duration_ms"]),
+        )
         return SidecarOutput(
             AdapterResult(
                 self.name,

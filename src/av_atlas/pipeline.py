@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import resource
 import time
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -18,11 +19,15 @@ from av_atlas.io import atomic_write_text, safe_relative_path, sha256_file, writ
 from av_atlas.media import enforce_media_limits, inspect_media, tool_version
 from av_atlas.ocr import TesseractOcrAdapter
 from av_atlas.rights import (
-    authorize_media_preflight,
     load_and_validate_rights,
 )
 from av_atlas.schemas import validate_instance
 from av_atlas.shots import ShotAdapter
+from av_atlas.stable_input import (
+    StableInputPolicy,
+    acquire_authorized_input,
+    recover_stale_snapshots,
+)
 from av_atlas.subtitles import SubtitleAdapter
 from av_atlas.timeline import chunks, uniform_samples
 
@@ -43,6 +48,13 @@ ARTIFACTS = (
     "config.snapshot.yaml",
     "adapter_results.json",
 )
+
+
+@dataclass(frozen=True)
+class _Completion:
+    started: float
+    duration_ms: int
+    dynamic_artifacts: tuple[Path, ...]
 
 
 def _timestamp() -> str:
@@ -304,65 +316,78 @@ def initialize_run(
     rights_manifest: Path | None = None,
     operation: str = "analysis",
 ) -> None:
-    authorization = authorize_media_preflight(media, rights_manifest, operation)
     config = BaselineConfig.load(config_path)
     if run_dir.exists() and any(run_dir.iterdir()):
         raise AtlasError(f"run directory is not empty; refusing to overwrite: {run_dir}")
-    inventory = inspect_media(media)
-    if (
-        inventory["sha256"] != authorization.source_sha256
-        or inventory["source_id"] != authorization.source_id
-    ):
-        raise AtlasError("source changed between authorization preflight and media inventory")
-    enforce_media_limits(
-        inventory, config.max_duration_ms, config.max_video_width, config.max_video_height
-    )
-    fixture_marker = authorization.fixture_manifest
-    rights = authorization.rights_declaration
-    run_dir.mkdir(parents=True, exist_ok=True)
-    config_snapshot = run_dir / "config.snapshot.yaml"
-    atomic_write_text(config_snapshot, config_path.read_text(encoding="utf-8"))
-    write_json(run_dir / "rights_manifest.json", rights)
-    bom_path = Path(__file__).resolve().parents[2] / "docs" / "dependency-bom.json"
-    bom = _read_json(bom_path)
-    validate_instance("dependency_bom", bom, bom_path.name)
-    write_json(run_dir / "dependency_bom.json", bom)
-    if fixture_marker is not None:
-        write_json(run_dir / "fixture_manifest.json", fixture_marker)
-    manifest = _manifest(run_dir, config_snapshot, inventory, rights, operation)
-    write_json(run_dir / "run_manifest.json", manifest)
-    write_jsonl(
-        run_dir / "run.log.jsonl",
-        [
+    policy = _stable_input_policy(config)
+    completion: _Completion | None = None
+    with acquire_authorized_input(
+        media,
+        rights_manifest,
+        operation,
+        policy=policy,
+    ) as stable:
+        inventory = inspect_media(stable.snapshot_path)
+        if (
+            inventory["sha256"] != stable.source_sha256
+            or inventory["source_id"] != stable.source_id
+        ):
+            raise AtlasError("verified snapshot identity disagrees with media inventory")
+        enforce_media_limits(
+            inventory, config.max_duration_ms, config.max_video_width, config.max_video_height
+        )
+        fixture_marker = stable.authorization.fixture_manifest
+        rights = stable.authorization.rights_declaration
+        run_dir.mkdir(parents=True, exist_ok=True)
+        config_snapshot = run_dir / "config.snapshot.yaml"
+        atomic_write_text(config_snapshot, config_path.read_text(encoding="utf-8"))
+        write_json(run_dir / "rights_manifest.json", rights)
+        write_json(run_dir / "stable_input.json", stable.receipt)
+        bom_path = Path(__file__).resolve().parents[2] / "docs" / "dependency-bom.json"
+        bom = _read_json(bom_path)
+        validate_instance("dependency_bom", bom, bom_path.name)
+        write_json(run_dir / "dependency_bom.json", bom)
+        if fixture_marker is not None:
+            write_json(run_dir / "fixture_manifest.json", fixture_marker)
+        manifest = _manifest(run_dir, config_snapshot, inventory, rights, operation)
+        write_json(run_dir / "run_manifest.json", manifest)
+        write_jsonl(
+            run_dir / "run.log.jsonl",
+            [
+                {
+                    "event": "run_started",
+                    "run_id": run_dir.name,
+                    "source_id": inventory["source_id"],
+                }
+            ],
+        )
+        write_json(run_dir / "inventory.json", inventory)
+        write_json(run_dir / "provenance.json", _provenance(inventory, rights))
+        write_json(
+            run_dir / "state.json",
             {
-                "event": "run_started",
-                "run_id": run_dir.name,
-                "source_id": inventory["source_id"],
-            }
-        ],
-    )
-    write_json(run_dir / "inventory.json", inventory)
-    write_json(run_dir / "provenance.json", _provenance(inventory, rights))
-    try:
-        source_path = safe_relative_path(media, run_dir)
-        media.resolve().relative_to(run_dir.parent.resolve())
-    except ValueError:
-        source_path = "EXTERNAL_SOURCE_REQUIRED"
-    write_json(
-        run_dir / "state.json",
-        {
-            "schema_version": "1.0.0",
-            "stage": "inventory",
-            "source_path": source_path,
-            "config_path": "config.snapshot.yaml",
-        },
-    )
-    if stop_after == "inventory":
-        return
-    _complete(run_dir, media, config)
+                "schema_version": "1.0.0",
+                "stage": "inventory",
+                "source_path": "EXTERNAL_SOURCE_REQUIRED",
+                "config_path": "config.snapshot.yaml",
+            },
+        )
+        if stop_after == "inventory":
+            return
+        completion = _complete(
+            run_dir,
+            stable.snapshot_path,
+            config,
+            sidecar_media=media if fixture_marker is not None else None,
+        )
+    if completion is not None:
+        _finalize_run(run_dir, completion)
 
 
 def resume_run(run_dir: Path, media_override: Path | None = None) -> None:
+    # Crash residue contains no canonical run linkage. Recover only recognized,
+    # inactive private leases before even a malformed/expired run can return.
+    recover_stale_snapshots()
     state = _read_json(run_dir / "state.json")
     manifest = _read_json(run_dir / "run_manifest.json")
     validate_instance("run_manifest", manifest, "run_manifest.json")
@@ -380,23 +405,63 @@ def resume_run(run_dir: Path, media_override: Path | None = None) -> None:
         str(manifest["operation"]),
         expected_manifest_hash=str(manifest["rights"]["manifest_hash"]),
     )
+    config_path = (run_dir / str(state["config_path"])).resolve()
+    if sha256_file(config_path) != manifest["configuration"]["sha256"]:
+        raise AtlasError("configuration hash changed since run initialization")
+    config = BaselineConfig.load(config_path)
+    policy = _stable_input_policy(config)
     if manifest.get("status") == "complete":
         return
     if state["source_path"] == "EXTERNAL_SOURCE_REQUIRED":
         if media_override is None:
             raise AtlasError("resume requires --media because no external source path was retained")
-        media = media_override.resolve()
+        media = media_override
     else:
-        media = (run_dir / str(state["source_path"])).resolve()
-    config_path = (run_dir / str(state["config_path"])).resolve()
-    if sha256_file(media) != manifest["source"]["sha256"]:
-        raise AtlasError("source hash changed since run initialization")
-    if sha256_file(config_path) != manifest["configuration"]["sha256"]:
-        raise AtlasError("configuration hash changed since run initialization")
-    _complete(run_dir, media, BaselineConfig.load(config_path))
+        media = run_dir / str(state["source_path"])
+    completion: _Completion | None = None
+    with acquire_authorized_input(
+        media,
+        run_dir / "rights_manifest.json",
+        str(manifest["operation"]),
+        policy=policy,
+        expected_source_sha256=str(manifest["source"]["sha256"]),
+        expected_source_id=str(manifest["source"]["source_id"]),
+        expected_manifest_hash=str(manifest["rights"]["manifest_hash"]),
+        recover_stale=False,
+    ) as stable:
+        write_json(run_dir / "stable_input.json", stable.receipt)
+        fixture_sidecar_authorized = False
+        persisted_fixture = run_dir / "fixture_manifest.json"
+        if persisted_fixture.is_file():
+            persisted_fixture_value = _read_json(persisted_fixture)
+            validate_instance("fixture_manifest", persisted_fixture_value, "fixture_manifest.json")
+            if persisted_fixture_value != stable.authorization.fixture_manifest:
+                raise AtlasError("persisted controlled-fixture linkage is invalid on resume")
+            fixture_sidecar_authorized = True
+        completion = _complete(
+            run_dir,
+            stable.snapshot_path,
+            config,
+            sidecar_media=media if fixture_sidecar_authorized else None,
+        )
+    if completion is not None:
+        _finalize_run(run_dir, completion)
 
 
-def _complete(run_dir: Path, media: Path, config: BaselineConfig) -> None:
+def _stable_input_policy(config: BaselineConfig) -> StableInputPolicy:
+    return StableInputPolicy(
+        max_source_bytes=config.max_source_bytes,
+        max_temporary_bytes=config.max_temporary_storage_bytes,
+    )
+
+
+def _complete(
+    run_dir: Path,
+    media: Path,
+    config: BaselineConfig,
+    *,
+    sidecar_media: Path | None = None,
+) -> _Completion:
     started = time.perf_counter()
     inventory = _read_json(run_dir / "inventory.json")
     duration_ms = int(inventory["duration_ms"])
@@ -409,7 +474,7 @@ def _complete(run_dir: Path, media: Path, config: BaselineConfig) -> None:
     adapter_results: list[AdapterResult] = []
     dynamic_artifacts: list[Path] = []
     extra_evidence: dict[str, dict[str, Any]] = {}
-    context = AdapterContext(media, inventory, run_dir, config)
+    context = AdapterContext(media, inventory, run_dir, config, sidecar_media)
     for name in config.adapters:
         adapter: PerceptionAdapter
         if name == "subtitle":
@@ -494,18 +559,27 @@ def _complete(run_dir: Path, media: Path, config: BaselineConfig) -> None:
             },
         ],
     )
+    return _Completion(started, duration_ms, tuple(dynamic_artifacts))
+
+
+def _finalize_run(run_dir: Path, completion: _Completion) -> None:
+    """Mark a run complete only after its private source snapshot was cleaned."""
     manifest = _read_json(run_dir / "run_manifest.json")
     manifest["status"] = "complete"
     manifest["completed_at"] = _timestamp()
     manifest["performance"] = {
-        "runtime_seconds": round(time.perf_counter() - started, 6),
+        "runtime_seconds": round(time.perf_counter() - completion.started, 6),
         "peak_rss_kb": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,
         "retry_count": 0,
-        "processed_duration_ms": duration_ms,
+        "processed_duration_ms": completion.duration_ms,
     }
-    optional_artifacts = [run_dir / "fixture_manifest.json", run_dir / "dependency_bom.json"]
+    optional_artifacts = [
+        run_dir / "fixture_manifest.json",
+        run_dir / "dependency_bom.json",
+        run_dir / "stable_input.json",
+    ]
     artifact_paths = [run_dir / name for name in ARTIFACTS]
-    artifact_paths.extend(dynamic_artifacts)
+    artifact_paths.extend(completion.dynamic_artifacts)
     artifact_paths.extend(path for path in optional_artifacts if path.is_file())
     unique_paths = sorted(
         set(artifact_paths), key=lambda path: path.relative_to(run_dir).as_posix()

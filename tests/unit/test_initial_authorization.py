@@ -181,11 +181,14 @@ def test_valid_non_fixture_is_inspected_once_after_authorization(
     rights_path = tmp_path / "rights.json"
     _rights(media, rights_path)
     calls = 0
+    snapshot_path: Path | None = None
 
     def inspect(path: Path) -> dict[str, Any]:
-        nonlocal calls
+        nonlocal calls, snapshot_path
         calls += 1
-        assert path == media
+        snapshot_path = path
+        assert path != media
+        assert path.read_bytes() == media.read_bytes()
         return _inventory(path)
 
     monkeypatch.setattr("av_atlas.pipeline.inspect_media", inspect)
@@ -199,6 +202,7 @@ def test_valid_non_fixture_is_inspected_once_after_authorization(
         rights_manifest=rights_path,
     )
     assert calls == 1
+    assert snapshot_path is not None and not snapshot_path.exists()
     assert (run_dir / "inventory.json").is_file()
 
 
@@ -245,9 +249,9 @@ def test_valid_fixture_is_inspected_only_after_fixture_authorization(
     _fixture_marker(media)
     authorized = False
     calls = 0
-    from av_atlas import pipeline
+    from av_atlas import stable_input
 
-    original = pipeline.authorize_media_preflight
+    original = stable_input.authorize_source_identity
 
     def authorize(*args: Any, **kwargs: Any) -> Any:
         nonlocal authorized
@@ -261,9 +265,9 @@ def test_valid_fixture_is_inspected_only_after_fixture_authorization(
         calls += 1
         return _inventory(path)
 
-    monkeypatch.setattr(pipeline, "authorize_media_preflight", authorize)
-    monkeypatch.setattr(pipeline, "inspect_media", inspect)
-    monkeypatch.setattr(pipeline, "tool_version", lambda name: None)
+    monkeypatch.setattr(stable_input, "authorize_source_identity", authorize)
+    monkeypatch.setattr("av_atlas.pipeline.inspect_media", inspect)
+    monkeypatch.setattr("av_atlas.pipeline.tool_version", lambda name: None)
     initialize_run(
         media,
         Path(__file__).parents[2] / "configs/baseline.yaml",
@@ -291,7 +295,7 @@ def test_changed_source_inventory_is_rejected_before_run_creation(
 
     monkeypatch.setattr("av_atlas.pipeline.inspect_media", inspect)
     run_dir = tmp_path / "run"
-    with pytest.raises(AtlasError, match="changed between authorization preflight"):
+    with pytest.raises(AtlasError, match="snapshot identity disagrees"):
         initialize_run(media, Path(__file__).parents[2] / "configs/baseline.yaml", run_dir)
     assert calls == 1
     assert not run_dir.exists()

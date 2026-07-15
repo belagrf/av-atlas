@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import os
 import platform
 import shutil
 import sys
@@ -19,7 +20,7 @@ from av_atlas.fixture import (
     make_m2b_fixture,
     make_modality_edge_fixtures,
 )
-from av_atlas.io import write_json
+from av_atlas.io import write_json_new
 from av_atlas.media import inspect_media, tool_version
 from av_atlas.ocr import inspect_ocr
 from av_atlas.ocr_evaluation import benchmark_ocr, evaluate_ocr
@@ -33,6 +34,12 @@ from av_atlas.ocr_pilot import (
 )
 from av_atlas.pipeline import export_run, initialize_run, resume_run
 from av_atlas.rights import OPERATIONS, create_rights_manifest, required_permissions_for_run_mode
+from av_atlas.stable_input import (
+    DEFAULT_MAX_SOURCE_BYTES,
+    DEFAULT_MAX_TEMPORARY_BYTES,
+    StableInputPolicy,
+    acquire_authorized_input,
+)
 from av_atlas.validation import validate_run
 
 
@@ -71,10 +78,12 @@ def _parser() -> argparse.ArgumentParser:
     inspect = commands.add_parser("inspect", help="inventory a media source without modifying it")
     inspect.add_argument("media", type=Path)
     inspect.add_argument("--output", type=Path)
+    _add_inspection_rights_arguments(inspect)
     inspect_subtitles = commands.add_parser(
         "inspect-subtitles", help="list embedded subtitle tracks without extraction"
     )
     inspect_subtitles.add_argument("media", type=Path)
+    _add_inspection_rights_arguments(inspect_subtitles)
     inspect_ocr_parser = commands.add_parser(
         "inspect-ocr", help="inspect the local OCR dependency without installing it"
     )
@@ -155,6 +164,49 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _add_inspection_rights_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--rights-manifest", type=Path)
+    parser.add_argument(
+        "--max-source-bytes",
+        type=int,
+        default=DEFAULT_MAX_SOURCE_BYTES,
+        help="parser-free source/snapshot byte ceiling",
+    )
+    parser.add_argument(
+        "--max-temporary-bytes",
+        type=int,
+        default=DEFAULT_MAX_TEMPORARY_BYTES,
+        help="private transient snapshot byte ceiling",
+    )
+
+
+def _inspection_policy(args: argparse.Namespace) -> StableInputPolicy:
+    policy = StableInputPolicy(
+        max_source_bytes=args.max_source_bytes,
+        max_temporary_bytes=args.max_temporary_bytes,
+    )
+    policy.validate()
+    return policy
+
+
+def _validate_inspection_output(source: Path, output: Path | None) -> None:
+    if output is None:
+        return
+    try:
+        source_stat = os.lstat(source)
+    except OSError:
+        return  # Stable-input preflight reports the source failure without parsing.
+    try:
+        output_stat = os.lstat(output)
+    except FileNotFoundError:
+        return
+    except OSError as exc:
+        raise AtlasError("inspection output path cannot be validated safely") from exc
+    if (source_stat.st_dev, source_stat.st_ino) == (output_stat.st_dev, output_stat.st_ino):
+        raise AtlasError("inspection output must not identify the source file")
+    raise AtlasError("inspection output must be a new path; existing targets are not overwritten")
+
+
 def _run_mode(value: str) -> str:
     try:
         required_permissions_for_run_mode(value)
@@ -222,13 +274,29 @@ def main(arguments: list[str] | None = None) -> int:
             )
             print(json.dumps(value, indent=2, sort_keys=True))
         elif args.command == "inspect":
-            inventory = inspect_media(args.media)
+            _validate_inspection_output(args.media, args.output)
+            with acquire_authorized_input(
+                args.media,
+                args.rights_manifest,
+                "analysis",
+                policy=_inspection_policy(args),
+            ) as stable:
+                inventory = inspect_media(stable.snapshot_path)
             if args.output:
-                write_json(args.output, inventory)
+                try:
+                    write_json_new(args.output, inventory)
+                except OSError as exc:
+                    raise AtlasError("inspection output could not be created safely") from exc
             else:
                 print(json.dumps(inventory, indent=2, sort_keys=True))
         elif args.command == "inspect-subtitles":
-            inventory = inspect_media(args.media)
+            with acquire_authorized_input(
+                args.media,
+                args.rights_manifest,
+                "analysis",
+                policy=_inspection_policy(args),
+            ) as stable:
+                inventory = inspect_media(stable.snapshot_path)
             tracks = [
                 stream for stream in inventory["streams"] if stream["codec_type"] == "subtitle"
             ]

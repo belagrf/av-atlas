@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://av-atlas.local/schemas/stable-input/1.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "contract_version", "source", "authorization", "acquisition", "lifecycle", "privacy"],
+  "properties": {
+    "schema_version": {"const": "1.0.0"},
+    "contract_version": {"const": "av-atlas-stable-input/1.0.0"},
+    "source": {
+      "type": "object", "additionalProperties": false,
+      "required": ["source_id", "sha256", "size_bytes"],
+      "properties": {
+        "source_id": {"type": "string", "pattern": "^SRC_[A-F0-9]{12}$"},
+        "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "size_bytes": {"type": "integer", "minimum": 1}
+      }
+    },
+    "authorization": {
+      "type": "object", "additionalProperties": false,
+      "required": ["run_mode", "fixture_status", "rights_manifest_hash"],
+      "properties": {
+        "run_mode": {"enum": ["analysis", "evaluation"]},
+        "fixture_status": {"enum": ["authorized_controlled_fixture", "not_fixture"]},
+        "rights_manifest_hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+      }
+    },
+    "acquisition": {
+      "type": "object", "additionalProperties": false,
+      "required": ["method", "bytes_copied", "source_byte_ceiling", "temporary_storage_byte_ceiling", "nofollow_strategy", "source_identity_stable", "snapshot_hash_verified", "snapshot_source_id_verified", "fsync_completed", "private_directory_mode", "private_file_mode"],
+      "properties": {
+        "method": {"const": "private-file-descriptor-copy"},
+        "bytes_copied": {"type": "integer", "minimum": 1},
+        "source_byte_ceiling": {"type": "integer", "minimum": 1, "maximum": 68719476736},
+        "temporary_storage_byte_ceiling": {"type": "integer", "minimum": 1, "maximum": 68719476736},
+        "nofollow_strategy": {"enum": ["o_nofollow-plus-identity-checks", "lstat-open-fstat-identity-checks"]},
+        "source_identity_stable": {"const": true},
+        "snapshot_hash_verified": {"const": true},
+        "snapshot_source_id_verified": {"const": true},
+        "fsync_completed": {"const": true},
+        "private_directory_mode": {"const": "0700"},
+        "private_file_mode": {"const": "0600"}
+      }
+    },
+    "lifecycle": {
+      "type": "object", "additionalProperties": false,
+      "required": ["snapshot_is_canonical_artifact", "snapshot_retained", "cleanup", "resume_reacquires_fresh_snapshot"],
+      "properties": {
+        "snapshot_is_canonical_artifact": {"const": false},
+        "snapshot_retained": {"const": false},
+        "cleanup": {"const": "context-finally-and-bounded-marker-recovery"},
+        "resume_reacquires_fresh_snapshot": {"const": true}
+      }
+    },
+    "privacy": {
+      "type": "object", "additionalProperties": false,
+      "required": ["original_path_exported", "snapshot_path_exported"],
+      "properties": {
+        "original_path_exported": {"const": false},
+        "snapshot_path_exported": {"const": false}
+      }
+    }
+  }
+}

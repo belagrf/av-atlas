@@ -428,11 +428,16 @@ def validate_run(run_dir: Path, write_report: bool = True) -> dict[str, Any]:
                 validate_instance(schema, record, f"{filename}:{line_number}")
                 checks["json_schema"] += 1
         if (run_dir / "fixture_manifest.json").is_file():
+            fixture_value = _json(run_dir / "fixture_manifest.json")
             validate_instance(
                 "fixture_manifest",
-                _json(run_dir / "fixture_manifest.json"),
+                fixture_value,
                 "fixture_manifest.json",
             )
+            if fixture_value.get("content_sha256") != inventory.get("sha256") or fixture_value.get(
+                "source_id"
+            ) != inventory.get("source_id"):
+                raise AtlasError("controlled-fixture manifest is not linked to run source bytes")
             checks["json_schema"] += 1
         if (run_dir / "subtitle_tracks.json").is_file():
             validate_instance(
@@ -473,11 +478,53 @@ def validate_run(run_dir: Path, write_report: bool = True) -> dict[str, Any]:
             if (run_dir / filename).is_file() and not legacy_ocr:
                 validate_instance(schema, _json(run_dir / filename), filename)
                 checks["json_schema"] += 1
+        if (run_dir / "stable_input.json").is_file():
+            validate_instance(
+                "stable_input", _json(run_dir / "stable_input.json"), "stable_input.json"
+            )
+            checks["json_schema"] += 1
     except AtlasError as exc:
         errors.append(str(exc))
 
     if manifest and inventory:
         checks["rights_linkage"] += 1
+        stable_path = run_dir / "stable_input.json"
+        software_version = str(manifest.get("software", {}).get("av_atlas", "0.0.0"))
+        try:
+            version_parts = tuple(int(item) for item in software_version.split(".")[:3])
+        except ValueError:
+            version_parts = (0, 0, 0)
+        if version_parts >= (0, 2, 2) and not stable_path.is_file():
+            errors.append("M2B.2 run omits required stable_input.json receipt")
+        if version_parts >= (0, 2, 2) and "stable_input.json" not in manifest.get("artifacts", {}):
+            errors.append("M2B.2 run manifest omits the stable-input receipt artifact")
+        if stable_path.is_file():
+            try:
+                stable = _json(stable_path)
+                if (
+                    stable.get("source", {}).get("sha256") != inventory.get("sha256")
+                    or stable.get("source", {}).get("source_id") != inventory.get("source_id")
+                    or stable.get("source", {}).get("size_bytes") != inventory.get("size_bytes")
+                ):
+                    errors.append("stable-input receipt source identity disagrees with inventory")
+                if stable.get("authorization", {}).get("run_mode") != manifest.get("operation"):
+                    errors.append("stable-input receipt run mode disagrees with run manifest")
+                if stable.get("authorization", {}).get("rights_manifest_hash") != manifest.get(
+                    "rights", {}
+                ).get("manifest_hash"):
+                    errors.append("stable-input receipt rights linkage disagrees with run manifest")
+                config = BaselineConfig.load(run_dir / "config.snapshot.yaml")
+                acquisition = stable.get("acquisition", {})
+                if acquisition.get("bytes_copied") != stable.get("source", {}).get("size_bytes"):
+                    errors.append("stable-input receipt copied-byte count disagrees with source")
+                if (
+                    acquisition.get("source_byte_ceiling") != config.max_source_bytes
+                    or acquisition.get("temporary_storage_byte_ceiling")
+                    != config.max_temporary_storage_bytes
+                ):
+                    errors.append("stable-input receipt ceilings disagree with run configuration")
+            except (AtlasError, AttributeError, TypeError, ValueError, OverflowError) as exc:
+                errors.append(f"cannot verify stable-input receipt linkage: {exc}")
 
     duration_ms = int(inventory.get("duration_ms", 0))
     provisional_by_id = {record.get("event_id"): record for record in provisional}

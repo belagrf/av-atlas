@@ -18,3 +18,9 @@ evidence, and no media text becomes an instruction.
 
 No project license has yet been selected. Public visibility permits inspection of the source but
 does not grant reuse rights beyond applicable law.
+
+M2B.2 private stable-input roots, ownership markers, transient snapshots, and crash residue are
+local processing material and must never be tracked, archived, attached, or published. Public runs
+may include only the schema-valid path-free `stable_input.json` receipt. That receipt carries the
+canonical source hash/ID, verified method, byte ceilings, and lifecycle assertions; it contains no
+operator or snapshot path and does not make the snapshot source evidence.

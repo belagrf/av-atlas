@@ -36,3 +36,16 @@ Changing retention, operation permission, expiry, source identity, or the declar
 after interruption invalidates resume before any new derivative is created. The self-checksum is
 not an authenticated signature; an operator assertion remains an assertion. Raw-frame retention is
 false-only pending a separately reviewed derivative lifecycle and deletion design.
+
+M2B.2 treats a transient processing copy conservatively: non-fixture acquisition requires the same
+analysis plus derivative-retention closure as analysis runs, and standalone `inspect` and
+`inspect-subtitles` use that closure. Evaluation adds evaluation permission; pilot preparation also
+requires annotation. This does not add or imply a `temporary_processing_copy` permission under the
+rights 1.0 schema. The snapshot is private, noncanonical, excluded from the run artifact map, and
+deleted before successful completion. New runs retain no operator source path and interrupted
+resume requires the exact source again. Source-adjacent sidecars are accepted only for an exact
+hash-bound controlled fixture.
+
+The pilot remains unexecuted. Issues [#11](https://github.com/belagrf/av-atlas/issues/11) and
+[#12](https://github.com/belagrf/av-atlas/issues/12) stay open pending review and merge of the
+M2B.2 implementation; neither issue closure nor legal sufficiency is inferred on this branch.

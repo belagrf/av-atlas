@@ -239,6 +239,117 @@ def test_explicit_subtitle_track_selection(
     assert statuses == {"TRACK_0002": "not_selected", "TRACK_0003": "extracted"}
 
 
+def test_run_native_parser_arguments_never_contain_original_media_path(
+    controlled_media: Path,
+    project_root: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    real_run = subprocess.run
+    argument_lists: list[list[str]] = []
+
+    def capture(
+        arguments: list[str], *args: object, **kwargs: object
+    ) -> subprocess.CompletedProcess:  # type: ignore[type-arg]
+        argument_lists.append([str(item) for item in arguments])
+        return real_run(arguments, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(subprocess, "run", capture)
+    run_dir = tmp_path / "snapshot-only"
+    assert (
+        main(
+            [
+                "run",
+                str(controlled_media),
+                "--config",
+                str(project_root / "configs/m2a.yaml"),
+                "--output",
+                str(run_dir),
+            ]
+        )
+        == 0
+    )
+    original = str(controlled_media)
+    assert all(original not in arguments for arguments in argument_lists)
+    media_parser_calls = [
+        arguments
+        for arguments in argument_lists
+        if Path(arguments[0]).name in {"ffprobe", "ffmpeg"}
+        and any(Path(argument).name == "source.snapshot" for argument in arguments)
+    ]
+    assert media_parser_calls
+    snapshot_arguments = [
+        argument
+        for arguments in media_parser_calls
+        for argument in arguments
+        if Path(argument).name == "source.snapshot"
+    ]
+    assert all(not Path(argument).exists() for argument in snapshot_arguments)
+
+
+def test_authorized_nonfixture_run_uses_only_snapshot_and_exports_no_input_paths(
+    controlled_media: Path,
+    project_root: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    media = tmp_path / "operator;$(inert).mkv"
+    media.write_bytes(controlled_media.read_bytes())
+    rights = _rights(
+        media,
+        tmp_path / "rights.json",
+        {"analysis", "derivative_artifact_retention"},
+    )
+    real_run = subprocess.run
+    argument_lists: list[list[str]] = []
+
+    def capture(
+        arguments: list[str], *args: object, **kwargs: object
+    ) -> subprocess.CompletedProcess:  # type: ignore[type-arg]
+        argument_lists.append([str(item) for item in arguments])
+        return real_run(arguments, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(subprocess, "run", capture)
+    run_dir = tmp_path / "authorized-nonfixture"
+    assert (
+        main(
+            [
+                "run",
+                str(media),
+                "--config",
+                str(project_root / "configs/m2a.yaml"),
+                "--rights-manifest",
+                str(rights),
+                "--output",
+                str(run_dir),
+            ]
+        )
+        == 0
+    )
+    parser_calls = [
+        arguments
+        for arguments in argument_lists
+        if Path(arguments[0]).name in {"ffprobe", "ffmpeg", "tesseract"}
+    ]
+    assert parser_calls
+    original = str(media).encode()
+    snapshots = {
+        argument
+        for arguments in parser_calls
+        for argument in arguments
+        if Path(argument).name == "source.snapshot"
+    }
+    assert snapshots
+    assert all(str(media) not in arguments for arguments in parser_calls)
+    assert all(not Path(snapshot).exists() for snapshot in snapshots)
+    private_values = [original, *(snapshot.encode() for snapshot in snapshots)]
+    for artifact in run_dir.rglob("*"):
+        if artifact.is_file():
+            content = artifact.read_bytes()
+            assert all(value not in content for value in private_values), artifact
+    assert not (tmp_path / "inert").exists()
+
+
 @pytest.mark.parametrize(
     ("mutation", "expected"),
     [

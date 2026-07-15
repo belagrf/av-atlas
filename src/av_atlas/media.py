@@ -9,12 +9,15 @@ from fractions import Fraction
 from pathlib import Path
 from typing import Any
 
-from av_atlas.errors import AtlasError
+from av_atlas.errors import AtlasError, redact_private_paths
 from av_atlas.io import sha256_file, source_id_from_sha256
 
 
 def _run(
-    arguments: list[str], timeout_seconds: int = 30, max_output_chars: int = 4_000_000
+    arguments: list[str],
+    timeout_seconds: int = 30,
+    max_output_chars: int = 4_000_000,
+    private_paths: tuple[Path, ...] = (),
 ) -> subprocess.CompletedProcess[str]:
     try:
         completed = subprocess.run(
@@ -29,9 +32,12 @@ def _run(
         raise AtlasError(f"required executable not found: {arguments[0]}") from exc
     except subprocess.CalledProcessError as exc:
         detail = (exc.stderr or exc.stdout or "unknown error").strip().splitlines()[-1]
+        detail = redact_private_paths(detail, *private_paths)
         raise AtlasError(f"{arguments[0]} failed: {detail}") from exc
     except subprocess.TimeoutExpired as exc:
         raise AtlasError(f"{arguments[0]} exceeded the {timeout_seconds}s decode budget") from exc
+    except OSError as exc:
+        raise AtlasError("native media tool could not be started safely") from exc
     if len(completed.stdout) + len(completed.stderr) > max_output_chars:
         raise AtlasError(f"{arguments[0]} exceeded the metadata output-size limit")
     return completed
@@ -54,7 +60,7 @@ def _milliseconds(value: Any) -> int | None:
 
 def inspect_media(path: Path) -> dict[str, Any]:
     if not path.is_file():
-        raise AtlasError(f"media source is not a regular file: {path}")
+        raise AtlasError("authorized media input is not a regular file")
     executable = shutil.which("ffprobe")
     if executable is None:
         raise AtlasError("ffprobe is required; install FFmpeg or use tested sidecar fixtures")
@@ -70,7 +76,8 @@ def inspect_media(path: Path) -> dict[str, Any]:
             "json",
             "--",
             str(path),
-        ]
+        ],
+        private_paths=(path,),
     )
     try:
         raw: dict[str, Any] = json.loads(completed.stdout)

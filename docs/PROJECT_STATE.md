@@ -22,6 +22,10 @@ Last verified: 2026-07-15 (Europe/Berlin)
   configuration, coherent partial results, actual chunk provenance, immutable raw OCR plus secondary
   temporal tracks, complete derived-artifact validation, path privacy, and clean-checkout CI are
   complete for the synthetic controlled baseline. Real-media evaluation remains pending.
+- **M2B.2 — implementation complete on an unmerged review branch.** Supported media entry points
+  now authorize parser-free, acquire and verify a private bounded byte snapshot, route native
+  parsers only to that snapshot, rights-gate standalone inspection, clean/recover leases safely,
+  and retain only a path-free receipt. Issues 11/12 remain open pending PR review and merge.
 - **M2 — in progress, not complete.** ASR/alignment, diarization, acoustic,
   and semantic visual perception, a human-adjudicated pilot, direct-VLM/loose-baseline comparisons,
   and the full M2 continuation gate in `AV-Atlas_GOAL.md` have not been delivered.
@@ -953,3 +957,156 @@ The release branch then repeated all prescribed gates on its documentation and r
 tree: 19 packages resolved, 18 checked offline, 44 files formatted, Ruff and mypy clean, 140 tests
 passed in 42.39 seconds, and doctor passed. Publication metadata changes do not alter production
 processing behavior.
+
+## 2026-07-15 — M2B.2 stable authorized input and rights-gated inspection
+
+Issue [#14](https://github.com/belagrf/av-atlas/issues/14) and its approved design review were
+implemented on `feat/m2b2-stable-input`. This is an unmerged review increment. Issues 11 and 12
+remain open until review and merge; neither accepted tag or release changed. Package version 0.2.2
+adds stable-input contract `av-atlas-stable-input/1.0.0`, receipt schema 1.0.0, configuration schema
+ID 1.2.0, and `configs/m2b2.yaml`. Rights-manifest schema/vocabulary remains 1.0.0.
+
+The shared service opens a regular non-symlink source, uses `O_NOFOLLOW` where available, streams
+SHA-256 through one file descriptor, derives the canonical source ID, and completes fixture or
+explicit-rights permission closure before a parser call. It then copies from that descriptor into a
+unique 0700 directory/0600 regular file, enforces the configured source and temporary byte ceilings
+before and during copying, handles partial writes, hashes while writing, fsyncs, independently
+rehashes, and verifies size/hash/source ID plus pre/post descriptor/path identity. It never uses a
+hard link. Defaults are 8 GiB for each ceiling and the schema cap is 64 GiB. Unsupported non-POSIX
+directory-descriptor/`flock` platforms fail closed.
+
+`run`, `resume`, `inspect`, `inspect-subtitles`, and pilot preparation use that service. FFprobe and
+FFmpeg receive only `source.snapshot`; Tesseract receives only snapshot-derived keyframes. Original
+source identity remains canonical. Non-fixture inspection requires analysis plus derivative
+retention; controlled fixtures auto-authorize only through an exact hash-bound marker. Pilot
+preflight authorizes all three sources and pins each rights-manifest checksum before parsing any
+source. Source-adjacent sidecars are fixture-only. `inspect --output` is create-only and rejects a
+source, hard link, symlink, or existing target before parser invocation.
+
+`stable_input.json` is path-free, manifest-tracked metadata; the snapshot is not an artifact or
+evidence. Successful completion is written only after cleanup. Failure, timeout, and handled
+interruption clean the lease. Bounded recovery inspects at most 64 candidate names and removes at
+most 16 recognized inactive, locked-marker leases per invocation through pinned directory file
+descriptors, with deletion fsync ordering and no recursive traversal/symlink following. Resume runs
+recovery before persisted-rights failure, then reacquires a fresh snapshot from required `--media`;
+one invocation performs only one recovery pass.
+
+Final local gates on the completed source were:
+
+```text
+uv lock --check
+  Resolved 19 packages
+uv sync --extra dev --locked --offline
+  Resolved 19 packages; checked 18 packages
+uv run ruff format --check .
+  47 files already formatted
+uv run ruff check .
+  All checks passed
+uv run mypy src
+  Success: no issues found in 22 source files
+uv run pytest -q
+  199 passed in 66.81s; no skips or failures
+uv run av-atlas doctor
+  exit 0; FFmpeg/ffprobe and operator-installed Tesseract/English data available
+```
+
+Focused authorization, hostile-mutation, stable-input, pilot, inspection, M1/M2A, cleanup,
+compatibility, and privacy suites also passed (100 tests in the independent source audit; the final
+complete suite above is authoritative). Regressions cover absent/stale/mismatched/expired or
+insufficient rights; parser/subprocess zero calls; source mutation/replacement/growth/truncation;
+symlinks; byte limits; partial writes; hash mismatch; shell metacharacters; private modes; success,
+failure, timeout, and `KeyboardInterrupt` cleanup; live/malformed/unknown/symlink stale entries;
+scan/removal bounds; descriptor leaks; crash-consistent deletion order; parent replacement;
+unsupported platforms; fresh resume; cleanup failure preventing completion; output collisions;
+pilot all-source and checksum linkage; snapshot-only parser arguments; full-run path privacy; and
+pre-0.2.2 stable-receipt compatibility.
+
+Fresh ignored controlled commands used new `tests/fixtures/generated/m2b2-final-20260715` and
+`runs/m2b2-final-20260715` paths. They regenerated M1, M2A (including edge fixtures, explicit
+synthetic rights, inspection, subtitle inspection, and component evaluation), M2B, M2B.1, and
+M2B.2; ran OCR evaluation and 1/2/4-worker benchmarks for each OCR baseline; and validated every
+run. M1/M2A/M2B/M2B.1/M2B.2 recorded respectively 18/32/69/69/69 artifact hashes and zero errors.
+M2B/M2B.1/M2B.2 each emitted 13 immutable raw OCR observations and 13 secondary temporal tracks.
+The accepted v1 and v1.1 ignored runs validated read-only with 64 and 68 artifact hashes and zero
+errors.
+
+The M2B.2 controlled evaluation measured exact match 0.75, normalized CER 0.0125, normalized WER
+0.07692307692307693, text-presence precision/recall/F1 1/1/1, 13 observations, 13 tracks, zero
+exact duplicates, temporal repeats, unresolved track evidence, prediction-only/gold-only frames,
+invalid timestamps, retries, or timeouts. Wall/CPU/peak RSS/throughput were 1.951492 s, 1.931623 s,
+180,556 KiB, and 2.0497142805419646 frames/s. Region precision/recall/IoU remain unsupported because
+the frozen gold regions are empty. These are four-frame synthetic engineering measurements, not
+real-media OCR accuracy.
+
+The M2B.2 1/2/4-worker wall times were 1.939312/1.695935/1.607338 s; CPU times were
+1.919016/1.955704/2.043362 s; peak RSS was 180,556 KiB for each; and throughput was
+2.062587553793115/2.35858031584715/2.4885864574906273 frames/s. Every run produced 13 observations,
+zero failures/timeouts/retries, identical quality metrics, and accepted semantic output
+`f851aef0d8a1c215023cd71b38120a2f317a10be3dd24567f2f023449acd6060`.
+
+Fresh content and artifact hashes are:
+
+- fixture `6d1f79c6a63b6a8d5510bcd67a74e522096fe97b6c2bba68587f0213ccc682a8`;
+- gold `e62e392aa45406f939edc1f2093d07f1dcf175c0c4ea9085cbeae3edde50bc1a`;
+- M2B.2 configuration `9c0d2b71c928912671f10cee3c0b2e0676f2b5e81de7ca68962832ebfb99313b`;
+- stable-input schema `f224a23a375d607c2f1afd65693d5af7f5ed3bea4675ac1d6e99f0e30adfc265`;
+- configuration schema `142c27bbcc47feb56b736b2e4896725f5dfd676dd2f2d0b25f2a3004fe529ae5`;
+- stable-input receipt `206358e83b8dd57de60714fd059aa68f27eb7654e3edc32306f693f715d06232`;
+- raw OCR `f851aef0d8a1c215023cd71b38120a2f317a10be3dd24567f2f023449acd6060`;
+- temporal tracks `f27d60f51c06cead4d0b6159b47865fd635a010e2faba9902057ae1c9cd4b9c2`;
+- runtime-bearing evaluation `6c8ce51e4e19591de1798abb29a1888dab9c4ae9d4ec18f8f1a35e9c1a74b06d`;
+- runtime-bearing benchmark `29721b2b3d943bdbcaee9fb205c3d1693d804dd80df7fcfe4a34741e5dea221a`;
+- sanitized OCR dependency `5ab8663ce63b7d6303ce84e3ec62ab3a9dd1ec55283e8f0c6852dd88740d5cce`;
+- unchanged BOM snapshot `abca366e47275ef2d5ff2825b53b0d47436e03a56e29a696f903cb194d188868`;
+- runtime-bearing run manifest `a02fe06c14932ba985f9da2cdc61a148617d87a4126941b0f01dd0ea01a72341`;
+- quality report `ee0936365cb0574518918e5a9d73826f039519c32a31ca9f709bdeae260b3b9d`.
+
+All files in completed and interrupted runs remained byte-identical after resume and repeated
+resume. SHA-256 over the sorted `sha256sum` map of every run file was respectively
+`fe480dc540df360147e3b6e62a0560e2ed73961dce4e821e07a77c85c78f585f` and
+`2c586d4910eca431afd915414912200d73983c21e82802b92690454b8a6cf2b4`.
+A binary-safe scan of every fresh run found no original absolute path, snapshot path/name, private-
+root prefix, or private residue. No real operator media was read.
+
+Accepted v1 identities remain fixture/gold/configuration/raw OCR/evaluation/benchmark/run manifest/
+release manifest
+`6d1f79c6a63b6a8d5510bcd67a74e522096fe97b6c2bba68587f0213ccc682a8`,
+`e62e392aa45406f939edc1f2093d07f1dcf175c0c4ea9085cbeae3edde50bc1a`,
+`8f5545df1c78e5845e19e3ae0299a86cc7c950cb9c3ba7e7b5fee217f1a45c55`,
+`f851aef0d8a1c215023cd71b38120a2f317a10be3dd24567f2f023449acd6060`,
+`a1011542165e3b8974857aaee68bbaa8185987cbb3ca0353ad4afecda38803ad`,
+`479087002a126b1d442ca2e4d768bafd3e266e9f542dba92a01ea075a3280455`,
+`6779769594db6a7457ee30b7d9ffbdacc8ec345120433125e7e846978359b440`, and
+`e545855c11ee23542939a35aecf03d00c6f12bbd056d6d4bcae43df139b7c9b2`.
+The v1/v1.1 annotated tag objects and commits remain respectively
+`8cadd6c8ecda7d0b6f60421f312c199cbad163e1` /
+`54d96dc25bdf03ab1e92d22150c5011faf16b7e6` and
+`8be328eef2fd10037b56921aff1f401c3ef3a12e` /
+`5d016784c6b3d7226a9f6e0f56cca9fb3ef48822`; v1.1 release-record SHA-256 remains
+`fbdc8e171811794d37bbdb018179ba736647795ed053d01cada4580fe5d29d73`.
+
+Changed tracked paths are `.gitignore`, `README.md`, `configs/m2b2.yaml`,
+`docs/PROJECT_STATE.md`, `docs/PUBLICATION_READINESS.md`, `docs/PUBLIC_ARTIFACT_POLICY.md`,
+`docs/PUBLIC_RELEASE_DECISION.md`, `docs/architecture.md`, `docs/data-governance.md`,
+`docs/decisions/ADR-0006-m2b2-stable-authorized-input.md`, `docs/dependency-bom.md`,
+`docs/evaluation.md`, `docs/ocr-annotation-guide.md`, `docs/publication-manifest.json`,
+`docs/releases/M2B_CONTROLLED_REPRODUCTION.md`, `docs/security.md`, `pyproject.toml`,
+`schemas/config.schema.json`, `schemas/stable-input.schema.json`, `src/av_atlas/__init__.py`,
+`src/av_atlas/adapters.py`, `src/av_atlas/cli.py`, `src/av_atlas/config.py`,
+`src/av_atlas/errors.py`, `src/av_atlas/io.py`, `src/av_atlas/media.py`,
+`src/av_atlas/ocr_pilot.py`, `src/av_atlas/pipeline.py`, `src/av_atlas/rights.py`,
+`src/av_atlas/schemas.py`, `src/av_atlas/shots.py`, `src/av_atlas/stable_input.py`,
+`src/av_atlas/subtitles.py`, `src/av_atlas/validation.py`,
+`tests/integration/test_end_to_end.py`, `tests/integration/test_m2a_end_to_end.py`,
+`tests/unit/test_initial_authorization.py`, `tests/unit/test_media.py`,
+`tests/unit/test_ocr_pilot.py`, `tests/unit/test_rights.py`,
+`tests/unit/test_rights_gated_inspection.py`, `tests/unit/test_stable_input.py`, and `uv.lock`.
+
+Remaining limitations are the lack of an OS/native-parser sandbox, protection from a hostile
+same-UID process, support for growing/live input and non-POSIX directory-descriptor platforms,
+retained-frame lifecycle, authenticated rights signatures, trusted fixture-marker authorship,
+authorized double-annotated real-media evaluation, and project-license/patent/publication decisions.
+Low-level parser helpers accept ordinary paths; snapshot routing is enforced by supported
+orchestration entry points. M2B.2 does not close issues 11/12 on this branch. No pilot, model or
+checkpoint download, GPU use, cloud/paid API, training, M2C work, semantic-vision claim, or full-M2
+completion occurred.

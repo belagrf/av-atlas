@@ -5,7 +5,8 @@ does not grant reuse rights beyond applicable law. AV-Atlas is therefore not cur
 open source.
 
 AV-Atlas is an evidence-first research implementation for comprehensive audiovisual
-transcription. This repository implements M0/M1, M2A, and the bounded M2B frame-OCR increment. The original M1 path
+transcription. This repository implements M0/M1, M2A, the bounded M2B frame-OCR increment, and an
+M2B.2 stable-input hardening candidate. The original M1 path
 remains available:
 deterministic synthetic media is inventoried, chunked, sampled, combined with production-shaped
 sidecar perception adapters, and written as a validated evidence ledger plus derived transcript and
@@ -66,13 +67,25 @@ uv run av-atlas validate runs/m2a-demo
 uv run av-atlas resume runs/m2a-demo
 ```
 
+Controlled fixtures auto-authorize only when their marker matches the exact bytes. For any other
+local source, standalone inspection is rights-gated too:
+
+```bash
+uv run av-atlas inspect LOCAL_MEDIA --rights-manifest LOCAL_RIGHTS
+uv run av-atlas inspect-subtitles LOCAL_MEDIA --rights-manifest LOCAL_RIGHTS
+```
+
+`inspect --output` is create-only. It refuses an existing path, symlink, or hard link so inspection
+cannot replace the source or another file.
+
 Non-fixture media is refused without `--rights-manifest`. Executable `run` modes are distinct from
 the broader rights vocabulary: `analysis` requires analysis plus derivative retention, while
 `evaluation` requires analysis, evaluation, and derivative retention. Annotation, training,
 derivative retention, and redistribution are permissions but are not executable run modes.
 Declarations are content-hash-bound and operator IDs are hashed; they are operator
-assertions, not legal conclusions. When a source is outside the run directory's parent, its path is
-not retained and interrupted resume requires `resume RUN --media MEDIA`.
+assertions, not legal conclusions. New runs never retain an external source path. Interrupted
+resume therefore requires `resume RUN --media MEDIA`; the exact bytes, rights linkage, and
+permissions are rechecked before a fresh private snapshot is acquired.
 
 `run` refuses to overwrite a nonempty directory. `resume RUN_DIR` completes an interrupted run and
 is a no-op for a completed run. The checked-in tests simulate interruption at the inventory
@@ -110,15 +123,15 @@ limits, component metrics, and M2A resume/determinism.
 - `required executable not found`: install the system FFmpeg package and rerun `doctor`.
 - `required deterministic fixture font is unavailable`: install DejaVu Sans. This explicit failure
   avoids silently creating a different fixture.
-- `no sidecar observations are available`: M1 intentionally supports deterministic sidecars only;
-  use `make-fixture` or supply a schema-compatible `.observations.json` beside the media.
+- `no sidecar observations are available`: M1 sidecars are accepted only for an exact hash-bound
+  controlled fixture; use `make-fixture` rather than placing an arbitrary sidecar beside media.
 - `run directory is not empty`: choose a new output directory or validate/resume the existing run.
 - validation errors are actionable and return a nonzero status; inspect `quality_report.json` for
   schema, evidence, time, revision, or hash failures.
 - `non-fixture media requires --rights-manifest`: create an operator declaration with `make-rights`;
   do not select permissions you do not actually possess.
-- `resume requires --media`: the source path was intentionally not retained outside the bounded run
-  parent; provide the original exact file, whose hash is rechecked.
+- `resume requires --media`: the source path was intentionally not retained; provide the original
+  exact file, whose hash and rights are rechecked before a fresh snapshot is acquired.
 
 See [architecture](docs/architecture.md), [security](docs/security.md),
 [data governance](docs/data-governance.md), and [project state](docs/PROJECT_STATE.md).
@@ -162,9 +175,27 @@ rights `manifest_hash` is an integrity checksum, not an authenticated signature.
 OCR inventories redact full paths; `inspect-ocr --local-private-diagnostic` is explicitly local and
 must not be attached to a public run.
 
-Initial `run` authorization completes before FFprobe, and the resulting inventory must reproduce
-the preflight hash and source ID. A concurrent same-path modification race remains until a stable
-input mechanism is implemented.
+M2B.2 `run`, `resume`, `inspect`, `inspect-subtitles`, and pilot preparation authorize and hash a
+regular non-symlink source before creating a bounded 0600 byte-for-byte copy in a unique 0700
+directory. Source and temporary-copy defaults are each 8 GiB (`configs/m2b2.yaml`); neither may
+exceed 64 GiB. FFprobe and FFmpeg see only the verified snapshot, and Tesseract sees only frames
+derived from it. `stable_input.json` records a versioned, path-free receipt while the snapshot is
+deleted before successful completion. Interrupted resume always reacquires a fresh snapshot:
+
+```bash
+uv run av-atlas run tests/fixtures/generated/m2b/m2b_ocr_controlled.mkv \
+  --config configs/m2b2.yaml --output runs/m2b2-controlled
+uv run av-atlas validate runs/m2b2-controlled
+uv run av-atlas resume runs/m2b2-controlled --media \
+  tests/fixtures/generated/m2b/m2b_ocr_controlled.mkv
+```
+
+Crash recovery examines only a bounded set of marker-recognized inactive private leases; it never
+recursively deletes an unrecognized directory or follows a symlink. `SIGKILL`/power loss, same-UID
+hostility, native-parser sandboxing, growing livestream input, and retained-frame lifecycle remain
+limitations. Supported entry points enforce snapshot routing, while low-level internal parser
+helpers still accept plain paths.
+
 Temporal OCR tracks are validated relationally against immutable raw observations; malformed
 parallel arrays become actionable quality-report errors rather than validator tracebacks.
 
@@ -172,6 +203,9 @@ M2B.1 status: “M2B.1 rights, configuration, partial-result, provenance, tempor
 privacy, and clean-checkout hardening complete for the controlled synthetic baseline. Authorized
 real-media evaluation remains pending.” This describes four synthetic frames and 13 OCR
 observations only. It establishes no real-media accuracy, semantic understanding, or trained-model
-capability. Full M2 is incomplete, and M2C is unimplemented. The real-media pilot remains gated by
+capability. M2B.2 stable-input and rights-gated inspection are implemented on this review branch,
+not released or merged. Full M2 is incomplete, and M2C is unimplemented. The real-media pilot
+remains gated by
 [stable-input security issue #11](https://github.com/belagrf/av-atlas/issues/11) and
-[standalone-inspection governance issue #12](https://github.com/belagrf/av-atlas/issues/12).
+[standalone-inspection governance issue #12](https://github.com/belagrf/av-atlas/issues/12) until
+this M2B.2 pull request is reviewed and merged. No pilot media was processed.

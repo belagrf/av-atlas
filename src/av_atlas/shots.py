@@ -12,7 +12,7 @@ from typing import Any
 from av_atlas.adapters import AdapterContext
 from av_atlas.config import BaselineConfig
 from av_atlas.contracts import AdapterResult, Observation
-from av_atlas.errors import AtlasError, ResourceLimitError
+from av_atlas.errors import AtlasError, ResourceLimitError, redact_private_paths
 from av_atlas.io import sha256_file, write_jsonl
 
 FRAME_WIDTH = 64
@@ -85,8 +85,12 @@ def _decode_frames(media: Path, config: BaselineConfig, duration_ms: int) -> lis
     except subprocess.TimeoutExpired as exc:
         raise ResourceLimitError("shot decoding exceeded the configured decode budget") from exc
     except subprocess.CalledProcessError as exc:
-        detail = (exc.stderr or b"unknown video decode error").decode(errors="replace")
+        detail = redact_private_paths(
+            (exc.stderr or b"unknown video decode error").decode(errors="replace"), media
+        )
         raise AtlasError(f"shot decoding failed: {detail.strip().splitlines()[-1]}") from exc
+    except OSError as exc:
+        raise AtlasError("shot decoding could not start safely") from exc
     if len(completed.stdout) > maximum_frames * FRAME_BYTES:
         raise ResourceLimitError("shot decoding exceeded the configured frame-count limit")
     complete_size = len(completed.stdout) - len(completed.stdout) % FRAME_BYTES
@@ -208,8 +212,13 @@ def _extract_keyframe(media: Path, path: Path, timestamp_ms: int, timeout_second
         ) from exc
     except subprocess.CalledProcessError as exc:
         path.unlink(missing_ok=True)
-        detail = (exc.stderr or b"unknown keyframe error").decode(errors="replace")
+        detail = redact_private_paths(
+            (exc.stderr or b"unknown keyframe error").decode(errors="replace"), media
+        )
         raise AtlasError(f"keyframe extraction failed: {detail.strip().splitlines()[-1]}") from exc
+    except OSError as exc:
+        path.unlink(missing_ok=True)
+        raise AtlasError("keyframe extraction could not start safely") from exc
     if not path.is_file() or path.stat().st_size == 0:
         raise AtlasError("keyframe extraction produced no image")
     if path.stat().st_size > 8_000_000:

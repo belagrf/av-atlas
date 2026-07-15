@@ -34,3 +34,10 @@ presence false positives rather than being mislabeled as timestamp errors. Gold-
 false negatives, no-text frames remain explicit negatives, and zero-record adapter correctness is
 checked from structured state rather than by vacuous `all([])`. The accepted four-frame v1 gold and
 historical metrics are unchanged; new metrics belong to the additive hardening report.
+
+M2B.2 adds engineering validation of authorized-byte stability rather than an OCR quality metric.
+Tests cover descriptor-bound acquisition, source/snapshot identity, parser zero-call denial,
+snapshot-only native arguments, private modes, cleanup and bounded recovery, interruption/fresh
+resume, path-free receipts and exports, and accepted v1/v1.1 run validation. The frozen fixture,
+gold, normalization, OCR metric definitions, observations, and accepted quality claims do not
+change. No M2B.2 result is evidence of real-media accuracy or semantic perception.

@@ -16,19 +16,25 @@ counts, subprocess timeouts, keyframe count/size limits, run-controlled output p
 keyframe cleanup. Source files are never modified. Media-borne subtitle and prompt-injection text is
 copied only into evidence fields and cannot select tools, permissions, configuration, or commands.
 
-Initial runs perform a parser-free authorization preflight before FFprobe. The preflight hashes the
-regular file, derives its canonical source ID, verifies a hash-bound fixture marker or explicit
-rights schema/checksum/source/operation/retention/expiry declaration, and creates no run directory.
-Only then may FFprobe run. Its inventory hash and source ID must equal the preflight identity, so a
-source change is refused before any derivative is created. Tests use explicit subprocess sentinels
-to prove a zero-call path for missing, stale, mismatched, denied, retention-denied, and expired
-authorization.
+M2B.2 performs parser-free authorization and stable acquisition before FFprobe. It rejects a
+non-regular or symlink source, opens with `O_NOFOLLOW` where available, hashes through one
+descriptor, derives the canonical source ID, and verifies the fixture marker or explicit rights
+schema, checksum, source, permission closure, retention, and expiry. The same descriptor supplies a
+bounded byte-for-byte copy in a unique 0700 directory and 0600 file. Source and temporary ceilings
+apply before and during copying. Pre/post descriptor and pathname metadata detect mutation,
+replacement, growth, and truncation; copied and independently reread hashes, sizes, and source IDs
+must match. Only then may FFprobe or FFmpeg receive the snapshot path. Tesseract receives snapshot-
+derived keyframes. Tests use subprocess sentinels to prove zero native-parser calls for missing,
+stale, mismatched, denied, retention-denied, expired, mutated, and replaced inputs.
 
-Authorization completes before parser invocation, and post-inspection identity verification
-detects source changes. A concurrent same-path modification race remains until a stable-input
-mechanism is implemented. The design options and real-media-pilot blocker are tracked in public
-security issue [#11](https://github.com/belagrf/av-atlas/issues/11); current checks must not be
-described as an immutable-byte parser guarantee.
+The path-free stable-input receipt records the verified method and policy, not original/snapshot
+paths. Native error details redact private paths. Run completion occurs only after the snapshot is
+removed. Ordinary exceptions, adapter failures, timeouts, and handled interruption execute the same
+cleanup. A locked marker supports bounded startup recovery after `SIGKILL` or power loss: only
+recognized inactive private entries are removed, via pinned directory descriptors, without
+recursive traversal or symlink following. Unrecognized and live entries remain untouched.
+`inspect --output` is exclusively created after parsing and never replaces an existing path;
+source, hard-link, symlink, and pre-existing-output collisions fail before parser invocation.
 
 FFmpeg remains an attack surface. These budgets are defense-in-depth, not an OS sandbox. Production
 processing of adversarial media still requires operating-system isolation, CPU/memory/file quotas,
@@ -43,8 +49,9 @@ timeouts, shell metacharacters, symlinks, prompt isolation, and cleanup. These c
 OS sandbox. OCR text—including prompt-like text—remains inert evidence.
 
 Pilot preparation rechecks exact source hashes and four permissions before frame extraction,
-rejects out-of-range or duplicate timestamps, invokes FFmpeg with an argument array and timeout,
-and removes a partial output package on failure. Pilot OCR rechecks rights, frame hashes, and the
+authorizes every source before parsing any source, rejects out-of-range or duplicate timestamps,
+and invokes FFprobe/FFmpeg only on one verified private snapshot at a time. It removes both the
+snapshot and a partial output package on failure. Pilot OCR rechecks rights, frame hashes, and the
 frozen configuration. Media paths appear only in the operator's local input specification; tracked
 manifests export hash-derived source IDs. Separate annotator packages prevent accidental disclosure
 of the other submission, but their operational delivery remains the operator's responsibility.
@@ -67,3 +74,11 @@ Ordinary OCR dependency artifacts contain hashes, basenames, and path classes, n
 operator-home paths or a raw `TESSDATA_PREFIX`. Full paths require the explicitly local/private
 diagnostic option. Package licenses are identified only when installed metadata was actually read;
 unknown status remains explicit.
+
+Stable input is risk reduction, not a native-parser sandbox. A same-UID hostile process can modify
+files that share its account, and low-level parser helpers still accept plain paths even though all
+supported entry points route verified snapshots. Acquisition fails closed on platforms without the
+required POSIX directory-descriptor and `flock` primitives. A growing live source and a retained-frame
+lifecycle remain unsupported. Issues [#11](https://github.com/belagrf/av-atlas/issues/11) and
+[#12](https://github.com/belagrf/av-atlas/issues/12) remain open until this implementation is
+reviewed and merged; the real-media pilot has not begun.

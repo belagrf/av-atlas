@@ -117,3 +117,30 @@ The `m2b-controlled-v1` tag predates the public-CI clean-checkout test fix. The 
 published release remain immutable and are not retargeted by M2B.1. The separately authorized v1.1
 patch incorporates the clean-checkout fix and reviewed hardening changes at a new tag and commit.
 The accepted v1 hashes remain historical release evidence; they are not silently regenerated.
+
+## Additive M2B.2 review replay (not a release)
+
+M2B.2 does not retarget either accepted tag or alter the frozen v1 fixture, gold, normalization,
+metrics, or `configs/m2b.yaml`. From the review branch, regenerate the controlled fixture and use
+the separately versioned stable-input configuration in fresh ignored paths:
+
+```bash
+uv run av-atlas make-fixture --profile m2b --output tests/fixtures/generated/m2b2-review
+uv run av-atlas run tests/fixtures/generated/m2b2-review/m2b_ocr_controlled.mkv \
+  --config configs/m2b2.yaml --output runs/m2b2-review
+uv run av-atlas evaluate-ocr runs/m2b2-review tests/gold/m2b-ocr-controlled.gold.json
+uv run av-atlas benchmark-ocr runs/m2b2-review tests/gold/m2b-ocr-controlled.gold.json
+uv run av-atlas validate runs/m2b2-review
+```
+
+Confirm that `stable_input.json` validates against stable-input schema 1.0, contains no path, and
+matches inventory source hash/ID/size plus the run rights link and configured byte ceilings. Scan
+every run file for the original absolute path, `source.snapshot`, and the private-root prefix. The
+private root must contain no lease after completion. Run a second fresh directory with
+`--stop-after inventory`, resume with the exact `--media` path, and compare every file after first
+and repeated resume. Also validate accepted v1/v1.1 runs with `write_report=False`; their lack of a
+stable-input receipt remains valid because their software versions predate 0.2.2.
+
+This is a fresh reproducibility replay in the same environment, not independent verification. It
+uses only project-authored synthetic media. It creates no tag or release and establishes no real-
+media accuracy, native-parser sandbox, trained-model capability, full M2 completion, or M2C work.

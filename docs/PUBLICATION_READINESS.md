@@ -62,3 +62,13 @@ sentinels (`/home/operator/...` and `operator@example.invalid`) whose tests prov
 private media, private derivative, private rights declaration, credential, personal path, or
 private annotation is included. The detached publication-manifest hash is computed after this final
 record and reported in release verification, avoiding a circular hash claim inside a hashed input.
+
+## M2B.2 pull-request candidate
+
+The M2B.2 candidate adds standard-library stable-input acquisition, a receipt schema, one explicit
+configuration, synthetic security/regression tests, and documentation. It adds no media, frame,
+audio, subtitle, annotation, rights workspace, traineddata, checkpoint, model, binary, or run
+directory. Private lease roots and snapshots are ignored and are not release artifacts. The final
+review scan and machine-readable manifest cover the proposed branch paths; exact gate counts,
+manifest hash, and clean-checkout CI/CodeQL results are recorded in `PROJECT_STATE.md` after
+measurement. This branch creates no release and does not alter the v1/v1.1 release records.

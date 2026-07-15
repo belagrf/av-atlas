@@ -21,7 +21,12 @@ Copy [the pilot specification template](templates/ocr-pilot-spec-v1.json) outsid
 uv run av-atlas pilot-prepare LOCAL_SPEC --output NEW_LOCAL_PILOT_DIR
 ```
 
-Preparation verifies exact source hashes and all four permissions before extracting frames, validates timestamp bounds, rejects duplicates, and exports only hash-derived source IDs. It does not run OCR. Source media is never copied. If extraction fails, the incomplete package is removed. The pilot manifest records exact frame hashes and the pre-registered split.
+Preparation verifies every exact source hash and all four permissions before parsing any source,
+validates timestamp bounds, rejects duplicates, and exports only hash-derived source IDs. It does
+not run OCR. The original source is never copied into the pilot package: FFprobe and FFmpeg operate
+on a verified private transient snapshot, which is deleted after each source. If extraction fails,
+the snapshot and incomplete package are removed. The pilot manifest records exact frame hashes and
+the pre-registered split.
 
 ## Independent annotation
 

@@ -12,7 +12,7 @@ from typing import Any
 
 from av_atlas.adapters import AdapterContext
 from av_atlas.contracts import AdapterResult, AdapterStatus, Observation
-from av_atlas.errors import AtlasError, ResourceLimitError
+from av_atlas.errors import AtlasError, ResourceLimitError, redact_private_paths
 from av_atlas.io import atomic_write_text, sha256_file, write_json, write_jsonl
 
 TEXT_CODECS = {"subrip", "srt", "webvtt", "ass", "ssa", "mov_text", "text"}
@@ -139,8 +139,12 @@ def _extract_track(media: Path, stream_index: int, timeout_seconds: int) -> str:
             "subtitle extraction exceeded the configured decode budget"
         ) from exc
     except subprocess.CalledProcessError as exc:
-        detail = (exc.stderr or "unknown subtitle decode error").strip().splitlines()[-1]
+        detail = redact_private_paths(
+            (exc.stderr or "unknown subtitle decode error").strip().splitlines()[-1], media
+        )
         raise AtlasError(f"subtitle extraction failed: {detail}") from exc
+    except OSError as exc:
+        raise AtlasError("subtitle extraction could not start safely") from exc
     if len(completed.stdout.encode("utf-8")) > 16_000_000:
         raise ResourceLimitError("subtitle extraction exceeded the 16 MB output limit")
     return completed.stdout

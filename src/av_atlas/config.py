@@ -32,6 +32,8 @@ class BaselineConfig:
     max_video_width: int = 4096
     max_video_height: int = 4096
     max_keyframes: int = 1000
+    max_source_bytes: int = 8 * 1024 * 1024 * 1024
+    max_temporary_storage_bytes: int = 8 * 1024 * 1024 * 1024
     ocr_enabled: bool = False
     ocr_executable: str = "auto"
     ocr_languages: tuple[str, ...] = ("eng",)
@@ -79,6 +81,10 @@ class BaselineConfig:
                 max_video_width=resources.get("max_video_width", 4096),
                 max_video_height=resources.get("max_video_height", 4096),
                 max_keyframes=resources.get("max_keyframes", 1000),
+                max_source_bytes=resources.get("max_source_bytes", 8 * 1024 * 1024 * 1024),
+                max_temporary_storage_bytes=resources.get(
+                    "max_temporary_storage_bytes", 8 * 1024 * 1024 * 1024
+                ),
                 ocr_enabled=ocr.get("enabled", False),
                 ocr_executable=ocr.get("executable", "auto"),
                 ocr_languages=tuple(ocr.get("languages", ["eng"])),
@@ -124,6 +130,8 @@ class BaselineConfig:
                 config.max_video_width,
                 config.max_video_height,
                 config.max_keyframes,
+                config.max_source_bytes,
+                config.max_temporary_storage_bytes,
             )
             <= 0
         ):

@@ -36,3 +36,12 @@ remains unresolved rather than inferred from release authorization.
 Security issue 11 and standalone-inspection governance issue 12 remain open pilot gates. Native
 parser isolation and retained-frame lifecycle also remain unresolved. Full M2 is incomplete, and
 M2C is unimplemented.
+
+## M2B.2 pull-request boundary
+
+The operator authorized public implementation of issue 14 on
+`feat/m2b2-stable-input` and an unmerged review pull request. This authorizes publication of the
+source, schemas, synthetic tests, ADR, and sanitized engineering documentation only. It does not
+authorize a tag or release, closure of issues 11/12 before review and merge, real-media processing,
+M2C, license selection, model/checkpoint use, or any private snapshot/run artifact. The immutable
+v1 and v1.1 tags, releases, fixtures, gold, configuration, and accepted artifacts are unchanged.
