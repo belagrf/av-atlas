@@ -167,9 +167,7 @@ def _run_mode(value: str) -> str:
     return value
 
 
-def _authorized_inventory(
-    media: Path, rights_manifest: Path | None
-) -> dict[str, Any]:
+def _authorized_inventory(media: Path, rights_manifest: Path | None) -> dict[str, Any]:
     with authorized_stable_input(media, rights_manifest, "analysis") as access:
         inventory = inspect_media(access.stable.path)
         if (
