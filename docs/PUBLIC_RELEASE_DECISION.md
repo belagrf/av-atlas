@@ -13,3 +13,26 @@ audiovisual understanding is claimed; and full M2 remains incomplete.
 
 The GitHub release contains the sanitized Markdown release notes only. GitHub-generated source
 archives contain tracked source; the locally created review archive is not committed or attached.
+
+## Separately authorized v1.1 patch
+
+After PR 10 passed source review, the operator separately authorized squash merge and an immutable
+`m2b-controlled-v1.1` patch release. That authorization covers the reviewed M2B.1 hardening source,
+sanitized release records, and ordinary GitHub-generated source archives. It does not broaden the
+media, model, training, cloud, pilot, license-selection, patent, or private-data authorization.
+
+Accepted wording: “M2B.1 rights, configuration, partial-result, provenance, temporal-track,
+validation, privacy, and clean-checkout hardening complete for the controlled synthetic baseline.
+Authorized real-media evaluation remains pending.” The patch remains four synthetic frames and 13
+OCR observations. It establishes no real-media accuracy or semantic understanding, and neither an
+AV-Atlas model nor a foundation model was trained.
+
+The original `m2b-controlled-v1` tag, release, and records remain immutable. The v1.1 release uses a
+new reviewed documentation commit and tag, carries no manually uploaded asset, and records detached
+manifest hashes after final rendering. No project license has been selected; public visibility
+permits inspection but grants no reuse rights beyond applicable law. Patent/publication review
+remains unresolved rather than inferred from release authorization.
+
+Security issue 11 and standalone-inspection governance issue 12 remain open pilot gates. Native
+parser isolation and retained-frame lifecycle also remain unresolved. Full M2 is incomplete, and
+M2C is unimplemented.

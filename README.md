@@ -145,9 +145,10 @@ language-data identities and hashes; AV-Atlas never installs them. Machines with
 dependency retain an explicit actionable unavailable state.
 See [OCR annotation guide](docs/ocr-annotation-guide.md) for external-pilot handling.
 The accepted controlled release and offline replay procedure are recorded in
-[M2B controlled baseline v1](docs/releases/M2B_CONTROLLED_BASELINE_V1.md). Two workers are the
-provisional recommendation for a future versioned configuration; the frozen baseline remains
-unchanged.
+[M2B controlled baseline v1](docs/releases/M2B_CONTROLLED_BASELINE_V1.md). The separately versioned
+[M2B controlled baseline v1.1](docs/releases/M2B_CONTROLLED_BASELINE_V1_1.md) freezes the reviewed
+M2B.1 source-audit hardening without changing v1. Two workers are the provisional recommendation
+for a future versioned configuration; the frozen baseline remains unchanged.
 
 An authorized real-media pilot is prepared, annotated, frozen, run, and evaluated with
 `pilot-prepare`, `pilot-annotation-packages`, `pilot-compare-annotations`, `pilot-freeze`,
@@ -166,3 +167,11 @@ the preflight hash and source ID. A concurrent same-path modification race remai
 input mechanism is implemented.
 Temporal OCR tracks are validated relationally against immutable raw observations; malformed
 parallel arrays become actionable quality-report errors rather than validator tracebacks.
+
+M2B.1 status: “M2B.1 rights, configuration, partial-result, provenance, temporal-track, validation,
+privacy, and clean-checkout hardening complete for the controlled synthetic baseline. Authorized
+real-media evaluation remains pending.” This describes four synthetic frames and 13 OCR
+observations only. It establishes no real-media accuracy, semantic understanding, or trained-model
+capability. Full M2 is incomplete, and M2C is unimplemented. The real-media pilot remains gated by
+[stable-input security issue #11](https://github.com/belagrf/av-atlas/issues/11) and
+[standalone-inspection governance issue #12](https://github.com/belagrf/av-atlas/issues/12).
