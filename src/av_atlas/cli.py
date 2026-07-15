@@ -29,9 +29,9 @@ from av_atlas.ocr_pilot import (
     evaluate_pilot,
     freeze_pilot,
     make_annotation_packages,
-    prepare_pilot,
     run_pilot_ocr,
 )
+from av_atlas.ocr_pilot_intake import prepare_pilot
 from av_atlas.pipeline import export_run, initialize_run, resume_run
 from av_atlas.rights import OPERATIONS, create_rights_manifest, required_permissions_for_run_mode
 from av_atlas.stable_input import authorized_stable_input
