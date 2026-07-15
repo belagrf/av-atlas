@@ -173,7 +173,7 @@ def test_unsupported_run_modes_fail_before_every_parser(
     assert not run_dir.exists()
 
 
-def test_valid_non_fixture_is_inspected_once_after_authorization(
+def test_valid_non_fixture_is_inspected_once_through_verified_snapshot(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     media = tmp_path / "operator.bin"
@@ -181,11 +181,14 @@ def test_valid_non_fixture_is_inspected_once_after_authorization(
     rights_path = tmp_path / "rights.json"
     _rights(media, rights_path)
     calls = 0
+    snapshot: Path | None = None
 
     def inspect(path: Path) -> dict[str, Any]:
-        nonlocal calls
+        nonlocal calls, snapshot
         calls += 1
-        assert path == media
+        snapshot = path
+        assert path != media
+        assert path.read_bytes() == media.read_bytes()
         return _inventory(path)
 
     monkeypatch.setattr("av_atlas.pipeline.inspect_media", inspect)
@@ -199,6 +202,7 @@ def test_valid_non_fixture_is_inspected_once_after_authorization(
         rights_manifest=rights_path,
     )
     assert calls == 1
+    assert snapshot is not None and not snapshot.exists()
     assert (run_dir / "inventory.json").is_file()
 
 
@@ -216,10 +220,14 @@ def test_valid_evaluation_mode_requires_and_records_complete_permission_closure(
         {"analysis", "evaluation", "derivative_artifact_retention"},
     )
     calls = 0
+    snapshot: Path | None = None
 
     def inspect(path: Path) -> dict[str, Any]:
-        nonlocal calls
+        nonlocal calls, snapshot
         calls += 1
+        snapshot = path
+        assert path != media
+        assert path.read_bytes() == media.read_bytes()
         return _inventory(path)
 
     monkeypatch.setattr("av_atlas.pipeline.inspect_media", inspect)
@@ -234,6 +242,7 @@ def test_valid_evaluation_mode_requires_and_records_complete_permission_closure(
         operation="evaluation",
     )
     assert calls == 1
+    assert snapshot is not None and not snapshot.exists()
     assert json.loads((run_dir / "run_manifest.json").read_text())["operation"] == "evaluation"
 
 
@@ -245,23 +254,37 @@ def test_valid_fixture_is_inspected_only_after_fixture_authorization(
     _fixture_marker(media)
     authorized = False
     calls = 0
+    snapshot: Path | None = None
     from av_atlas import pipeline
 
-    original = pipeline.authorize_media_preflight
+    original = pipeline.authorized_stable_input
 
     def authorize(*args: Any, **kwargs: Any) -> Any:
         nonlocal authorized
-        result = original(*args, **kwargs)
-        authorized = result.fixture_status == "authorized_controlled_fixture"
-        return result
+        context = original(*args, **kwargs)
+
+        class AuthorizationContext:
+            def __enter__(self) -> Any:
+                nonlocal authorized
+                value = context.__enter__()
+                authorized = value.authorization.fixture_status == "authorized_controlled_fixture"
+                return value
+
+            def __exit__(self, *exc: object) -> bool | None:
+                return context.__exit__(*exc)
+
+        return AuthorizationContext()
 
     def inspect(path: Path) -> dict[str, Any]:
-        nonlocal calls
+        nonlocal calls, snapshot
         assert authorized is True
+        assert path != media
+        assert path.read_bytes() == media.read_bytes()
+        snapshot = path
         calls += 1
         return _inventory(path)
 
-    monkeypatch.setattr(pipeline, "authorize_media_preflight", authorize)
+    monkeypatch.setattr(pipeline, "authorized_stable_input", authorize)
     monkeypatch.setattr(pipeline, "inspect_media", inspect)
     monkeypatch.setattr(pipeline, "tool_version", lambda name: None)
     initialize_run(
@@ -271,6 +294,7 @@ def test_valid_fixture_is_inspected_only_after_fixture_authorization(
         stop_after="inventory",
     )
     assert calls == 1
+    assert snapshot is not None and not snapshot.exists()
 
 
 def test_changed_source_inventory_is_rejected_before_run_creation(
@@ -291,7 +315,7 @@ def test_changed_source_inventory_is_rejected_before_run_creation(
 
     monkeypatch.setattr("av_atlas.pipeline.inspect_media", inspect)
     run_dir = tmp_path / "run"
-    with pytest.raises(AtlasError, match="changed between authorization preflight"):
+    with pytest.raises(AtlasError, match="stable media inventory"):
         initialize_run(media, Path(__file__).parents[2] / "configs/baseline.yaml", run_dir)
     assert calls == 1
     assert not run_dir.exists()
