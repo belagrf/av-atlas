@@ -46,3 +46,10 @@ operating-system interfaces. The private descriptor-relative recovery path was e
 platforms without POSIX-style directory descriptors or `flock` fail closed before acquisition. The
 machine-readable dependency inventory and empty checkpoint list are
 therefore unchanged.
+
+The M2B.2 source-review correction uses reviewed controls already provided by the inventoried local
+FFmpeg/libavformat build: an explicit `file` protocol whitelist, a forced and whitelisted
+`matroska` demuxer for authorized source snapshots, and a forced `png_pipe` demuxer for generated
+OCR frames. The supported-format narrowing is AV-Atlas policy, not a new dependency or a claim that
+native parsing is sandboxed. No network component, model, checkpoint, language data, or package was
+added.

@@ -13,7 +13,7 @@ def test_corrupt_ffprobe_metadata_is_actionable(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     source = tmp_path / "source.mkv"
-    source.write_bytes(b"not media")
+    source.write_bytes(b"\x1aE\xdf\xa3not media")
     monkeypatch.setattr(media.shutil, "which", lambda _: "/usr/bin/ffprobe")
     monkeypatch.setattr(
         media,
@@ -28,8 +28,11 @@ def test_missing_streams_are_reported_without_fabrication(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     source = tmp_path / "source.bin"
-    source.write_bytes(b"x")
-    payload = {"format": {"duration": "1.0", "format_name": "data"}, "streams": []}
+    source.write_bytes(b"\x1aE\xdf\xa3x")
+    payload = {
+        "format": {"duration": "1.0", "format_name": "matroska,webm"},
+        "streams": [],
+    }
     monkeypatch.setattr(media.shutil, "which", lambda _: "/usr/bin/ffprobe")
     monkeypatch.setattr(
         media,
@@ -47,7 +50,7 @@ def test_unsafe_filename_is_passed_as_one_non_shell_argument(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     source = tmp_path / "$(touch SHOULD_NOT_EXIST).mkv"
-    source.write_bytes(b"x")
+    source.write_bytes(b"\x1aE\xdf\xa3x")
     captured: list[str] = []
     payload = {"format": {"duration": "1.0", "format_name": "matroska"}, "streams": []}
 
@@ -59,7 +62,15 @@ def test_unsafe_filename_is_passed_as_one_non_shell_argument(
     monkeypatch.setattr(media, "_run", fake_run)
     media.inspect_media(source)
     assert captured[-1] == str(source)
-    assert "--" in captured
+    assert captured[-8:-1] == [
+        "-protocol_whitelist",
+        "file",
+        "-format_whitelist",
+        "matroska",
+        "-f",
+        "matroska",
+        "-i",
+    ]
     assert not (tmp_path / "SHOULD_NOT_EXIST").exists()
 
 

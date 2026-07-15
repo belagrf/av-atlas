@@ -11,7 +11,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from av_atlas.contracts import Observation
 from av_atlas.errors import AtlasError
+from av_atlas.fixture_inputs import VerifiedFixtureSidecar, load_controlled_fixture_bundle
 from av_atlas.io import canonical_json, sha256_file, source_id_from_sha256, write_json
 from av_atlas.schemas import validate_instance
 
@@ -39,9 +41,17 @@ class AuthorizationPreflight:
     source_id: str
     fixture_status: str
     fixture_manifest: dict[str, Any] | None
+    fixture_sidecars: tuple[VerifiedFixtureSidecar, ...]
     rights_declaration: dict[str, Any]
     requested_run_mode: str
     authorized_at: str
+
+    @property
+    def fixture_observations(self) -> tuple[Observation, ...]:
+        """Return immutable observations from already verified fixture sidecars."""
+        return tuple(
+            observation for sidecar in self.fixture_sidecars for observation in sidecar.observations
+        )
 
 
 def manifest_digest(value: dict[str, Any]) -> str:
@@ -236,42 +246,11 @@ def controlled_fixture_manifest(
     source_hash: str | None = None,
     source_id: str | None = None,
 ) -> dict[str, Any] | None:
-    """Return a marker only when it is schema-valid and bound to these exact bytes."""
-    marker = media.with_suffix(".fixture.json")
-    try:
-        marker_stat = os.lstat(marker)
-    except OSError:
-        return None
-    if not stat.S_ISREG(marker_stat.st_mode) or marker_stat.st_size > 1_000_000:
-        return None
-    try:
-        descriptor = os.open(
-            marker,
-            os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0),
-        )
-        try:
-            opened = os.fstat(descriptor)
-            raw = os.read(descriptor, marker_stat.st_size + 1)
-            after = os.fstat(descriptor)
-        finally:
-            os.close(descriptor)
-        if (
-            (marker_stat.st_dev, marker_stat.st_ino, marker_stat.st_size)
-            != (opened.st_dev, opened.st_ino, opened.st_size)
-            or (opened.st_dev, opened.st_ino, opened.st_size, opened.st_mtime_ns)
-            != (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns)
-            or len(raw) != marker_stat.st_size
-        ):
-            return None
-        value: dict[str, Any] = json.loads(raw.decode("utf-8"))
-        validate_instance("fixture_manifest", value, marker.name)
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError, AtlasError):
-        return None
+    """Return a marker only when source and every declared sidecar are verified."""
     exact_hash = source_hash if source_hash is not None else sha256_file(media)
     exact_source_id = source_id if source_id is not None else source_id_from_sha256(exact_hash)
-    if value["content_sha256"] != exact_hash or value["source_id"] != exact_source_id:
-        return None
-    return value
+    bundle = load_controlled_fixture_bundle(media, exact_hash, exact_source_id)
+    return bundle.manifest if bundle is not None else None
 
 
 def authorize_source_identity(
@@ -290,7 +269,8 @@ def authorize_source_identity(
     ``source_hash`` and ``source_id``. This function never opens the media bytes.
     """
     required_permissions_for_run_mode(run_mode)
-    fixture_marker = controlled_fixture_manifest(media, source_hash, source_id)
+    fixture_bundle = load_controlled_fixture_bundle(media, source_hash, source_id)
+    fixture_marker = fixture_bundle.manifest if fixture_bundle is not None else None
     if rights_manifest is None:
         if fixture_marker is None:
             raise AtlasError(
@@ -323,6 +303,7 @@ def authorize_source_identity(
         source_id=source_id,
         fixture_status=fixture_status,
         fixture_manifest=fixture_marker,
+        fixture_sidecars=fixture_bundle.sidecars if fixture_bundle is not None else (),
         rights_declaration=rights,
         requested_run_mode=run_mode,
         authorized_at=datetime.now(UTC).isoformat(),

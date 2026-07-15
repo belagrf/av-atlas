@@ -133,13 +133,36 @@ uv run av-atlas benchmark-ocr runs/m2b2-review tests/gold/m2b-ocr-controlled.gol
 uv run av-atlas validate runs/m2b2-review
 ```
 
-Confirm that `stable_input.json` validates against stable-input schema 1.0, contains no path, and
-matches inventory source hash/ID/size plus the run rights link and configured byte ceilings. Scan
-every run file for the original absolute path, `source.snapshot`, and the private-root prefix. The
-private root must contain no lease after completion. Run a second fresh directory with
-`--stop-after inventory`, resume with the exact `--media` path, and compare every file after first
-and repeated resume. Also validate accepted v1/v1.1 runs with `write_report=False`; their lack of a
-stable-input receipt remains valid because their software versions predate 0.2.2.
+Confirm that current `stable_input.json` validates against stable-input schema 1.1, contains no
+path, and matches inventory source hash/ID/size plus the run rights link, fixture-sidecar bindings,
+and configured byte ceilings. Confirm that fixture-manifest 1.1 binds every accepted sidecar by
+canonical basename, type, payload schema, SHA-256, and size; media-inventory 1.1 records native-
+input contract `av-atlas-native-input/1.0.0`. Historical fixture/inventory/stable-input 1.0 records
+remain validation-compatible, but a legacy marker cannot authorize fresh adjacent observations.
+
+Run the focused hostile-input and sidecar regressions:
+
+```bash
+uv run pytest -q tests/unit/test_native_media_policy.py tests/unit/test_fixture_sidecars.py
+```
+
+They prove that HLS/DASH/concat/sequence/navigation inputs start no parser, a local sentinel is not
+accessed, a loopback endpoint receives zero requests, and missing/mismatched/replaced/symlinked/
+malformed/oversized/unlisted/concurrently changed sidecars fail before evidence admission. Verify
+that every ingest parser command carries the fixed `file` protocol whitelist and forced/whitelisted
+`matroska` demuxer; generated OCR PNG decoding uses the separate `png_pipe` policy.
+
+Scan every run file for the original absolute path, `source.snapshot`, sidecar paths, and the
+private-root prefix. The private root must contain no lease after completion. Run a second fresh
+directory with `--stop-after inventory`, resume with the exact `--media` path, and compare every
+file after first and repeated resume. Also validate accepted v1/v1.1 runs with
+`write_report=False`; their lack of a stable-input receipt remains valid because their software
+versions predate 0.2.2.
+
+Snapshot unlinking and lease removal are logical cleanup, not secure erasure. This synthetic replay
+does not establish a production temporary-root policy. Before real media, use a documented private,
+capacity-bounded encrypted volume or appropriately configured tmpfs, or record explicit residual
+remanence-risk acceptance.
 
 This is a fresh reproducibility replay in the same environment, not independent verification. It
 uses only project-authored synthetic media. It creates no tag or release and establishes no real-

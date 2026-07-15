@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
@@ -19,8 +18,8 @@ class AdapterContext:
     inventory: dict[str, Any]
     run_dir: Path
     config: BaselineConfig
-    # Controlled fixture sidecars are inert structured inputs, not native-parser media.
-    sidecar_media: Path | None = None
+    # Verified controlled-fixture observations are immutable values, never source paths.
+    sidecar_observations: tuple[Observation, ...] = ()
 
 
 class AdapterExecution(Protocol):
@@ -53,28 +52,18 @@ class SidecarAdapter:
     def __init__(self, name: str) -> None:
         self.name = name
 
-    def observe(self, media: Path, duration_ms: int) -> list[Observation]:
-        sidecar = media.with_suffix(".observations.json")
-        if not sidecar.is_file():
-            return []
-        try:
-            payload = json.loads(sidecar.read_text(encoding="utf-8"))
-            values = payload["observations"]
-        except (OSError, json.JSONDecodeError, KeyError, TypeError) as exc:
-            raise AtlasError(f"invalid observation sidecar {sidecar.name}: {exc}") from exc
-        observations = [
-            Observation.from_dict(value) for value in values if value.get("adapter") == self.name
-        ]
-        for observation in observations:
+    def observe(self, observations: tuple[Observation, ...], duration_ms: int) -> list[Observation]:
+        selected = [value for value in observations if value.adapter == self.name]
+        for observation in selected:
             if observation.end_ms > duration_ms:
                 raise AtlasError(
                     f"observation exceeds source duration: {observation.observation_id}"
                 )
-        return observations
+        return selected
 
     def run(self, context: AdapterContext) -> SidecarOutput:
         values = self.observe(
-            context.sidecar_media or context.media,
+            context.sidecar_observations,
             int(context.inventory["duration_ms"]),
         )
         return SidecarOutput(

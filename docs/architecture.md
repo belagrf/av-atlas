@@ -5,7 +5,9 @@ The current implementation establishes the low-level contracts required by later
 ```text
 synthetic media + rights/observation sidecar
   -> parser-free descriptor hash + fixture/rights permission closure
+  -> fixture 1.1 hash/size-bound sidecars -> immutable observations
   -> verified private transient snapshot (0700 directory / 0600 file)
+  -> native-input 1.0 protocol/format/demuxer policy
   -> safe ffprobe inventory of snapshot + integer-ms timeline
   -> deterministic overlapping chunks + uniform sample schedule
   -> visual/OCR/ASR/speaker/acoustic sidecar adapters
@@ -22,6 +24,7 @@ M2A extends that flow without replacing it:
 media + hash-bound operator declaration
   -> parser-free exact-hash/source/operation/retention/expiry authorization
   -> bounded descriptor copy + independently verified private snapshot
+  -> parser-free EBML classification + forced Matroska/file-only input policy
   -> bounded ffprobe inventory of snapshot + identity confirmation
   -> common adapter context
        -> embedded subtitle tracks -> hashed WebVTT -> canonical SUB cues
@@ -50,8 +53,12 @@ Tesseract, subtitle, shot, or perception process is invoked before authorization
 same descriptor is rewound and copied into a unique private snapshot under source and temporary-
 storage ceilings. Source identity/size/time metadata are checked before and after copying; the copy
 is hashed while written, flushed, independently rehashed, and required to reproduce the authorized
-hash, source ID, and size. Only that snapshot reaches native parsers. The operator source identity,
-not the snapshot, remains canonical.
+hash, source ID, and size. The snapshot is then admitted only through native-input contract
+`av-atlas-native-input/1.0.0`: parser-free EBML magic, forced `matroska` demuxer, input protocol
+whitelist `file`, and format whitelist `matroska`. The same policy is rechecked immediately at each
+runtime decode helper. HLS, DASH, concat/concatf, image sequences, Blu-ray navigation, MOV/MP4, and
+unknown inputs are rejected before a native parser can dereference another resource. The operator
+source identity, not the snapshot, remains canonical.
 
 Chunking uses half-open conceptual intervals represented by inclusive start/exclusive end integer
 milliseconds. The baseline uses 2,000 ms chunks with 250 ms overlap and 1,000 ms uniform samples.
@@ -61,7 +68,8 @@ shot observations pass through the same merge and ledger path.
 
 The run manifest is created before perception processing. `state.json` records a restart
 checkpoint. `stable_input.json` is a path-free receipt for verified acquisition; it is canonical
-metadata, not the snapshot itself. Final records retain stable event IDs and advance the
+metadata, not the snapshot itself. Media-inventory 1.1 records the exact native-input policy used
+for the snapshot; inventory 1.0 remains validation-compatible. Final records retain stable event IDs and advance the
 provisional revision rather than silently replacing history. Configuration is snapshotted into the
 run, avoiding external configuration paths and protecting resume from later edits. The transient
 snapshot is removed before the run can be marked complete or its final artifact map written. Resume
@@ -124,18 +132,34 @@ pilot source preparation. Standalone inspection now uses analysis-mode permissio
 non-fixture needs both analysis and derivative-retention permission. Pilot preparation completes
 parser-free authorization for every selected source before parsing any of them, then inventories
 and extracts only from one verified snapshot at a time. Controlled-fixture automatic authorization
-remains exact-hash-bound. Source-adjacent sidecars are used only when that current fixture marker is
-verified; arbitrary non-fixture sidecars cannot enter the evidence path.
+remains exact-hash-bound. Fresh fixture-manifest contract
+`av-atlas-controlled-fixture/1.1.0` additionally lists the one currently accepted runtime sidecar
+type with canonical basename, payload schema, SHA-256, and bounded size. Authorization opens it
+without following a final symlink, checks descriptor/path identity before and after a bounded read,
+verifies its declared hash and size, validates its schema, and converts it once to immutable
+observations. Adapters receive those values, not a pathname. Missing, mismatched, replaced,
+malformed, oversized, or unlisted sidecars fail before observations are accepted. Historical
+fixture 1.0 records remain validation-compatible but cannot confer fresh sidecar trust.
 
-The stable-input contract is `av-atlas-stable-input/1.0.0`; its receipt schema is 1.0.0 and the
-configuration schema ID is 1.2.0. Default source and temporary-copy ceilings are each 8 GiB and the
+The corrected stable-input contract is `av-atlas-stable-input/1.1.0`; its receipt schema is 1.1.0
+and records verified fixture-sidecar identities without paths. Receipt schema 1.0 remains readable
+for the earlier unaccepted review-head artifacts, while accepted v1/v1.1 releases predate receipts.
+The configuration schema ID is 1.2.0. Default source and temporary-copy ceilings are each 8 GiB and the
 schema hard cap is 64 GiB. Lease directories and files use modes 0700/0600. Ordinary cleanup uses
 pinned directory descriptors; crash recovery scans at most 64 entries and removes at most 16
-marker-recognized, inactive leases without recursive traversal or symlink following. `SIGKILL` and
+marker-recognized, inactive leases without recursive traversal or symlink following. Recovery
+accepts the known 1.0 and 1.1 lease-marker contracts so a review-head crash residue is not stranded;
+unknown versions remain untouched. `SIGKILL` and
 power loss require later bounded recovery. A growing long-form stream must be segmented and
 authorized as finalized chunks rather than copied as one live file.
 
-Supported entry points enforce the snapshot boundary, but low-level native-parser helpers still
-accept plain paths; this is an internal trust boundary rather than a capability-typed API. Private
-modes do not defend against a malicious process running as the same OS user, and no OS sandbox is
-implemented. These limitations remain distinct from the closed same-path operator-source race.
+Supported entry points and their low-level runtime decode helpers require the fixed native-input
+policy and reclassify bytes before each parser invocation. This closes default libavformat protocol
+and demuxer selection but is not a capability-typed API or an OS sandbox. Private modes do not
+defend against a malicious process running as the same OS user. The allowlist currently excludes
+otherwise common self-contained formats until each receives a separate transitive-I/O review.
+
+Snapshot unlinking and lease-directory removal are logical lifecycle cleanup, not secure erasure.
+The OS temporary root may be disk-backed, journaled, snapshotted, swapped, or backed up. A private,
+capacity-bounded encrypted volume or suitably configured tmpfs—or explicit documented risk
+acceptance—is required before real operator media; tmpfs can still swap unless configured not to.

@@ -37,7 +37,18 @@ historical metrics are unchanged; new metrics belong to the additive hardening r
 
 M2B.2 adds engineering validation of authorized-byte stability rather than an OCR quality metric.
 Tests cover descriptor-bound acquisition, source/snapshot identity, parser zero-call denial,
-snapshot-only native arguments, private modes, cleanup and bounded recovery, interruption/fresh
-resume, path-free receipts and exports, and accepted v1/v1.1 run validation. The frozen fixture,
-gold, normalization, OCR metric definitions, observations, and accepted quality claims do not
-change. No M2B.2 result is evidence of real-media accuracy or semantic perception.
+private modes, cleanup and bounded recovery, interruption/fresh resume, path-free receipts and
+exports, and accepted v1/v1.1 run validation. The shared native-input contract is checked at every
+runtime ingest decode: exact argument ordering, `file`-only protocol and `matroska`-only format
+whitelists, forced demuxing, parser-free EBML selection, reported-format agreement, no unrestricted
+fallback, and zero parser/network/local-sentinel access for hostile HLS/DASH/concat/sequence/
+navigation inputs. Generated OCR PNG decoding has a separate forced single-image contract.
+
+Fixture-manifest 1.1 regressions cover missing, mismatched, replaced, symlinked, malformed,
+oversized, unlisted, and concurrently changed observation sidecars; stale marker checksums;
+fabricated adjacent data; immutable adapter delivery; mutation/replacement after acquisition;
+resume revalidation; and deterministic regeneration. Fixture 1.0 remains historical-validation
+compatible but cannot newly authorize an adjacent observation sidecar. These are security and
+evidence-integrity checks, not new OCR metrics. The frozen fixture, gold, normalization, OCR metric
+definitions, observations, and accepted quality claims do not change. No M2B.2 result is evidence
+of real-media accuracy or semantic perception.

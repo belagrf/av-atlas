@@ -207,7 +207,11 @@ def test_m2a_interruption_repeated_resume_and_semantic_determinism(
 
 
 def test_missing_subtitles_is_observed_absence(tmp_path: Path, project_root: Path) -> None:
-    no_subtitles, _ = make_modality_edge_fixtures(tmp_path / "edges")
+    no_subtitles, no_video = make_modality_edge_fixtures(tmp_path / "edges")
+    for fixture in (no_subtitles, no_video):
+        marker = json.loads(fixture.with_suffix(".fixture.json").read_text())
+        assert marker["schema_version"] == "1.1.0"
+        assert marker["sidecars"] == []
     config = BaselineConfig.load(project_root / "configs/m2a.yaml")
     output = extract_subtitles(
         no_subtitles,
@@ -220,6 +224,14 @@ def test_missing_subtitles_is_observed_absence(tmp_path: Path, project_root: Pat
     assert output.result.status == "success_zero"
     assert output.result.observations == ()
     assert output.tracks["tracks"] == []
+
+
+def test_fresh_m2a_fixture_has_current_empty_sidecar_contract(
+    controlled_media: Path,
+) -> None:
+    marker = json.loads(controlled_media.with_suffix(".fixture.json").read_text())
+    assert marker["schema_version"] == "1.1.0"
+    assert marker["sidecars"] == []
 
 
 def test_explicit_subtitle_track_selection(
@@ -278,6 +290,24 @@ def test_run_native_parser_arguments_never_contain_original_media_path(
         and any(Path(argument).name == "source.snapshot" for argument in arguments)
     ]
     assert media_parser_calls
+    expected_policy_prefix = [
+        "-protocol_whitelist",
+        "file",
+        "-format_whitelist",
+        "matroska",
+        "-f",
+        "matroska",
+    ]
+    for arguments in media_parser_calls:
+        assert arguments.count("-i") == 1
+        input_index = arguments.index("-i")
+        policy_index = arguments.index("-protocol_whitelist")
+        assert arguments[policy_index : policy_index + 6] == expected_policy_prefix
+        assert policy_index < input_index
+        assert Path(arguments[input_index + 1]).name == "source.snapshot"
+        assert not any(
+            value in arguments for value in ("hls", "dash", "concat", "concatf", "image2", "bluray")
+        )
     snapshot_arguments = [
         argument
         for arguments in media_parser_calls

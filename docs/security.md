@@ -23,9 +23,24 @@ schema, checksum, source, permission closure, retention, and expiry. The same de
 bounded byte-for-byte copy in a unique 0700 directory and 0600 file. Source and temporary ceilings
 apply before and during copying. Pre/post descriptor and pathname metadata detect mutation,
 replacement, growth, and truncation; copied and independently reread hashes, sizes, and source IDs
-must match. Only then may FFprobe or FFmpeg receive the snapshot path. Tesseract receives snapshot-
-derived keyframes. Tests use subprocess sentinels to prove zero native-parser calls for missing,
+must match. Only then may FFprobe or FFmpeg receive the snapshot path. Before parsing, shared
+native-input contract `av-atlas-native-input/1.0.0` requires parser-free EBML magic, input protocol
+whitelist `file`, format whitelist `matroska`, and forced `matroska` demuxing. Runtime helpers repeat
+classification immediately before decode. Text playlists/manifests, HLS, DASH, concat/concatf,
+image sequences, Blu-ray navigation, MOV/MP4, unknown formats, and all network protocols are denied
+without an unrestricted retry. Generated OCR frames require PNG magic and forced `png_pipe` input.
+Tesseract receives snapshot-derived keyframes. Tests use subprocess sentinels to prove zero native-parser calls for missing,
 stale, mismatched, denied, retention-denied, expired, mutated, and replaced inputs.
+
+Fixture-manifest 1.1 binds each accepted runtime sidecar—currently at most one observation
+sidecar—by canonical basename, type, payload schema, SHA-256, and byte size. The sidecar is opened
+with final-component no-follow protection where available, capped at 1 MB, streamed once, and
+checked for path/descriptor identity before and after reading. Its digest, size, JSON schema, and
+observation IDs are validated before an immutable observation tuple is supplied to adapters.
+Adapters perform no later path read. Missing, changed, replaced, symlinked, malformed, oversized,
+or unlisted sidecars fail closed. A fabricated adjacent sidecar on a nonfixture or legacy 1.0
+fixture cannot acquire controlled-fixture trust. The marker checksum is an integrity checksum, not
+an authenticated project signature.
 
 The path-free stable-input receipt records the verified method and policy, not original/snapshot
 paths. Native error details redact private paths. Run completion occurs only after the snapshot is
@@ -36,7 +51,14 @@ recursive traversal or symlink following. Unrecognized and live entries remain u
 `inspect --output` is exclusively created after parsing and never replaces an existing path;
 source, hard-link, symlink, and pre-existing-output collisions fail before parser invocation.
 
-FFmpeg remains an attack surface. These budgets are defense-in-depth, not an OS sandbox. Production
+Native policy rendering accepts no caller-supplied option list that could override the whitelist or
+demuxer. The only input option is a validated nonnegative integer-millisecond seek rendered by the
+policy itself. Bounded recovery accepts only the known stable-input 1.0/1.1 lease-marker versions;
+unknown marker contracts remain untouched.
+
+Hostile HLS/local-file and DASH/loopback fixtures prove zero parser starts, zero local-sentinel
+access, and zero HTTP requests. The fixed allowlist prevents libavformat default protocol and
+demuxer expansion, but FFmpeg remains an attack surface. These budgets are defense-in-depth, not an OS sandbox. Production
 processing of adversarial media still requires operating-system isolation, CPU/memory/file quotas,
 decoder patch management, and access controls. DRM, authentication, and paywalls are never bypassed.
 
@@ -76,9 +98,19 @@ diagnostic option. Package licenses are identified only when installed metadata 
 unknown status remains explicit.
 
 Stable input is risk reduction, not a native-parser sandbox. A same-UID hostile process can modify
-files that share its account, and low-level parser helpers still accept plain paths even though all
-supported entry points route verified snapshots. Acquisition fails closed on platforms without the
+files that share its account. Runtime helpers require the fixed policy even though their internal
+API still accepts a `Path`; no arbitrary internal caller receives a capability-enforced filesystem
+view. Acquisition fails closed on platforms without the
 required POSIX directory-descriptor and `flock` primitives. A growing live source and a retained-frame
-lifecycle remain unsupported. Issues [#11](https://github.com/belagrf/av-atlas/issues/11) and
-[#12](https://github.com/belagrf/av-atlas/issues/12) remain open until this implementation is
+lifecycle remain unsupported. Issues [#11](https://github.com/belagrf/av-atlas/issues/11),
+[#12](https://github.com/belagrf/av-atlas/issues/12), and
+[#14](https://github.com/belagrf/av-atlas/issues/14) remain open until this implementation is
 reviewed and merged; the real-media pilot has not begun.
+
+Snapshot cleanup unlinks the private file and removes its lease directory. This is logical
+lifecycle cleanup, not cryptographic or secure erasure; AV-Atlas does not claim filesystem blocks
+are erased. The default OS temporary root may be disk-backed, journaled, snapshotted, swapped, or
+backed up. Before real operator media, the operator must select and document an appropriately
+private, capacity-bounded temporary root—for example an encrypted local volume or suitably
+configured tmpfs—or explicitly accept residual data-remanence risk. A tmpfs may still swap unless
+configured appropriately.

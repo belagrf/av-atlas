@@ -65,10 +65,21 @@ record and reported in release verification, avoiding a circular hash claim insi
 
 ## M2B.2 pull-request candidate
 
-The M2B.2 candidate adds standard-library stable-input acquisition, a receipt schema, one explicit
-configuration, synthetic security/regression tests, and documentation. It adds no media, frame,
-audio, subtitle, annotation, rights workspace, traineddata, checkpoint, model, binary, or run
-directory. Private lease roots and snapshots are ignored and are not release artifacts. The final
-review scan and machine-readable manifest cover the proposed branch paths; exact gate counts,
-manifest hash, and clean-checkout CI/CodeQL results are recorded in `PROJECT_STATE.md` after
-measurement. This branch creates no release and does not alter the v1/v1.1 release records.
+The M2B.2 candidate adds standard-library stable-input acquisition, stable-input/fixture/inventory
+compatibility schemas, a fixed native-input policy schema, one explicit configuration, synthetic
+security/regression tests, and documentation. The source-review correction forces self-contained
+Matroska/WebM through a `file`-only protocol and `matroska`-only demuxer/format policy, forces
+generated PNG decoding through `png_pipe`, and passes only hash/size-bound immutable controlled-
+fixture observations to adapters. Hostile local-manifest and loopback-network cases are generated
+under pytest temporary directories and produce zero parser calls, local-sentinel access, and HTTP
+requests; they are not tracked media or downloaded content.
+
+The candidate adds no media, frame, audio, subtitle, annotation, rights workspace, traineddata,
+checkpoint, model, binary, or run directory. Private lease roots, snapshots, verified sidecar
+payloads, and residues are ignored and are not release artifacts. Snapshot unlinking is documented
+as logical cleanup rather than secure erasure. The final review scan and machine-readable manifest
+cover 132 proposed branch paths, and a second independently rendered manifest was byte-identical.
+Exact gate counts are recorded in `PROJECT_STATE.md`; the detached manifest hash and clean-checkout
+CI/CodeQL results are reported in the PR update to avoid circular tracked claims. This branch
+creates no release and does not alter the v1/v1.1 release records. Issues 11, 12, and 14 remain
+open.

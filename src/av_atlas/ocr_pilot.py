@@ -14,6 +14,7 @@ from av_atlas.config import BaselineConfig
 from av_atlas.errors import AtlasError
 from av_atlas.io import canonical_json, sha256_file, write_json, write_jsonl
 from av_atlas.media import inspect_media
+from av_atlas.native_media import NativeInputPolicy, enforce_path_policy, policy_from_inventory
 from av_atlas.ocr import TesseractOcrAdapter
 from av_atlas.rights import load_rights_manifest, validate_rights
 from av_atlas.schemas import validate_instance
@@ -49,10 +50,16 @@ def _empty_output(path: Path) -> None:
     path.chmod(0o700)
 
 
-def _extract_frame(media: Path, timestamp_ms: int, output: Path) -> None:
+def _extract_frame(
+    media: Path,
+    timestamp_ms: int,
+    output: Path,
+    native_policy: NativeInputPolicy,
+) -> None:
     executable = shutil.which("ffmpeg")
     if executable is None:
         raise AtlasError("ffmpeg is required for pilot frame extraction")
+    enforce_path_policy(media, native_policy)
     try:
         subprocess.run(
             [
@@ -61,10 +68,7 @@ def _extract_frame(media: Path, timestamp_ms: int, output: Path) -> None:
                 "-hide_banner",
                 "-loglevel",
                 "error",
-                "-ss",
-                f"{timestamp_ms / 1000:.3f}",
-                "-i",
-                str(media),
+                *native_policy.arguments(media, seek_ms=timestamp_ms),
                 "-frames:v",
                 "1",
                 "-compression_level",
@@ -193,6 +197,7 @@ def prepare_pilot(spec_path: Path, output: Path) -> dict[str, Any]:
                     raise AtlasError("pilot sources must be content-distinct")
                 seen_sources.add(inventory["source_id"])
                 rights = stable.authorization.rights_declaration
+                native_policy = policy_from_inventory(inventory)
                 for operation in REQUIRED_PILOT_OPERATIONS:
                     validate_rights(rights, inventory["sha256"], inventory["source_id"], operation)
                 rights_name = f"{inventory['source_id']}.rights.json"
@@ -226,7 +231,12 @@ def prepare_pilot(spec_path: Path, output: Path) -> dict[str, Any]:
                     seen_frames.add(key)
                     frame_id = f"FRM_{inventory['sha256'][:12].upper()}_{timestamp_ms:010d}"
                     relative = f"frames/{frame_id}.png"
-                    _extract_frame(stable.snapshot_path, timestamp_ms, output / relative)
+                    _extract_frame(
+                        stable.snapshot_path,
+                        timestamp_ms,
+                        output / relative,
+                        native_policy,
+                    )
                     frame_records.append(
                         {
                             "frame_id": frame_id,

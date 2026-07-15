@@ -7,6 +7,7 @@ from av_atlas import ocr, subtitles
 from av_atlas.adapters import AdapterContext
 from av_atlas.config import BaselineConfig
 from av_atlas.errors import AtlasError
+from av_atlas.native_media import AUTHORIZED_MATROSKA, NativeInputPolicy
 from av_atlas.ocr import TesseractOcrAdapter
 from av_atlas.subtitles import extract_subtitles
 
@@ -147,6 +148,7 @@ def _subtitle_inventory() -> dict[str, object]:
     return {
         "source_id": "SRC_000000000000",
         "duration_ms": 5000,
+        "native_input_policy": AUTHORIZED_MATROSKA.as_record(),
         "streams": [
             {
                 "index": index,
@@ -165,7 +167,7 @@ def _subtitle_inventory() -> dict[str, object]:
 def test_subtitle_one_track_success_and_one_failure_is_partial_success(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    def extract(media: Path, index: int, timeout: int) -> str:
+    def extract(media: Path, index: int, timeout: int, native_policy: NativeInputPolicy) -> str:
         if index == 2:
             raise AtlasError("controlled track failure")
         return "WEBVTT\n\n00:00.100 --> 00:01.000\nvisible\n"
@@ -195,7 +197,7 @@ def test_subtitle_all_failure_success_and_zero_observation_contracts(
     expected: str,
     observations: int,
 ) -> None:
-    def extract(media: Path, index: int, timeout: int) -> str:
+    def extract(media: Path, index: int, timeout: int, native_policy: NativeInputPolicy) -> str:
         if mode == "all_fail":
             raise AtlasError("controlled track failure")
         if mode == "empty":

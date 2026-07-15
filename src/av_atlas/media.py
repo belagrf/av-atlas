@@ -11,6 +11,7 @@ from typing import Any
 
 from av_atlas.errors import AtlasError, redact_private_paths
 from av_atlas.io import sha256_file, source_id_from_sha256
+from av_atlas.native_media import classify_authorized_source
 
 
 def _run(
@@ -64,6 +65,7 @@ def inspect_media(path: Path) -> dict[str, Any]:
     executable = shutil.which("ffprobe")
     if executable is None:
         raise AtlasError("ffprobe is required; install FFmpeg or use tested sidecar fixtures")
+    native_policy = classify_authorized_source(path)
     completed = _run(
         [
             executable,
@@ -74,8 +76,7 @@ def inspect_media(path: Path) -> dict[str, Any]:
             "-show_chapters",
             "-of",
             "json",
-            "--",
-            str(path),
+            *native_policy.arguments(path),
         ],
         private_paths=(path,),
     )
@@ -83,6 +84,11 @@ def inspect_media(path: Path) -> dict[str, Any]:
         raw: dict[str, Any] = json.loads(completed.stdout)
     except json.JSONDecodeError as exc:
         raise AtlasError("ffprobe returned corrupt JSON metadata") from exc
+    raw_format_name = raw.get("format", {}).get("format_name")
+    if not isinstance(raw_format_name, str):
+        raise AtlasError("ffprobe omitted the forced native input format")
+    format_names = sorted(item for item in raw_format_name.split(",") if item)
+    native_policy.validate_reported_formats(format_names)
     duration_ms = _milliseconds(raw.get("format", {}).get("duration"))
     if duration_ms is None:
         stream_durations = [
@@ -132,12 +138,13 @@ def inspect_media(path: Path) -> dict[str, Any]:
     ]
     source_hash = sha256_file(path)
     return {
-        "schema_version": "1.0.0",
+        "schema_version": "1.1.0",
         "source_id": source_id_from_sha256(source_hash),
         "sha256": source_hash,
         "size_bytes": path.stat().st_size,
         "duration_ms": duration_ms,
-        "format_names": sorted(str(raw.get("format", {}).get("format_name", "")).split(",")),
+        "format_names": format_names,
+        "native_input_policy": native_policy.as_record(),
         "streams": streams,
         "chapters": chapters,
     }

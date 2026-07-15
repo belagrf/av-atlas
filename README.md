@@ -110,7 +110,8 @@ uv run mypy src
 uv run pytest
 ```
 
-The test suite uses no network and no accelerator. It covers schemas, invalid and zero-length
+The test suite uses no external network and no accelerator; one hostile-manifest regression binds
+a loopback-only HTTP sentinel and proves that it receives zero requests. It covers schemas, invalid and zero-length
 intervals, overlapping chunk boundaries, missing streams, corrupt ffprobe metadata, unsafe file
 names, prompt-injection content isolation, deterministic fixtures and semantic artifacts, dangling
 evidence, interruption, and idempotent resume.
@@ -123,8 +124,9 @@ limits, component metrics, and M2A resume/determinism.
 - `required executable not found`: install the system FFmpeg package and rerun `doctor`.
 - `required deterministic fixture font is unavailable`: install DejaVu Sans. This explicit failure
   avoids silently creating a different fixture.
-- `no sidecar observations are available`: M1 sidecars are accepted only for an exact hash-bound
-  controlled fixture; use `make-fixture` rather than placing an arbitrary sidecar beside media.
+- `no sidecar observations are available`: M1 sidecars are accepted only when a fixture-manifest
+  1.1 descriptor binds the canonical basename, type, payload schema, SHA-256, and bounded byte
+  size. Use `make-fixture`; legacy or fabricated adjacent sidecars are never authoritative.
 - `run directory is not empty`: choose a new output directory or validate/resume the existing run.
 - validation errors are actionable and return a nonzero status; inspect `quality_report.json` for
   schema, evidence, time, revision, or hash failures.
@@ -178,9 +180,24 @@ must not be attached to a public run.
 M2B.2 `run`, `resume`, `inspect`, `inspect-subtitles`, and pilot preparation authorize and hash a
 regular non-symlink source before creating a bounded 0600 byte-for-byte copy in a unique 0700
 directory. Source and temporary-copy defaults are each 8 GiB (`configs/m2b2.yaml`); neither may
-exceed 64 GiB. FFprobe and FFmpeg see only the verified snapshot, and Tesseract sees only frames
-derived from it. `stable_input.json` records a versioned, path-free receipt while the snapshot is
-deleted before successful completion. Interrupted resume always reacquires a fresh snapshot:
+exceed 64 GiB. Before any media decode, parser-free magic classification selects fixed native-input
+policy `av-atlas-native-input/1.0.0`. Authorized sources are limited to self-contained
+Matroska/WebM, forced through the `matroska` demuxer with input protocol whitelist `file` and format
+whitelist `matroska`. HLS, DASH, concat/concatf, image sequences, Blu-ray navigation, MOV/MP4, and
+all unknown or network-capable source formats are rejected before a parser starts. Generated OCR
+frames use the separate forced single-PNG `png_pipe` policy. FFprobe and FFmpeg receive only the
+verified snapshot or a verified generated frame; Tesseract sees only snapshot-derived frames.
+
+Fixture-manifest 1.1 binds the sole currently accepted runtime sidecar type by canonical basename,
+payload schema, SHA-256, and size. It is opened without following a final symlink, read under a
+1 MB ceiling with pre/post identity checks, parsed once, and supplied to adapters as immutable
+`Observation` values. Adapters never reread an original adjacent sidecar path. Historical 1.0
+fixture manifests remain validation-compatible but cannot authorize fresh adjacent observations.
+
+Current stable-input receipt 1.1 records versioned, path-free source and sidecar acquisition
+provenance; media-inventory 1.1 records the exact native-input policy. Receipt/inventory 1.0 remain
+validation-compatible. The snapshot is unlinked before successful completion. Interrupted resume
+always reacquires a fresh snapshot and re-verifies sidecars:
 
 ```bash
 uv run av-atlas run tests/fixtures/generated/m2b/m2b_ocr_controlled.mkv \
@@ -193,8 +210,15 @@ uv run av-atlas resume runs/m2b2-controlled --media \
 Crash recovery examines only a bounded set of marker-recognized inactive private leases; it never
 recursively deletes an unrecognized directory or follows a symlink. `SIGKILL`/power loss, same-UID
 hostility, native-parser sandboxing, growing livestream input, and retained-frame lifecycle remain
-limitations. Supported entry points enforce snapshot routing, while low-level internal parser
-helpers still accept plain paths.
+limitations. Runtime decode helpers reclassify their input and require the fixed policy, but this
+allowlist is defense-in-depth rather than an operating-system sandbox.
+
+Snapshot cleanup unlinks the private file and removes its lease directory. This is logical
+lifecycle cleanup, not cryptographic or secure erasure. The default OS temporary root may be
+disk-backed, journaled, snapshotted, swapped, or backed up. Before real operator media, the operator
+must select and document an appropriately private, capacity-bounded temporary root—such as an
+encrypted local volume or suitably configured tmpfs—or explicitly accept residual data-remanence
+risk. A tmpfs may still swap unless configured appropriately.
 
 Temporal OCR tracks are validated relationally against immutable raw observations; malformed
 parallel arrays become actionable quality-report errors rather than validator tracebacks.
@@ -207,5 +231,6 @@ capability. M2B.2 stable-input and rights-gated inspection are implemented on th
 not released or merged. Full M2 is incomplete, and M2C is unimplemented. The real-media pilot
 remains gated by
 [stable-input security issue #11](https://github.com/belagrf/av-atlas/issues/11) and
-[standalone-inspection governance issue #12](https://github.com/belagrf/av-atlas/issues/12) until
-this M2B.2 pull request is reviewed and merged. No pilot media was processed.
+[standalone-inspection governance issue #12](https://github.com/belagrf/av-atlas/issues/12), while
+the implementation issue [#14](https://github.com/belagrf/av-atlas/issues/14) also remains open
+until this M2B.2 pull request is reviewed and merged. No pilot media was processed.

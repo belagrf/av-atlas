@@ -28,8 +28,9 @@ from av_atlas.io import source_id_from_sha256
 from av_atlas.rights import AuthorizationPreflight, authorize_source_identity
 from av_atlas.schemas import validate_instance
 
-CONTRACT_VERSION = "av-atlas-stable-input/1.0.0"
-SCHEMA_VERSION = "1.0.0"
+CONTRACT_VERSION = "av-atlas-stable-input/1.1.0"
+SCHEMA_VERSION = "1.1.0"
+RECOVERABLE_MARKER_CONTRACT_VERSIONS = frozenset({"av-atlas-stable-input/1.0.0", CONTRACT_VERSION})
 DEFAULT_MAX_SOURCE_BYTES = 8 * 1024 * 1024 * 1024
 DEFAULT_MAX_TEMPORARY_BYTES = 8 * 1024 * 1024 * 1024
 MAX_POLICY_BYTES = 64 * 1024 * 1024 * 1024
@@ -289,13 +290,19 @@ def _read_marker(descriptor: int) -> dict[str, Any] | None:
 def _valid_marker(value: dict[str, Any] | None, directory_name: str) -> bool:
     if value is None:
         return False
-    return value == {
-        "contract_version": CONTRACT_VERSION,
-        "created_unix": value.get("created_unix"),
-        "directory_name": directory_name,
-        "magic": MARKER_MAGIC,
-        "owner_uid": _current_uid(),
-    } and isinstance(value.get("created_unix"), (int, float))
+    contract_version = value.get("contract_version")
+    return (
+        contract_version in RECOVERABLE_MARKER_CONTRACT_VERSIONS
+        and value
+        == {
+            "contract_version": contract_version,
+            "created_unix": value.get("created_unix"),
+            "directory_name": directory_name,
+            "magic": MARKER_MAGIC,
+            "owner_uid": _current_uid(),
+        }
+        and isinstance(value.get("created_unix"), (int, float))
+    )
 
 
 def _stat_is_private_regular(value: os.stat_result) -> bool:
@@ -735,6 +742,16 @@ def _receipt(
             "fixture_status": measurement.authorization.fixture_status,
             "rights_manifest_hash": measurement.authorization.rights_declaration["manifest_hash"],
         },
+        "fixture_sidecars": [
+            {
+                "basename": item.basename,
+                "type": item.sidecar_type,
+                "payload_schema_version": item.payload_schema_version,
+                "sha256": item.sha256,
+                "size_bytes": item.size_bytes,
+            }
+            for item in measurement.authorization.fixture_sidecars
+        ],
         "acquisition": {
             "method": "private-file-descriptor-copy",
             "bytes_copied": measurement.size_bytes,

@@ -45,3 +45,12 @@ source, schemas, synthetic tests, ADR, and sanitized engineering documentation o
 authorize a tag or release, closure of issues 11/12 before review and merge, real-media processing,
 M2C, license selection, model/checkpoint use, or any private snapshot/run artifact. The immutable
 v1 and v1.1 tags, releases, fixtures, gold, configuration, and accepted artifacts are unchanged.
+
+The source-review follow-up adds a fixed versioned FFmpeg/FFprobe protocol, format, and demuxer
+policy plus hash/size-bound immutable controlled-fixture sidecar delivery. It remains within PR 16:
+no tag or release is authorized, and issues
+[#11](https://github.com/belagrf/av-atlas/issues/11),
+[#12](https://github.com/belagrf/av-atlas/issues/12), and
+[#14](https://github.com/belagrf/av-atlas/issues/14) stay open until review and merge. The local and
+loopback hostile-input regressions generate only temporary synthetic bytes and publish neither
+media nor network-fetched content.

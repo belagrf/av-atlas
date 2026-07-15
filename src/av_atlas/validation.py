@@ -9,6 +9,7 @@ from typing import Any
 
 from av_atlas.config import BaselineConfig
 from av_atlas.errors import AtlasError
+from av_atlas.fixture_inputs import fixture_manifest_digest
 from av_atlas.io import canonical_json, sha256_file, write_json
 from av_atlas.ocr_tracks import POLICY_VERSION, associate_temporal_text, spatially_compatible
 from av_atlas.pipeline import ARTIFACTS
@@ -389,6 +390,7 @@ def validate_run(run_dir: Path, write_report: bool = True) -> dict[str, Any]:
     }
     manifest: dict[str, Any] = {}
     inventory: dict[str, Any] = {}
+    fixture_value: dict[str, Any] = {}
     evidence: dict[str, Any] = {}
     state: dict[str, Any] = {}
     final: list[dict[str, Any]] = []
@@ -438,6 +440,10 @@ def validate_run(run_dir: Path, write_report: bool = True) -> dict[str, Any]:
                 "source_id"
             ) != inventory.get("source_id"):
                 raise AtlasError("controlled-fixture manifest is not linked to run source bytes")
+            if fixture_value.get("schema_version") == "1.1.0" and fixture_value.get(
+                "manifest_hash"
+            ) != fixture_manifest_digest(fixture_value):
+                raise AtlasError("controlled-fixture manifest integrity checksum is invalid")
             checks["json_schema"] += 1
         if (run_dir / "subtitle_tracks.json").is_file():
             validate_instance(
@@ -513,6 +519,12 @@ def validate_run(run_dir: Path, write_report: bool = True) -> dict[str, Any]:
                     "rights", {}
                 ).get("manifest_hash"):
                     errors.append("stable-input receipt rights linkage disagrees with run manifest")
+                if stable.get("schema_version") == "1.1.0" and stable.get(
+                    "fixture_sidecars"
+                ) != fixture_value.get("sidecars", []):
+                    errors.append(
+                        "stable-input receipt sidecar bindings disagree with fixture manifest"
+                    )
                 config = BaselineConfig.load(run_dir / "config.snapshot.yaml")
                 acquisition = stable.get("acquisition", {})
                 if acquisition.get("bytes_copied") != stable.get("source", {}).get("size_bytes"):

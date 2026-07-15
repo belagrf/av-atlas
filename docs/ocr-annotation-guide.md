@@ -28,6 +28,15 @@ on a verified private transient snapshot, which is deleted after each source. If
 the snapshot and incomplete package are removed. The pilot manifest records exact frame hashes and
 the pre-registered split.
 
+Current native-input policy accepts only parser-free-classified, self-contained Matroska/WebM.
+MOV/MP4, HLS, DASH, concat/concatf, image sequences, Blu-ray navigation, and other unreviewed or
+multi-resource inputs fail before parsing; operators must not use AV-Atlas to fetch or silently
+transcode them. Snapshot unlinking and lease removal are logical cleanup, not secure erasure. The
+default temporary directory may be disk-backed, journaled, snapshotted, swapped, or backed up.
+Before supplying real media, select and document a private capacity-bounded temporary root on an
+encrypted volume or appropriately configured tmpfs, or explicitly accept residual remanence risk.
+A tmpfs can still swap unless host policy prevents it.
+
 ## Independent annotation
 
 ```sh

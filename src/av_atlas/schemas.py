@@ -43,6 +43,7 @@ SCHEMA_FILES = {
     "ocr_pilot_manifest": "ocr-pilot-manifest.schema.json",
     "ocr_human_annotation": "ocr-human-annotation.schema.json",
     "stable_input": "stable-input.schema.json",
+    "native_input_policy": "native-input-policy.schema.json",
 }
 
 

@@ -13,6 +13,9 @@ def test_m2b_unavailable_path_is_complete_honest_and_valid(tmp_path: Path) -> No
         pytest.skip("FFmpeg is unavailable")
     root = Path(__file__).parents[2]
     media = make_m2b_fixture(tmp_path / "fixture")
+    marker = json.loads(media.with_suffix(".fixture.json").read_text())
+    assert marker["schema_version"] == "1.1.0"
+    assert marker["sidecars"] == []
     run_dir = tmp_path / "run"
     config = json.loads((root / "configs/m2b.yaml").read_text())
     config["ocr"]["executable"] = "definitely-not-an-installed-ocr"

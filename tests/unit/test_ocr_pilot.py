@@ -8,6 +8,7 @@ import pytest
 from av_atlas.cli import main
 from av_atlas.errors import AtlasError
 from av_atlas.io import canonical_json, sha256_file, source_id_from_sha256
+from av_atlas.native_media import AUTHORIZED_MATROSKA, NativeInputPolicy
 from av_atlas.ocr_pilot import _digest, make_annotation_packages, prepare_pilot
 from av_atlas.rights import create_rights_manifest
 from av_atlas.schemas import validate_instance
@@ -223,17 +224,24 @@ def test_synthetic_pilot_preparation_parses_and_extracts_only_from_snapshots(
         parser_paths.append(path)
         digest = sha256_file(path)
         return {
-            "schema_version": "1.0.0",
+            "schema_version": "1.1.0",
             "source_id": source_id_from_sha256(digest),
             "sha256": digest,
             "size_bytes": path.stat().st_size,
             "duration_ms": 100_000,
-            "format_names": ["synthetic-test"],
+            "format_names": ["matroska", "webm"],
+            "native_input_policy": AUTHORIZED_MATROSKA.as_record(),
             "streams": [],
             "chapters": [],
         }
 
-    def extract(path: Path, timestamp_ms: int, output: Path) -> None:
+    def extract(
+        path: Path,
+        timestamp_ms: int,
+        output: Path,
+        native_policy: NativeInputPolicy,
+    ) -> None:
+        assert native_policy == AUTHORIZED_MATROSKA
         extraction_paths.append(path)
         output.write_bytes(f"synthetic-frame-{timestamp_ms}".encode())
 

@@ -378,7 +378,7 @@ def initialize_run(
             run_dir,
             stable.snapshot_path,
             config,
-            sidecar_media=media if fixture_marker is not None else None,
+            sidecar_observations=stable.authorization.fixture_observations,
         )
     if completion is not None:
         _finalize_run(run_dir, completion)
@@ -418,6 +418,19 @@ def resume_run(run_dir: Path, media_override: Path | None = None) -> None:
         media = media_override
     else:
         media = run_dir / str(state["source_path"])
+    persisted_fixture = run_dir / "fixture_manifest.json"
+    persisted_fixture_present = persisted_fixture.is_file()
+    prior_stable_path = run_dir / "stable_input.json"
+    initial_fixture_authorized = persisted_fixture_present
+    if prior_stable_path.is_file():
+        prior_stable = _read_json(prior_stable_path)
+        validate_instance("stable_input", prior_stable, "stable_input.json")
+        initial_fixture_authorized = (
+            prior_stable.get("authorization", {}).get("fixture_status")
+            == "authorized_controlled_fixture"
+        )
+        if initial_fixture_authorized != persisted_fixture_present:
+            raise AtlasError("persisted controlled-fixture linkage is incomplete on resume")
     completion: _Completion | None = None
     with acquire_authorized_input(
         media,
@@ -429,20 +442,23 @@ def resume_run(run_dir: Path, media_override: Path | None = None) -> None:
         expected_manifest_hash=str(manifest["rights"]["manifest_hash"]),
         recover_stale=False,
     ) as stable:
-        write_json(run_dir / "stable_input.json", stable.receipt)
-        fixture_sidecar_authorized = False
-        persisted_fixture = run_dir / "fixture_manifest.json"
-        if persisted_fixture.is_file():
+        sidecar_observations: tuple[Observation, ...] = ()
+        current_fixture_authorized = stable.authorization.fixture_manifest is not None
+        if current_fixture_authorized != initial_fixture_authorized:
+            raise AtlasError("controlled-fixture authorization changed after run initialization")
+        if persisted_fixture_present:
             persisted_fixture_value = _read_json(persisted_fixture)
             validate_instance("fixture_manifest", persisted_fixture_value, "fixture_manifest.json")
             if persisted_fixture_value != stable.authorization.fixture_manifest:
                 raise AtlasError("persisted controlled-fixture linkage is invalid on resume")
-            fixture_sidecar_authorized = True
+            sidecar_observations = stable.authorization.fixture_observations
+        # Do not mutate canonical run evidence until persisted fixture linkage is accepted.
+        write_json(run_dir / "stable_input.json", stable.receipt)
         completion = _complete(
             run_dir,
             stable.snapshot_path,
             config,
-            sidecar_media=media if fixture_sidecar_authorized else None,
+            sidecar_observations=sidecar_observations,
         )
     if completion is not None:
         _finalize_run(run_dir, completion)
@@ -460,7 +476,7 @@ def _complete(
     media: Path,
     config: BaselineConfig,
     *,
-    sidecar_media: Path | None = None,
+    sidecar_observations: tuple[Observation, ...] = (),
 ) -> _Completion:
     started = time.perf_counter()
     inventory = _read_json(run_dir / "inventory.json")
@@ -474,7 +490,7 @@ def _complete(
     adapter_results: list[AdapterResult] = []
     dynamic_artifacts: list[Path] = []
     extra_evidence: dict[str, dict[str, Any]] = {}
-    context = AdapterContext(media, inventory, run_dir, config, sidecar_media)
+    context = AdapterContext(media, inventory, run_dir, config, sidecar_observations)
     for name in config.adapters:
         adapter: PerceptionAdapter
         if name == "subtitle":

@@ -14,7 +14,7 @@ any authorized real-media pilot.
 
 ## Decision
 
-Stable-input contract `av-atlas-stable-input/1.0.0` is the shared acquisition boundary for `run`,
+Stable-input contract `av-atlas-stable-input/1.1.0` is the shared acquisition boundary for `run`,
 `resume`, `inspect`, `inspect-subtitles`, and pilot preparation. It opens a regular non-symlink
 source with `O_NOFOLLOW` where available, hashes through that file descriptor, derives the canonical
 source ID, and completes the existing run-mode permission closure before a parser is invoked.
@@ -22,6 +22,14 @@ Non-fixture analysis and inspection require `analysis` plus `derivative_artifact
 evaluation additionally requires `evaluation`. Controlled fixtures retain automatic authorization
 only when their marker is schema-valid and exactly hash-bound. The rights 1.0 vocabulary and its
 integrity-checksum semantics do not change.
+
+For controlled fixtures, contract `av-atlas-controlled-fixture/1.1.0` binds the only supported
+sidecar type by canonical basename, payload schema, SHA-256, and bounded size. Authorization opens
+the sidecar without following its final path component, verifies stable identity before and after a
+bounded read, checks its hash and size, validates its schema, and converts it once into immutable
+observations. Adapters receive values rather than a path. Legacy fixture-manifest 1.0 records remain
+readable, but they cannot authorize an adjacent observation sidecar in a fresh run. A fixture
+self-hash is an integrity checksum, not an authenticated signature.
 
 After authorization, one unique private lease directory is created with mode `0700` and a regular
 snapshot with mode `0600`. Bytes are copied from the already-open descriptor, never by hard link.
@@ -31,22 +39,36 @@ snapshot, verifies SHA-256/source ID/size, and compares descriptor plus pathname
 before and after acquisition. Defaults are 8 GiB for both ceilings; configuration schema 1.2 caps
 either value at 64 GiB.
 
-FFprobe and FFmpeg receive only the verified snapshot path. Tesseract receives keyframes derived
-from that snapshot. The original source hash and source ID remain canonical; the snapshot is
-transport, not evidence. A versioned, path-free `stable_input.json` receipt records the verified
-method, limits, rights linkage, and lifecycle. It never records either original or private path.
-Source-adjacent sidecars are admitted only for a currently verified controlled fixture.
+The snapshot is then admitted through native-input contract `av-atlas-native-input/1.0.0`.
+Parser-free EBML magic selects only self-contained Matroska/WebM. Every ingest FFprobe/FFmpeg call
+uses input protocol whitelist `file`, format whitelist `matroska`, and forced `matroska` demuxing;
+the reported format must remain within `matroska,webm`. Runtime decode helpers reclassify the bytes
+immediately before invocation and never retry without the policy. The renderer accepts no arbitrary
+input-option list; its sole optional input is a validated nonnegative integer-millisecond seek.
+HLS, DASH, concat/concatf, image
+sequences, Blu-ray navigation, MOV/MP4, unknown formats, and network protocols are unsupported.
+Generated OCR frames separately require PNG magic and forced `png_pipe` demuxing. FFprobe and
+FFmpeg therefore receive only a verified snapshot or generated frame under a fixed policy, while
+Tesseract receives only snapshot-derived frames.
+
+The original source hash and source ID remain canonical; the snapshot is transport, not evidence.
+A versioned, path-free `stable_input.json` receipt records the verified method, limits, rights
+linkage, bound sidecar identities, and lifecycle. It never records either original or private path.
 
 The lease is removed after success, adapter/parser failure, timeout, and handled interruption.
 Run completion and artifact hashing happen only after successful lease cleanup. A marker and
 advisory lock support bounded recovery after process death: at most 64 candidate entries are
 inspected and at most 16 recognized inactive leases are removed per invocation, using directory
 file descriptors without recursive deletion or symlink following. Unrecognized or live entries are
-left untouched. Resume retains no source path and reacquires a fresh verified snapshot from an
+left untouched. Known 1.0 and 1.1 lease-marker versions are recoverable so a residue is not stranded
+by the receipt-version correction; unknown versions remain untouched. Resume retains no source path and reacquires a fresh verified snapshot from an
 operator-provided `--media` path.
 
 Accepted M2B v1 and v1.1 runs remain readable because the receipt is required only for AV-Atlas
-0.2.2 and later. No accepted release artifact or rights schema is rewritten.
+0.2.2 and later. Stable-input receipt 1.0 remains readable for the earlier review contract; current
+receipts are 1.1 because they record fixture-sidecar bindings. Media inventory 1.0 remains readable;
+current inventory 1.1 records the native-input policy. No accepted release artifact or rights
+schema is rewritten.
 
 ## Consequences and limitations
 
@@ -58,10 +80,18 @@ actionable error rather than weakening deletion semantics. `SIGKILL` and power l
 immediate cleanup.
 
 The private modes protect against other local users, not a malicious actor with the same operating-
-system identity. The final snapshot check narrows the race but does not provide an OS sandbox or a
-capability-typed guarantee for arbitrary internal library callers: supported CLI/pipeline/pilot
-entry points enforce snapshot routing, while low-level parser helpers still accept a `Path`.
-FFmpeg, FFprobe, and Tesseract remain native attack surfaces.
+system identity. The strict protocol/demuxer allowlist prevents default transitive-resource
+selection for supported inputs but does not provide an OS sandbox or capability-typed guarantee for
+arbitrary internal library callers. Low-level helpers still accept a `Path`; they reclassify bytes
+and enforce the fixed policy, while FFmpeg, FFprobe, and Tesseract remain native attack surfaces.
+Self-contained formats other than Matroska/WebM remain unsupported pending individual review.
+
+Unlinking the snapshot and removing its lease is logical lifecycle cleanup, not secure erasure.
+The default operating-system temporary root can be disk-backed, journaled, snapshotted, swapped, or
+backed up. Before real operator media, an operator must select and document an appropriately
+private, capacity-bounded temporary root (for example an encrypted volume or suitably configured
+tmpfs) or explicitly accept the residual data-remanence risk. A tmpfs may still swap unless the
+host is configured otherwise.
 
 No retained-frame lifecycle, narrower `temporary_processing_copy` permission, real-media pilot,
 model/checkpoint use, training, semantic visual capability, or M2C work is introduced.

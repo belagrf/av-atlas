@@ -283,6 +283,27 @@ def test_bounded_stale_recovery_removes_only_recognized_inactive_lease(
     assert escape.is_symlink()
 
 
+def test_stale_recovery_accepts_known_legacy_lease_marker_version(tmp_path: Path) -> None:
+    root = stable_input._private_root(tmp_path / "private")
+    lease = stable_input._new_private_directory(root)
+    directory = lease.directory
+    os.close(lease.marker_fd)
+    os.close(lease.directory_fd)
+    os.close(lease.root_fd)
+    marker_path = directory / MARKER_NAME
+    marker = json.loads(marker_path.read_text())
+    marker["contract_version"] = "av-atlas-stable-input/1.0.0"
+    marker["created_unix"] = 0
+    marker_path.write_text(json.dumps(marker) + "\n")
+    marker_path.chmod(0o600)
+    snapshot = directory / SNAPSHOT_NAME
+    snapshot.write_bytes(b"legacy stale")
+    snapshot.chmod(0o600)
+
+    assert recover_stale_snapshots(StableInputPolicy(), root=root) == 1
+    assert not directory.exists()
+
+
 def test_stale_recovery_does_not_remove_live_locked_lease(tmp_path: Path) -> None:
     root = stable_input._private_root(tmp_path / "private")
     lease = stable_input._new_private_directory(root)

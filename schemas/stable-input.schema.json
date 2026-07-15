@@ -1,12 +1,12 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://av-atlas.local/schemas/stable-input/1.0.0",
+  "$id": "https://av-atlas.local/schemas/stable-input/1.1.0",
   "type": "object",
   "additionalProperties": false,
   "required": ["schema_version", "contract_version", "source", "authorization", "acquisition", "lifecycle", "privacy"],
   "properties": {
-    "schema_version": {"const": "1.0.0"},
-    "contract_version": {"const": "av-atlas-stable-input/1.0.0"},
+    "schema_version": {"enum": ["1.0.0", "1.1.0"]},
+    "contract_version": {"enum": ["av-atlas-stable-input/1.0.0", "av-atlas-stable-input/1.1.0"]},
     "source": {
       "type": "object", "additionalProperties": false,
       "required": ["source_id", "sha256", "size_bytes"],
@@ -23,6 +23,20 @@
         "run_mode": {"enum": ["analysis", "evaluation"]},
         "fixture_status": {"enum": ["authorized_controlled_fixture", "not_fixture"]},
         "rights_manifest_hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+      }
+    },
+    "fixture_sidecars": {
+      "type": "array", "maxItems": 1,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["basename", "type", "payload_schema_version", "sha256", "size_bytes"],
+        "properties": {
+          "basename": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$"},
+          "type": {"const": "observation_sidecar"},
+          "payload_schema_version": {"const": "1.0.0"},
+          "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+          "size_bytes": {"type": "integer", "minimum": 1, "maximum": 1000000}
+        }
       }
     },
     "acquisition": {
@@ -60,5 +74,18 @@
         "snapshot_path_exported": {"const": false}
       }
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"schema_version": {"const": "1.1.0"}}},
+      "then": {
+        "required": ["fixture_sidecars"],
+        "properties": {"contract_version": {"const": "av-atlas-stable-input/1.1.0"}}
+      },
+      "else": {
+        "not": {"required": ["fixture_sidecars"]},
+        "properties": {"contract_version": {"const": "av-atlas-stable-input/1.0.0"}}
+      }
+    }
+  ]
 }

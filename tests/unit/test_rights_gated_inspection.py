@@ -37,7 +37,10 @@ def _ffprobe_payload(subtitle: bool = False) -> dict[str, Any]:
                 "disposition": {},
             }
         )
-    return {"format": {"duration": "1.0", "format_name": "test"}, "streams": streams}
+    return {
+        "format": {"duration": "1.0", "format_name": "matroska,webm"},
+        "streams": streams,
+    }
 
 
 def _fixture_marker(source: Path) -> None:
@@ -64,7 +67,7 @@ def test_nonfixture_inspection_is_rights_gated_and_parser_sees_only_snapshot(
     command: str,
 ) -> None:
     source = tmp_path / "operator;$(never-run).mkv"
-    source.write_bytes(b"authorized fake media")
+    source.write_bytes(b"\x1aE\xdf\xa3authorized fake media")
     rights = _rights(source, tmp_path / "rights.json")
     parser_inputs: list[Path] = []
 
@@ -142,7 +145,7 @@ def test_controlled_fixture_inspection_auto_authorizes_exact_bytes(
     command: str,
 ) -> None:
     source = tmp_path / "controlled.bin"
-    source.write_bytes(b"controlled inspection bytes")
+    source.write_bytes(b"\x1aE\xdf\xa3controlled inspection bytes")
     _fixture_marker(source)
     parser_inputs: list[Path] = []
 
@@ -167,7 +170,7 @@ def test_inspection_inventory_preserves_original_identity_without_paths(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     source = tmp_path / "private-name.mkv"
-    source.write_bytes(b"authorized fake media")
+    source.write_bytes(b"\x1aE\xdf\xa3authorized fake media")
     rights = _rights(source, tmp_path / "rights.json")
 
     def fake_run(arguments: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
@@ -191,7 +194,7 @@ def test_parser_reads_frozen_snapshot_when_original_changes_after_acquisition(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     source = tmp_path / "operator.bin"
-    original = b"authorized parser bytes"
+    original = b"\x1aE\xdf\xa3authorized parser bytes"
     source.write_bytes(original)
     expected_hash = sha256_file(source)
     rights = _rights(source, tmp_path / "rights.json")

@@ -491,6 +491,21 @@ def test_fixture_is_byte_deterministic(tmp_path: Path) -> None:
     assert sha256_file(first.with_suffix(".observations.json")) == sha256_file(
         second.with_suffix(".observations.json")
     )
+    assert sha256_file(first.with_suffix(".fixture.json")) == sha256_file(
+        second.with_suffix(".fixture.json")
+    )
+    manifest = json.loads(first.with_suffix(".fixture.json").read_text())
+    sidecar = first.with_suffix(".observations.json")
+    assert manifest["schema_version"] == "1.1.0"
+    assert manifest["sidecars"] == [
+        {
+            "basename": sidecar.name,
+            "type": "observation_sidecar",
+            "payload_schema_version": "1.0.0",
+            "sha256": sha256_file(sidecar),
+            "size_bytes": sidecar.stat().st_size,
+        }
+    ]
 
 
 def test_clean_tracked_source_checkout_does_not_depend_on_ignored_runs(
