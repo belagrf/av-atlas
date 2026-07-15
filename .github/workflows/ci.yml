@@ -47,11 +47,20 @@ jobs:
           uv run av-atlas make-fixture --profile m2a --include-edge-fixtures --output tests/fixtures/generated/m2a
           uv run av-atlas make-fixture --profile m2b --output tests/fixtures/generated/m2b
 
-      - name: Quality gates
-        run: |
-          uv lock --check
-          uv run ruff format --check .
-          uv run ruff check .
-          uv run mypy src
-          uv run pytest -q
-          uv run av-atlas doctor
+      - name: Verify dependency lock
+        run: uv lock --check
+
+      - name: Check formatting
+        run: uv run ruff format --check .
+
+      - name: Lint source and tests
+        run: uv run ruff check .
+
+      - name: Type-check source
+        run: uv run mypy src
+
+      - name: Run test suite
+        run: uv run pytest -q
+
+      - name: Verify runtime dependencies
+        run: uv run av-atlas doctor
