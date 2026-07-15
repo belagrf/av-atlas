@@ -134,3 +134,16 @@ jobs:
 
       - name: Verify runtime dependencies
         run: uv run av-atlas doctor
+
+      - name: Create tracked source archive
+        if: always()
+        run: git archive --format=zip --output=tracked-source.zip HEAD
+
+      - name: Upload tracked source archive
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: tracked-source
+          path: tracked-source.zip
+          if-no-files-found: error
+          retention-days: 1
