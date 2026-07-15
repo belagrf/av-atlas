@@ -91,7 +91,9 @@ Stable-input receipt 1.2 and run-manifest 1.1 persist the explicit trust mode, r
 checksum, and current fixture checksum when controlled. Resume rejects ordinary-to-controlled or
 controlled-to-ordinary transitions before rewriting the receipt or invoking an adapter. Validation
 recomputes the relationship and reports impossible controlled states as actionable errors while
-retaining read-only support for accepted historical contracts.
+retaining read-only support for accepted historical contracts. Runs declaring AV-Atlas 0.2.2 or
+later must use the current run-manifest 1.1 and stable-input 1.2 pair; declaring an older schema pair
+does not bypass these semantic checks.
 
 OCR temporal tracks are untrusted derived artifacts. Validation checks equal member/evidence/box/
 confidence array lengths before iteration and relationally recomputes all member linkage, ordering,

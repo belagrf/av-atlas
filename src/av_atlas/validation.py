@@ -504,6 +504,8 @@ def validate_run(run_dir: Path, write_report: bool = True) -> dict[str, Any]:
             version_parts = tuple(int(item) for item in software_version.split(".")[:3])
         except ValueError:
             version_parts = (0, 0, 0)
+        if version_parts >= (0, 2, 2) and manifest.get("schema_version") != "1.1.0":
+            errors.append("AV-Atlas 0.2.2+ runs require run-manifest schema 1.1.0")
         if version_parts >= (0, 2, 2) and not stable_path.is_file():
             errors.append("M2B.2 run omits required stable_input.json receipt")
         if version_parts >= (0, 2, 2) and "stable_input.json" not in manifest.get("artifacts", {}):
@@ -511,6 +513,8 @@ def validate_run(run_dir: Path, write_report: bool = True) -> dict[str, Any]:
         if stable_path.is_file():
             try:
                 stable = _json(stable_path)
+                if version_parts >= (0, 2, 2) and stable.get("schema_version") != "1.2.0":
+                    errors.append("AV-Atlas 0.2.2+ runs require stable-input schema 1.2.0")
                 if (
                     stable.get("source", {}).get("sha256") != inventory.get("sha256")
                     or stable.get("source", {}).get("source_id") != inventory.get("source_id")

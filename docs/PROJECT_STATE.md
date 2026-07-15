@@ -1300,8 +1300,9 @@ Regression coverage includes forged 1.0 marker/no rights, forged 1.1 marker+side
 ordinary-rights bundle isolation with zero admitted observations, explicit synthetic exact-bundle
 success, missing/legacy/mismatched bundle denial, parser/subprocess zero-call assertions, ordinary
 and controlled resume transition denial, ordinary resume ignoring newly adjacent fixture data,
-impossible-state validation, and historical run-manifest/read-only compatibility. Current controlled
-inspection also requires explicit synthetic rights. The complete local suite measured **271 passed,
+impossible-state validation, current-software schema-downgrade denial, and historical run-manifest/
+read-only compatibility. Current controlled inspection also requires explicit synthetic rights. The
+complete local suite measured **272 passed,
 zero failed, zero skipped**. Locked offline sync, lock check, Ruff formatting/lint, mypy over 24
 source files, schema checks, and doctor passed. No dependency was installed or downloaded.
 

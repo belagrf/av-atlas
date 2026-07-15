@@ -187,8 +187,8 @@
       "path": "docs/PROJECT_STATE.md",
       "reason_for_inclusion": "architecture, governance, research, or project contract",
       "redistribution_basis": "explicit operator authorization for public disclosure",
-      "sha256": "50b63475c1fe80f53b7a15e6164cd2df99f2fdb6a829bac5addc166fd43009e2",
-      "size_bytes": 90922
+      "sha256": "6b80616263b05ffe20777aa46516da822afa2e07497f6fdd7a29561a70add1be",
+      "size_bytes": 90965
     },
     {
       "applicable_license": "unresolved; no project reuse license selected",
@@ -347,7 +347,7 @@
       "path": "docs/publication-manifest.json",
       "reason_for_inclusion": "machine-readable disclosure inventory",
       "redistribution_basis": "explicit operator authorization for public disclosure",
-      "sha256": "5f2a5843ffb569a6f770b27d1b68a233bf04c21b3f4b29e411137d7cbb9d061d",
+      "sha256": "853a56b88cda4de2dcb25cb86f4cebb1157de7c882482a0ded6b88f6cf4799e3",
       "size_bytes": 63397
     },
     {
@@ -417,8 +417,8 @@
       "path": "docs/security.md",
       "reason_for_inclusion": "architecture, governance, research, or project contract",
       "redistribution_basis": "explicit operator authorization for public disclosure",
-      "sha256": "d2cc12e55c64fda75197afab206adc5b1d8ecba473cf3283876d02ec5193727a",
-      "size_bytes": 10054
+      "sha256": "69f903f8485bff3f0bde18437f488c0208bea03914fe7ee7ef9ddfbb40019faa",
+      "size_bytes": 10228
     },
     {
       "applicable_license": "unresolved; no project reuse license selected",
@@ -1007,8 +1007,8 @@
       "path": "src/av_atlas/validation.py",
       "reason_for_inclusion": "implementation or deterministic publication tooling",
       "redistribution_basis": "explicit operator authorization for public disclosure",
-      "sha256": "3cc8f22b0e53d3151488b1cf2c3fc9d8e4f9502153e94ab7e680f7e5027d2032",
-      "size_bytes": 37506
+      "sha256": "2ae8bc303cc1f7043bd8a815cd9cf012f46d89700f469c14ad3dee700f6eb95f",
+      "size_bytes": 37858
     },
     {
       "applicable_license": "unresolved; no project reuse license selected",
@@ -1127,8 +1127,8 @@
       "path": "tests/unit/test_fixture_sidecars.py",
       "reason_for_inclusion": "quality, contract, regression, or security test",
       "redistribution_basis": "explicit operator authorization for public disclosure",
-      "sha256": "a124b4836277e6c66dcc23f561243c8994018e2e041d3fcfc8aba5a9a3432166",
-      "size_bytes": 29770
+      "sha256": "0894babf44f0b72c78a4a84199d2da1f59f2b66f0a23ed31b8206ccf967264da",
+      "size_bytes": 31665
     },
     {
       "applicable_license": "unresolved; no project reuse license selected",

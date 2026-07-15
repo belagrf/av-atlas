@@ -799,3 +799,52 @@ def test_validation_rejects_impossible_controlled_fixture_trust_state(
         validate_run(run_dir)
     report = json.loads((run_dir / "quality_report.json").read_text())
     assert any("impossible fixture trust state" in error for error in report["errors"])
+
+
+def test_validation_rejects_current_run_schema_downgrade(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    media, _, _ = _current_fixture(tmp_path)
+    rights = _rights(media, tmp_path / "rights.json")
+    digest = sha256_file(media)
+    monkeypatch.setattr(
+        "av_atlas.pipeline.inspect_media",
+        lambda path: {
+            "schema_version": "1.1.0",
+            "source_id": source_id_from_sha256(digest),
+            "sha256": digest,
+            "size_bytes": path.stat().st_size,
+            "duration_ms": 1000,
+            "format_names": ["matroska", "webm"],
+            "native_input_policy": AUTHORIZED_MATROSKA.as_record(),
+            "streams": [],
+            "chapters": [],
+        },
+    )
+    monkeypatch.setattr("av_atlas.pipeline.tool_version", lambda name: None)
+    run_dir = tmp_path / "run"
+    initialize_run(
+        media,
+        Path(__file__).parents[2] / "configs/baseline.yaml",
+        run_dir,
+        rights_manifest=rights,
+    )
+
+    stable_path = run_dir / "stable_input.json"
+    stable = json.loads(stable_path.read_text())
+    stable["schema_version"] = "1.1.0"
+    stable["contract_version"] = "av-atlas-stable-input/1.1.0"
+    write_json(stable_path, stable)
+    manifest = json.loads((run_dir / "run_manifest.json").read_text())
+    manifest["schema_version"] = "1.0.0"
+    manifest["artifacts"]["stable_input.json"] = {
+        "sha256": sha256_file(stable_path),
+        "size_bytes": stable_path.stat().st_size,
+    }
+    write_json(run_dir / "run_manifest.json", manifest)
+
+    with pytest.raises(AtlasError, match="validation failed"):
+        validate_run(run_dir)
+    report = json.loads((run_dir / "quality_report.json").read_text())
+    assert "AV-Atlas 0.2.2+ runs require run-manifest schema 1.1.0" in report["errors"]
+    assert "AV-Atlas 0.2.2+ runs require stable-input schema 1.2.0" in report["errors"]
