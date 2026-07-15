@@ -6,7 +6,8 @@ import pytest
 from av_atlas.cli import main
 from av_atlas.errors import AtlasError
 from av_atlas.io import canonical_json
-from av_atlas.ocr_pilot import _digest, make_annotation_packages, prepare_pilot
+from av_atlas.ocr_pilot import _digest, make_annotation_packages
+from av_atlas.ocr_pilot_intake import prepare_pilot
 from av_atlas.schemas import validate_instance
 
 

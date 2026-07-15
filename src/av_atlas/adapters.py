@@ -18,6 +18,7 @@ class AdapterContext:
     inventory: dict[str, Any]
     run_dir: Path
     config: BaselineConfig
+    source_media: Path | None = None
 
 
 class AdapterExecution(Protocol):
@@ -70,7 +71,8 @@ class SidecarAdapter:
         return observations
 
     def run(self, context: AdapterContext) -> SidecarOutput:
-        values = self.observe(context.media, int(context.inventory["duration_ms"]))
+        sidecar_media = context.source_media or context.media
+        values = self.observe(sidecar_media, int(context.inventory["duration_ms"]))
         return SidecarOutput(
             AdapterResult(
                 self.name,

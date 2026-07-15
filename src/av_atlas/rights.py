@@ -223,6 +223,8 @@ def authorize_media_preflight(
     media: Path,
     rights_manifest: Path | None,
     run_mode: str,
+    *,
+    expected_manifest_hash: str | None = None,
 ) -> AuthorizationPreflight:
     """Authorize exact source bytes without invoking a media parser or adapter."""
     if not media.is_file():
@@ -238,11 +240,23 @@ def authorize_media_preflight(
         rights = fixture_rights(source_hash, source_id)
         fixture_status = "authorized_controlled_fixture"
     else:
-        rights = load_and_validate_rights(rights_manifest, source_hash, source_id, run_mode)
+        rights = load_and_validate_rights(
+            rights_manifest,
+            source_hash,
+            source_id,
+            run_mode,
+            expected_manifest_hash=expected_manifest_hash,
+        )
         fixture_status = (
             "authorized_controlled_fixture" if fixture_marker is not None else "not_fixture"
         )
-    validate_rights_artifact(rights, source_hash, source_id, run_mode)
+    validate_rights_artifact(
+        rights,
+        source_hash,
+        source_id,
+        run_mode,
+        expected_manifest_hash=expected_manifest_hash,
+    )
     return AuthorizationPreflight(
         source_sha256=source_hash,
         source_id=source_id,

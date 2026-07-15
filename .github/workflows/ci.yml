@@ -47,11 +47,103 @@ jobs:
           uv run av-atlas make-fixture --profile m2a --include-edge-fixtures --output tests/fixtures/generated/m2a
           uv run av-atlas make-fixture --profile m2b --output tests/fixtures/generated/m2b
 
-      - name: Quality gates
-        run: |
-          uv lock --check
-          uv run ruff format --check .
-          uv run ruff check .
-          uv run mypy src
-          uv run pytest -q
-          uv run av-atlas doctor
+      - name: Verify dependency lock
+        run: uv lock --check
+
+      - name: Format stable input
+        continue-on-error: true
+        run: uv run ruff format --check src/av_atlas/stable_input.py
+
+      - name: Format rights
+        continue-on-error: true
+        run: uv run ruff format --check src/av_atlas/rights.py
+
+      - name: Format adapters
+        continue-on-error: true
+        run: uv run ruff format --check src/av_atlas/adapters.py
+
+      - name: Format CLI
+        continue-on-error: true
+        run: uv run ruff format --check src/av_atlas/cli.py
+
+      - name: Format pipeline
+        continue-on-error: true
+        run: uv run ruff format --check src/av_atlas/pipeline.py
+
+      - name: Format stable-input tests
+        continue-on-error: true
+        run: uv run ruff format --check tests/unit/test_stable_input.py
+
+      - name: Format authorization tests
+        continue-on-error: true
+        run: uv run ruff format --check tests/unit/test_initial_authorization.py
+
+      - name: Format inspection tests
+        continue-on-error: true
+        run: uv run ruff format --check tests/unit/test_inspection_authorization.py
+
+      - name: Format pipeline stable-input tests
+        continue-on-error: true
+        run: uv run ruff format --check tests/unit/test_pipeline_stable_input.py
+
+      - name: Check all formatting
+        id: formatting
+        continue-on-error: true
+        run: uv run ruff format --check .
+
+      - name: Capture formatting diff
+        if: always() && steps.formatting.outcome == 'failure'
+        run: uv run ruff format --diff . > ruff-format.diff || true
+
+      - name: Upload formatting diff
+        if: always() && steps.formatting.outcome == 'failure'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ruff-format-diff
+          path: ruff-format.diff
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Enforce formatting result
+        if: always() && steps.formatting.outcome == 'failure'
+        run: exit 1
+
+      - name: Lint source and tests
+        run: uv run ruff check .
+
+      - name: Type-check source
+        run: uv run mypy src
+
+      - name: Run test suite
+        id: tests
+        continue-on-error: true
+        run: uv run pytest -q --tb=short > pytest.log 2>&1
+
+      - name: Upload pytest failure report
+        if: always() && steps.tests.outcome == 'failure'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: pytest-failure-report
+          path: pytest.log
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Enforce test result
+        if: always() && steps.tests.outcome == 'failure'
+        run: exit 1
+
+      - name: Verify runtime dependencies
+        run: uv run av-atlas doctor
+
+      - name: Create tracked source archive
+        if: always()
+        run: git archive --format=zip --output=tracked-source.zip HEAD
+
+      - name: Upload tracked source archive
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: tracked-source
+          path: tracked-source.zip
+          if-no-files-found: error
+          retention-days: 1
