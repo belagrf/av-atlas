@@ -54,3 +54,10 @@ no tag or release is authorized, and issues
 [#14](https://github.com/belagrf/av-atlas/issues/14) stay open until review and merge. The local and
 loopback hostile-input regressions generate only temporary synthetic bytes and publish neither
 media nor network-fetched content.
+
+The final authorization correction also remains inside PR 16. It removes automatic marker trust,
+requires an explicit declaration for every fresh run/inspection, admits fixture data only for an
+explicit `synthetic-controlled` basis plus an exact current bundle, and persists the decision in
+stable-input 1.2/run-manifest 1.1. Ordinary rights ignore adjacent fixture data; historical markers
+remain validation-only. This correction authorizes no release, tag movement, issue closure, real
+media, M2C work, or license choice.

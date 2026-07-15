@@ -126,29 +126,40 @@ the separately versioned stable-input configuration in fresh ignored paths:
 
 ```bash
 uv run av-atlas make-fixture --profile m2b --output tests/fixtures/generated/m2b2-review
+uv run av-atlas make-rights tests/fixtures/generated/m2b2-review/m2b_ocr_controlled.mkv \
+  --output tests/fixtures/generated/m2b2-review/rights.json \
+  --operator-id controlled-replay --basis synthetic-controlled \
+  --allow analysis --allow evaluation --allow derivative_artifact_retention
 uv run av-atlas run tests/fixtures/generated/m2b2-review/m2b_ocr_controlled.mkv \
-  --config configs/m2b2.yaml --output runs/m2b2-review
+  --config configs/m2b2.yaml \
+  --rights-manifest tests/fixtures/generated/m2b2-review/rights.json \
+  --output runs/m2b2-review
 uv run av-atlas evaluate-ocr runs/m2b2-review tests/gold/m2b-ocr-controlled.gold.json
 uv run av-atlas benchmark-ocr runs/m2b2-review tests/gold/m2b-ocr-controlled.gold.json
 uv run av-atlas validate runs/m2b2-review
 ```
 
-Confirm that current `stable_input.json` validates against stable-input schema 1.1, contains no
-path, and matches inventory source hash/ID/size plus the run rights link, fixture-sidecar bindings,
-and configured byte ceilings. Confirm that fixture-manifest 1.1 binds every accepted sidecar by
+Confirm that current `stable_input.json` validates against stable-input schema 1.2, contains no
+path, and matches inventory source hash/ID/size plus run-manifest 1.1 rights basis/checksum, explicit
+synthetic trust mode, current fixture checksum/contract, fixture-sidecar bindings, and configured
+byte ceilings. Confirm that fixture-manifest 1.1 binds every accepted sidecar by
 canonical basename, type, payload schema, SHA-256, and size; media-inventory 1.1 records native-
 input contract `av-atlas-native-input/1.0.0`. Historical fixture/inventory/stable-input 1.0 records
-remain validation-compatible, but a legacy marker cannot authorize fresh adjacent observations.
+remain validation-compatible, but no legacy/current marker authorizes fresh work without explicit
+rights. Ordinary rights must ignore adjacent marker/sidecar data.
 
 Run the focused hostile-input and sidecar regressions:
 
 ```bash
-uv run pytest -q tests/unit/test_native_media_policy.py tests/unit/test_fixture_sidecars.py
+uv run pytest -q tests/unit/test_native_media_policy.py tests/unit/test_fixture_sidecars.py \
+  tests/unit/test_initial_authorization.py tests/unit/test_rights_gated_inspection.py
 ```
 
 They prove that HLS/DASH/concat/sequence/navigation inputs start no parser, a local sentinel is not
 accessed, a loopback endpoint receives zero requests, and missing/mismatched/replaced/symlinked/
 malformed/oversized/unlisted/concurrently changed sidecars fail before evidence admission. Verify
+that forged 1.0/1.1 markers without rights start no parser, ordinary rights admit no adjacent
+observation, synthetic rights require the exact bundle, and resume cannot change trust mode. Verify
 that every ingest parser command carries the fixed `file` protocol whitelist and forced/whitelisted
 `matroska` demuxer; generated OCR PNG decoding uses the separate `png_pipe` policy.
 

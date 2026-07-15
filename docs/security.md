@@ -18,8 +18,10 @@ copied only into evidence fields and cannot select tools, permissions, configura
 
 M2B.2 performs parser-free authorization and stable acquisition before FFprobe. It rejects a
 non-regular or symlink source, opens with `O_NOFOLLOW` where available, hashes through one
-descriptor, derives the canonical source ID, and verifies the fixture marker or explicit rights
-schema, checksum, source, permission closure, retention, and expiry. The same descriptor supplies a
+descriptor, derives the canonical source ID, and verifies an explicit rights schema, checksum,
+source, permission closure, retention, and expiry. No adjacent marker authorizes execution. Only a
+validated `synthetic-controlled` rights basis may then open an exact current fixture bundle; all
+ordinary bases ignore adjacent markers and sidecars. The same descriptor supplies a
 bounded byte-for-byte copy in a unique 0700 directory and 0600 file. Source and temporary ceilings
 apply before and during copying. Pre/post descriptor and pathname metadata detect mutation,
 replacement, growth, and truncation; copied and independently reread hashes, sizes, and source IDs
@@ -38,9 +40,11 @@ with final-component no-follow protection where available, capped at 1 MB, strea
 checked for path/descriptor identity before and after reading. Its digest, size, JSON schema, and
 observation IDs are validated before an immutable observation tuple is supplied to adapters.
 Adapters perform no later path read. Missing, changed, replaced, symlinked, malformed, oversized,
-or unlisted sidecars fail closed. A fabricated adjacent sidecar on a nonfixture or legacy 1.0
-fixture cannot acquire controlled-fixture trust. The marker checksum is an integrity checksum, not
-an authenticated project signature.
+or unlisted sidecars fail closed. Forged legacy/current markers without explicit rights fail before
+parsing; ordinary explicit rights cannot be promoted or receive adjacent observations; and
+synthetic-controlled rights fail if the current bundle is missing or mismatched. Legacy 1.0 markers
+remain historical-validation data only. The marker checksum is an integrity checksum, not an
+authenticated project signature or authorization credential.
 
 The path-free stable-input receipt records the verified method and policy, not original/snapshot
 paths. Native error details redact private paths. Run completion occurs only after the snapshot is
@@ -53,7 +57,7 @@ source, hard-link, symlink, and pre-existing-output collisions fail before parse
 
 Native policy rendering accepts no caller-supplied option list that could override the whitelist or
 demuxer. The only input option is a validated nonnegative integer-millisecond seek rendered by the
-policy itself. Bounded recovery accepts only the known stable-input 1.0/1.1 lease-marker versions;
+policy itself. Bounded recovery accepts only the known stable-input 1.0/1.1/1.2 lease-marker versions;
 unknown marker contracts remain untouched.
 
 Hostile HLS/local-file and DASH/loopback fixtures prove zero parser starts, zero local-sentinel
@@ -82,6 +86,12 @@ Resume and validation recompute the persisted rights checksum and compare it wit
 before processing. Permission edits with either a stale checksum or a new checksum but stale run
 linkage fail closed before FFmpeg, Tesseract, or an adapter is called. This checksum is not a
 signature, identity proof, or legal determination.
+
+Stable-input receipt 1.2 and run-manifest 1.1 persist the explicit trust mode, rights basis and
+checksum, and current fixture checksum when controlled. Resume rejects ordinary-to-controlled or
+controlled-to-ordinary transitions before rewriting the receipt or invoking an adapter. Validation
+recomputes the relationship and reports impossible controlled states as actionable errors while
+retaining read-only support for accepted historical contracts.
 
 OCR temporal tracks are untrusted derived artifacts. Validation checks equal member/evidence/box/
 confidence array lengths before iteration and relationally recomputes all member linkage, ordering,

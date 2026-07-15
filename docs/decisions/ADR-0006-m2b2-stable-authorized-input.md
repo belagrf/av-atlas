@@ -14,22 +14,26 @@ any authorized real-media pilot.
 
 ## Decision
 
-Stable-input contract `av-atlas-stable-input/1.1.0` is the shared acquisition boundary for `run`,
+Stable-input contract `av-atlas-stable-input/1.2.0` is the shared acquisition boundary for `run`,
 `resume`, `inspect`, `inspect-subtitles`, and pilot preparation. It opens a regular non-symlink
 source with `O_NOFOLLOW` where available, hashes through that file descriptor, derives the canonical
 source ID, and completes the existing run-mode permission closure before a parser is invoked.
-Non-fixture analysis and inspection require `analysis` plus `derivative_artifact_retention`;
-evaluation additionally requires `evaluation`. Controlled fixtures retain automatic authorization
-only when their marker is schema-valid and exactly hash-bound. The rights 1.0 vocabulary and its
-integrity-checksum semantics do not change.
+Every fresh analysis and inspection requires an explicit rights declaration with `analysis` plus
+`derivative_artifact_retention`; evaluation additionally requires `evaluation`. Fixture trust is
+derived only from that validated declaration. An explicit `synthetic-controlled` basis must match
+an exact current fixture 1.1 bundle and is the only mode that admits bound fixture observations.
+Owned, licensed, public-domain, and other documented authorization are ordinary trust: adjacent
+markers and sidecars are not opened, do not change status, and cannot inject evidence. The rights
+1.0 vocabulary and its integrity-checksum semantics do not change.
 
 For controlled fixtures, contract `av-atlas-controlled-fixture/1.1.0` binds the only supported
 sidecar type by canonical basename, payload schema, SHA-256, and bounded size. Authorization opens
 the sidecar without following its final path component, verifies stable identity before and after a
 bounded read, checks its hash and size, validates its schema, and converts it once into immutable
 observations. Adapters receive values rather than a path. Legacy fixture-manifest 1.0 records remain
-readable, but they cannot authorize an adjacent observation sidecar in a fresh run. A fixture
-self-hash is an integrity checksum, not an authenticated signature.
+readable in historical validation, but they cannot authorize any fresh execution. No marker or
+self-hash is an authorization credential. A fixture self-hash is an integrity checksum, not an
+authenticated signature.
 
 After authorization, one unique private lease directory is created with mode `0700` and a regular
 snapshot with mode `0600`. Bytes are copied from the already-open descriptor, never by hard link.
@@ -53,22 +57,26 @@ Tesseract receives only snapshot-derived frames.
 
 The original source hash and source ID remain canonical; the snapshot is transport, not evidence.
 A versioned, path-free `stable_input.json` receipt records the verified method, limits, rights
-linkage, bound sidecar identities, and lifecycle. It never records either original or private path.
+basis/checksum linkage, explicit ordinary-or-controlled trust mode, exact current fixture checksum
+and contract when controlled, bound sidecar identities, and lifecycle. Run-manifest 1.1 records the
+same trust and fixture linkage. It never records either original or private path.
 
 The lease is removed after success, adapter/parser failure, timeout, and handled interruption.
 Run completion and artifact hashing happen only after successful lease cleanup. A marker and
 advisory lock support bounded recovery after process death: at most 64 candidate entries are
 inspected and at most 16 recognized inactive leases are removed per invocation, using directory
 file descriptors without recursive deletion or symlink following. Unrecognized or live entries are
-left untouched. Known 1.0 and 1.1 lease-marker versions are recoverable so a residue is not stranded
+left untouched. Known 1.0, 1.1, and 1.2 lease-marker versions are recoverable so a residue is not stranded
 by the receipt-version correction; unknown versions remain untouched. Resume retains no source path and reacquires a fresh verified snapshot from an
 operator-provided `--media` path.
 
 Accepted M2B v1 and v1.1 runs remain readable because the receipt is required only for AV-Atlas
-0.2.2 and later. Stable-input receipt 1.0 remains readable for the earlier review contract; current
-receipts are 1.1 because they record fixture-sidecar bindings. Media inventory 1.0 remains readable;
-current inventory 1.1 records the native-input policy. No accepted release artifact or rights
-schema is rewritten.
+0.2.2 and later. Stable-input receipts 1.0 and 1.1 remain readable for earlier review contracts;
+current receipts are 1.2 because they record declaration-derived fixture trust. Run-manifest 1.0
+and media inventory 1.0 remain readable; current run manifest and inventory are 1.1. Resume for a
+current run requires the persisted rights basis, trust mode, fixture status, fixture checksum, and
+sidecar bindings to remain coherent before receipt replacement or adapter work. No accepted
+release artifact or rights schema is rewritten.
 
 ## Consequences and limitations
 

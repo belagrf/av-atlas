@@ -1272,3 +1272,96 @@ hostility, authenticated fixture/rights signatures, retained-frame lifecycle, gr
 non-Matroska input, non-POSIX support, project license/patent/publication decisions, and the
 double-annotated pilot remain unresolved. Issues 11, 12, and 14 stay open. No pilot, M2C, model,
 checkpoint, GPU, cloud/paid API, training, tag, release, or merge occurred.
+
+## 2026-07-16 — M2B.2 explicit fixture-trust correction (PR #16 follow-up)
+
+Source review confirmed one remaining authorization bypass at review head
+`c94280b3cbbfc6bff68388c4bebd419e173bdb71`: `authorize_source_identity()` treated a
+caller-constructed adjacent fixture marker as a rights-free credential and also admitted its bound
+observations under ordinary explicit rights. A controlled reproduction used only temporary
+synthetic EBML-prefixed bytes and produced `authorized_controlled_fixture` plus the forged
+observation. No native parser or real media was needed to demonstrate the defect.
+
+Fresh execution now always requires an explicit source-bound rights manifest. Trust is derived only
+from the validated rights basis: `synthetic-controlled-explicit-rights` requires an exact current
+fixture 1.1 bundle, while `ordinary-explicit-rights` covers owned, licensed, public-domain, and
+other documented authorization and never opens adjacent fixture metadata. Legacy fixture 1.0
+markers remain validation-only. Marker and rights self-hashes remain integrity checks, not
+authenticated signatures or legal determinations.
+
+The new additive contracts are stable-input `av-atlas-stable-input/1.2.0` / schema 1.2.0 and
+run-manifest schema 1.1.0. They persist rights basis/checksum, explicit trust mode, nullable exact
+fixture checksum/contract, fixture status, and sidecar bindings. Resume re-derives and compares the
+same decision before receipt replacement or adapter work. Validation rejects impossible ordinary/
+controlled combinations while retaining read-only support for stable-input 1.0/1.1 and run-
+manifest 1.0. The rights-manifest 1.0 and fixture-manifest 1.1 vocabularies did not change.
+
+Regression coverage includes forged 1.0 marker/no rights, forged 1.1 marker+sidecar/no rights,
+ordinary-rights bundle isolation with zero admitted observations, explicit synthetic exact-bundle
+success, missing/legacy/mismatched bundle denial, parser/subprocess zero-call assertions, ordinary
+and controlled resume transition denial, ordinary resume ignoring newly adjacent fixture data,
+impossible-state validation, and historical run-manifest/read-only compatibility. Current controlled
+inspection also requires explicit synthetic rights. The complete local suite measured **271 passed,
+zero failed, zero skipped**. Locked offline sync, lock check, Ruff formatting/lint, mypy over 24
+source files, schema checks, and doctor passed. No dependency was installed or downloaded.
+
+A fresh ignored offline replay was created at
+`tests/fixtures/generated/m2b2-explicit-trust-20260716` and
+`runs/m2b2-explicit-trust-20260716`. M1, M2A, M2B, M2B.1, M2B.2, and interrupted/resumed M2B.2
+validated with 18/32/69/69/69/69 artifact hashes and zero errors. The accepted v1 and v1.1 local
+runs validated read-only with 64 and 68 artifact hashes and zero errors. Completed resume and
+interrupted-then-repeated resume were byte-identical across all run files; their sorted hash-map
+SHA-256 values were `bfb50494993782df1503819cbc14f809a63daad8a8538e14cbfbafdb06f291a0`
+and `d41ee232884427d7fe48392bf87cf74241cdf06067705ca70536294789628539`.
+
+The fresh four-frame M2B.2 replay preserved fixture/gold/raw OCR identities and produced 13 raw OCR
+observations plus 13 secondary temporal tracks. Measured synthetic-only results were exact match
+0.75, normalized CER 0.0125, normalized WER 0.07692307692307693, text-presence precision/recall/F1
+1.0/1.0/1.0, zero duplicates, zero missing evidence, zero invalid timestamps, zero retries/timeouts,
+wall 3.986374 s, CPU 2.982820 s, peak RSS 180544 KiB, and 1.003418 frames/s. Region metrics remain
+unsupported because the frozen gold has no regions. Worker 1/2/4 measurements were respectively:
+wall 1.991857/1.683649/1.547342 s; CPU 1.944992/1.937929/1.939354 s; peak RSS
+180668/180668/180672 KiB; and 2.008176/2.375792/2.585078 frames/s. Every worker produced 13
+observations, identical semantic hash
+`f851aef0d8a1c215023cd71b38120a2f317a10be3dd24567f2f023449acd6060`, and zero failures,
+retries, or timeouts. These are synthetic engineering measurements, not real-media accuracy.
+
+Fresh content/runtime identities are:
+
+- fixture media `6d1f79c6a63b6a8d5510bcd67a74e522096fe97b6c2bba68587f0213ccc682a8`;
+- fixture marker file `4186ed28525803033e4131275d2217c401ef12ab5c16e623f2fdff25c2a373d5`
+  and bound manifest checksum `001dd0b0a755a780434ea621616392a18abbadf9085317dda6d5915f644205ad`;
+- frozen gold `e62e392aa45406f939edc1f2093d07f1dcf175c0c4ea9085cbeae3edde50bc1a`;
+- M2B.2 configuration `9c0d2b71c928912671f10cee3c0b2e0676f2b5e81de7ca68962832ebfb99313b`;
+- fixture/stable/run/native schema files
+  `46739bbf84a9eb6ef132e03a6f9c5db8cf85fda61cc4a1869247d10a0e97b7d1`,
+  `4e2fa84f9ae59602a85cd00cbc7b03884abd8b24f9aae3827a80ce77cc739252`,
+  `b2df807a219837f9f27ff9a916c9c5356ce78be25c81a4fe548eafeda21c171d`, and
+  `0a8465c8cba176bbd252ee6d579f3043a21777b1236e6cc4bf38b7fdbeb22834`;
+- stable receipt `d05948457f0fac0159f5273b264d583abda41e7b37a2c03cf1e33a990733a0c0`;
+- inventory `91ada0947d3da15c53b8a99076fa3f9841ebad026fcf96ec91da87cde5e7d6d5`;
+- raw OCR `f851aef0d8a1c215023cd71b38120a2f317a10be3dd24567f2f023449acd6060`;
+- temporal tracks `f27d60f51c06cead4d0b6159b47865fd635a010e2faba9902057ae1c9cd4b9c2`;
+- runtime-bearing evaluation/benchmark
+  `914063061ee4195cc25f4b36f0f33c2e7151a54eb188fe269b95de7f1ebaefce` and
+  `bcd31fd6ceb8816dee455681c89c0e6bc60c212347d18766cf8900fb5d3e57ff`;
+- OCR dependency/BOM `5ab8663ce63b7d6303ce84e3ec62ab3a9dd1ec55283e8f0c6852dd88740d5cce`
+  and `abca366e47275ef2d5ff2825b53b0d47436e03a56e29a696f903cb194d188868`;
+- runtime-bearing run manifest `fe112702883b2dcc693c4c5a6d4a38190bdfa3b96cc90b8cf162eee94822aab8`;
+- quality report `ee0936365cb0574518918e5a9d73826f039519c32a31ca9f709bdeae260b3b9d`.
+
+The immutable accepted v1 fixture/gold/config/raw OCR/evaluation/benchmark/run/release hashes remain
+`6d1f79c6…82a8`, `e62e392a…bc1a`, `8f5545df…5c55`, `f851aef0…6060`,
+`a1011542…3ad`, `47908700…455`, `67797695…440`, and `e545855c…9b2`. Tag objects/commits remain
+`8cadd6c8ecda7d0b6f60421f312c199cbad163e1` /
+`54d96dc25bdf03ab1e92d22150c5011faf16b7e6` and
+`8be328eef2fd10037b56921aff1f401c3ef3a12e` /
+`5d016784c6b3d7226a9f6e0f56cca9fb3ef48822`. No accepted fixture, gold, configuration, artifact,
+tag, or release changed.
+
+Issues 11, 12, and 14 remain open and PR 16 remains unmerged with `needs-work` pending source
+review. Residual limitations remain the strict allowlist without an OS/native-parser sandbox,
+same-UID hostility, logical-not-secure erasure, temporary-root policy, authenticated rights/
+fixture signatures, retained-frame lifecycle, non-Matroska/live input, the authorized real-media
+pilot, and project license/patent/publication decisions. No real media, M2C, model/checkpoint, GPU,
+cloud/paid API, training, tag, release, or merge occurred.

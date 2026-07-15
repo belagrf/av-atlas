@@ -9,16 +9,17 @@ import pytest
 
 from av_atlas import media, stable_input
 from av_atlas.cli import main
+from av_atlas.fixture_inputs import FIXTURE_CONTRACT_VERSION, fixture_manifest_digest
 from av_atlas.io import sha256_file, source_id_from_sha256, write_json
 from av_atlas.rights import create_rights_manifest, manifest_digest
 
 
-def _rights(source: Path, path: Path) -> Path:
+def _rights(source: Path, path: Path, basis: str = "owned") -> Path:
     create_rights_manifest(
         source,
         path,
         "inspection-test",
-        "owned",
+        basis,
         {"analysis", "derivative_artifact_retention"},
     )
     return path
@@ -58,6 +59,25 @@ def _fixture_marker(source: Path) -> None:
             "parameters": {},
         },
     )
+
+
+def _current_fixture_marker(source: Path) -> None:
+    digest = sha256_file(source)
+    value: dict[str, Any] = {
+        "schema_version": "1.1.0",
+        "contract_version": FIXTURE_CONTRACT_VERSION,
+        "fixture_id": "INSPECTION_FIXTURE_V1_1",
+        "profile": "m1",
+        "generator_version": "1.1.0",
+        "source_id": source_id_from_sha256(digest),
+        "content_sha256": digest,
+        "ffmpeg_version": "fixture-generation-only",
+        "parameters": {},
+        "sidecars": [],
+        "manifest_hash": "",
+    }
+    value["manifest_hash"] = fixture_manifest_digest(value)
+    write_json(source.with_suffix(".fixture.json"), value)
 
 
 @pytest.mark.parametrize("command", ["inspect", "inspect-subtitles"])
@@ -139,14 +159,15 @@ def test_inspection_denial_invokes_no_parser(
 
 
 @pytest.mark.parametrize("command", ["inspect", "inspect-subtitles"])
-def test_controlled_fixture_inspection_auto_authorizes_exact_bytes(
+def test_controlled_fixture_inspection_requires_explicit_synthetic_rights(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     command: str,
 ) -> None:
     source = tmp_path / "controlled.bin"
     source.write_bytes(b"\x1aE\xdf\xa3controlled inspection bytes")
-    _fixture_marker(source)
+    _current_fixture_marker(source)
+    rights = _rights(source, tmp_path / "rights.json", basis="synthetic-controlled")
     parser_inputs: list[Path] = []
 
     def fake_run(arguments: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
@@ -160,10 +181,34 @@ def test_controlled_fixture_inspection_auto_authorizes_exact_bytes(
 
     monkeypatch.setattr(media.shutil, "which", lambda _: "/usr/bin/ffprobe")
     monkeypatch.setattr(media, "_run", fake_run)
-    assert main([command, str(source)]) == 0
+    assert main([command, str(source), "--rights-manifest", str(rights)]) == 0
     assert len(parser_inputs) == 1
     assert parser_inputs[0] != source
     assert not parser_inputs[0].exists()
+
+
+@pytest.mark.parametrize("marker", ["legacy", "current"])
+@pytest.mark.parametrize("command", ["inspect", "inspect-subtitles"])
+def test_forged_fixture_marker_without_rights_never_reaches_parser(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    marker: str,
+    command: str,
+) -> None:
+    source = tmp_path / "forged.mkv"
+    source.write_bytes(b"\x1aE\xdf\xa3forged fixture")
+    (_fixture_marker if marker == "legacy" else _current_fixture_marker)(source)
+    calls = 0
+
+    def forbidden(*args: object, **kwargs: object) -> None:
+        nonlocal calls
+        calls += 1
+        raise AssertionError("forged marker must fail before native parsing")
+
+    monkeypatch.setattr(media, "inspect_media", forbidden)
+    monkeypatch.setattr(subprocess, "run", forbidden)
+    assert main([command, str(source)]) == 2
+    assert calls == 0
 
 
 def test_inspection_inventory_preserves_original_identity_without_paths(

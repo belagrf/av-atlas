@@ -32,6 +32,18 @@ RUN_MODE_PERMISSIONS: dict[str, tuple[str, ...]] = {
     "evaluation": ("analysis", "evaluation", "derivative_artifact_retention"),
 }
 
+ORDINARY_EXPLICIT_RIGHTS = "ordinary-explicit-rights"
+SYNTHETIC_CONTROLLED_EXPLICIT_RIGHTS = "synthetic-controlled-explicit-rights"
+
+
+def fixture_trust_mode_for_rights_basis(rights_basis: str) -> str:
+    """Derive fixture trust solely from the validated operator declaration basis."""
+    if rights_basis == "synthetic-controlled":
+        return SYNTHETIC_CONTROLLED_EXPLICIT_RIGHTS
+    if rights_basis in {"owned", "licensed", "public-domain", "other-documented-authorization"}:
+        return ORDINARY_EXPLICIT_RIGHTS
+    raise AtlasError(f"unsupported rights basis: {rights_basis}")
+
 
 @dataclass(frozen=True)
 class AuthorizationPreflight:
@@ -40,6 +52,7 @@ class AuthorizationPreflight:
     source_sha256: str
     source_id: str
     fixture_status: str
+    fixture_trust_mode: str
     fixture_manifest: dict[str, Any] | None
     fixture_sidecars: tuple[VerifiedFixtureSidecar, ...]
     rights_declaration: dict[str, Any]
@@ -241,18 +254,6 @@ def validate_run_mode_permissions(
         validate_rights(value, source_hash, source_id, permission)
 
 
-def controlled_fixture_manifest(
-    media: Path,
-    source_hash: str | None = None,
-    source_id: str | None = None,
-) -> dict[str, Any] | None:
-    """Return a marker only when source and every declared sidecar are verified."""
-    exact_hash = source_hash if source_hash is not None else sha256_file(media)
-    exact_source_id = source_id if source_id is not None else source_id_from_sha256(exact_hash)
-    bundle = load_controlled_fixture_bundle(media, exact_hash, exact_source_id)
-    return bundle.manifest if bundle is not None else None
-
-
 def authorize_source_identity(
     media: Path,
     source_hash: str,
@@ -268,29 +269,14 @@ def authorize_source_identity(
     The caller owns the file-descriptor and mutation checks that established
     ``source_hash`` and ``source_id``. This function never opens the media bytes.
     """
-    required_permissions_for_run_mode(run_mode)
-    fixture_bundle = load_controlled_fixture_bundle(media, source_hash, source_id)
-    fixture_marker = fixture_bundle.manifest if fixture_bundle is not None else None
     if rights_manifest is None:
-        if fixture_marker is None:
-            raise AtlasError(
-                "non-fixture media requires --rights-manifest bound to the exact source hash"
-            )
-        rights = fixture_rights(source_hash, source_id)
-        fixture_status = "authorized_controlled_fixture"
-    else:
-        rights = load_and_validate_rights(
-            rights_manifest,
-            source_hash,
-            source_id,
-            run_mode,
-            expected_manifest_hash=expected_manifest_hash,
+        raise AtlasError(
+            "fresh processing and inspection authorization requires --rights-manifest bound "
+            "to the exact source hash"
         )
-        fixture_status = (
-            "authorized_controlled_fixture" if fixture_marker is not None else "not_fixture"
-        )
-    validate_rights_artifact(
-        rights,
+    required_permissions_for_run_mode(run_mode)
+    rights = load_and_validate_rights(
+        rights_manifest,
         source_hash,
         source_id,
         run_mode,
@@ -298,37 +284,33 @@ def authorize_source_identity(
     )
     for permission in additional_permissions:
         validate_rights(rights, source_hash, source_id, permission)
+
+    fixture_bundle = None
+    fixture_marker = None
+    fixture_trust_mode = fixture_trust_mode_for_rights_basis(str(rights["rights_basis"]))
+    if fixture_trust_mode == SYNTHETIC_CONTROLLED_EXPLICIT_RIGHTS:
+        fixture_bundle = load_controlled_fixture_bundle(media, source_hash, source_id)
+        if fixture_bundle is None or fixture_bundle.manifest.get("schema_version") != "1.1.0":
+            raise AtlasError(
+                "synthetic-controlled rights require an exact current controlled-fixture bundle"
+            )
+        fixture_marker = fixture_bundle.manifest
+        fixture_status = "authorized_controlled_fixture"
+    else:
+        # Ordinary rights never inspect, promote, or consume adjacent fixture files.
+        # Their presence must not affect authorization or observation content.
+        fixture_status = "not_fixture"
     return AuthorizationPreflight(
         source_sha256=source_hash,
         source_id=source_id,
         fixture_status=fixture_status,
+        fixture_trust_mode=fixture_trust_mode,
         fixture_manifest=fixture_marker,
         fixture_sidecars=fixture_bundle.sidecars if fixture_bundle is not None else (),
         rights_declaration=rights,
         requested_run_mode=run_mode,
         authorized_at=datetime.now(UTC).isoformat(),
     )
-
-
-def fixture_rights(source_hash: str, source_id: str) -> dict[str, Any]:
-    value: dict[str, Any] = {
-        "schema_version": "1.0.0",
-        "source_id": source_id,
-        "content_sha256": source_hash,
-        "operator_id": "OPR_000000000001",
-        "rights_basis": "synthetic-controlled",
-        "permissions": {operation: True for operation in OPERATIONS},
-        "restrictions": [],
-        "expires_at": None,
-        "notes": "Automatically declared for a hash-bound AV-Atlas controlled fixture.",
-        "created_at": "2026-07-13T00:00:00+00:00",
-        "manifest_hash": "",
-        "independently_reviewed": False,
-        "review_record": None,
-    }
-    value["manifest_hash"] = manifest_digest(value)
-    validate_instance("rights_manifest", value, "controlled fixture rights")
-    return value
 
 
 def authorize_media_preflight(

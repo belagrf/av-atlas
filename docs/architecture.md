@@ -3,9 +3,9 @@
 The current implementation establishes the low-level contracts required by later trainable modules:
 
 ```text
-synthetic media + rights/observation sidecar
-  -> parser-free descriptor hash + fixture/rights permission closure
-  -> fixture 1.1 hash/size-bound sidecars -> immutable observations
+synthetic media + explicit rights + observation sidecar
+  -> parser-free descriptor hash + rights permission closure
+  -> synthetic-controlled basis + exact fixture 1.1 bundle -> immutable observations
   -> verified private transient snapshot (0700 directory / 0600 file)
   -> native-input 1.0 protocol/format/demuxer policy
   -> safe ffprobe inventory of snapshot + integer-ms timeline
@@ -47,8 +47,9 @@ programs are invoked with argument arrays, `shell=False`, and an option terminat
 are never modified by inspection.
 
 M2B.2 initial processing opens a regular non-symlink input without following its final symlink,
-streams its hash through that descriptor, derives its canonical source ID, and verifies either a
-hash-bound controlled-fixture marker or an explicit rights declaration. No FFprobe, FFmpeg,
+streams its hash through that descriptor, derives its canonical source ID, and verifies an
+explicit rights declaration. Only a validated `synthetic-controlled` basis then admits an exact
+current fixture bundle; ordinary rights do not open adjacent fixture data. No FFprobe, FFmpeg,
 Tesseract, subtitle, shot, or perception process is invoked before authorization succeeds. The
 same descriptor is rewound and copied into a unique private snapshot under source and temporary-
 storage ceilings. Source identity/size/time metadata are checked before and after copying; the copy
@@ -128,27 +129,30 @@ analysis, evaluation, and derivative retention. Annotation, training, retention,
 cannot be selected as perception-processing modes.
 
 M2B.2 uses the same stable-input service for `run`, `resume`, `inspect`, `inspect-subtitles`, and
-pilot source preparation. Standalone inspection now uses analysis-mode permission closure, so a
-non-fixture needs both analysis and derivative-retention permission. Pilot preparation completes
+pilot source preparation. Standalone inspection now uses analysis-mode permission closure, so
+every fixture and non-fixture needs explicit analysis and derivative-retention permission. Pilot preparation completes
 parser-free authorization for every selected source before parsing any of them, then inventories
-and extracts only from one verified snapshot at a time. Controlled-fixture automatic authorization
-remains exact-hash-bound. Fresh fixture-manifest contract
+and extracts only from one verified snapshot at a time. Controlled-fixture trust exists only for
+an explicit `synthetic-controlled` declaration plus an exact current bundle. Fresh fixture-manifest contract
 `av-atlas-controlled-fixture/1.1.0` additionally lists the one currently accepted runtime sidecar
 type with canonical basename, payload schema, SHA-256, and bounded size. Authorization opens it
 without following a final symlink, checks descriptor/path identity before and after a bounded read,
 verifies its declared hash and size, validates its schema, and converts it once to immutable
 observations. Adapters receive those values, not a pathname. Missing, mismatched, replaced,
 malformed, oversized, or unlisted sidecars fail before observations are accepted. Historical
-fixture 1.0 records remain validation-compatible but cannot confer fresh sidecar trust.
+fixture 1.0 records remain validation-compatible but cannot authorize fresh execution. For
+ordinary rights bases, adjacent markers and sidecars are ignored and cannot change evidence.
 
-The corrected stable-input contract is `av-atlas-stable-input/1.1.0`; its receipt schema is 1.1.0
-and records verified fixture-sidecar identities without paths. Receipt schema 1.0 remains readable
-for the earlier unaccepted review-head artifacts, while accepted v1/v1.1 releases predate receipts.
+The corrected stable-input contract is `av-atlas-stable-input/1.2.0`; its receipt schema is 1.2.0
+and records the declaration-derived trust mode, rights basis/checksum, nullable current fixture
+checksum/contract, and verified sidecar identities without paths. Run-manifest 1.1 records matching
+trust linkage. Receipt schemas 1.0/1.1 and run-manifest 1.0 remain readable for historical artifacts,
+while accepted v1/v1.1 releases predate current receipts.
 The configuration schema ID is 1.2.0. Default source and temporary-copy ceilings are each 8 GiB and the
 schema hard cap is 64 GiB. Lease directories and files use modes 0700/0600. Ordinary cleanup uses
 pinned directory descriptors; crash recovery scans at most 64 entries and removes at most 16
 marker-recognized, inactive leases without recursive traversal or symlink following. Recovery
-accepts the known 1.0 and 1.1 lease-marker contracts so a review-head crash residue is not stranded;
+accepts the known 1.0, 1.1, and 1.2 lease-marker contracts so a review-head crash residue is not stranded;
 unknown versions remain untouched. `SIGKILL` and
 power loss require later bounded recovery. A growing long-form stream must be segmented and
 authorized as finalized chunks rather than copied as one live file.

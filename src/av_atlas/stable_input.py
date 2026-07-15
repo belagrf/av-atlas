@@ -28,9 +28,15 @@ from av_atlas.io import source_id_from_sha256
 from av_atlas.rights import AuthorizationPreflight, authorize_source_identity
 from av_atlas.schemas import validate_instance
 
-CONTRACT_VERSION = "av-atlas-stable-input/1.1.0"
-SCHEMA_VERSION = "1.1.0"
-RECOVERABLE_MARKER_CONTRACT_VERSIONS = frozenset({"av-atlas-stable-input/1.0.0", CONTRACT_VERSION})
+CONTRACT_VERSION = "av-atlas-stable-input/1.2.0"
+SCHEMA_VERSION = "1.2.0"
+RECOVERABLE_MARKER_CONTRACT_VERSIONS = frozenset(
+    {
+        "av-atlas-stable-input/1.0.0",
+        "av-atlas-stable-input/1.1.0",
+        CONTRACT_VERSION,
+    }
+)
 DEFAULT_MAX_SOURCE_BYTES = 8 * 1024 * 1024 * 1024
 DEFAULT_MAX_TEMPORARY_BYTES = 8 * 1024 * 1024 * 1024
 MAX_POLICY_BYTES = 64 * 1024 * 1024 * 1024
@@ -740,7 +746,19 @@ def _receipt(
         "authorization": {
             "run_mode": measurement.authorization.requested_run_mode,
             "fixture_status": measurement.authorization.fixture_status,
+            "fixture_trust_mode": measurement.authorization.fixture_trust_mode,
+            "rights_basis": measurement.authorization.rights_declaration["rights_basis"],
             "rights_manifest_hash": measurement.authorization.rights_declaration["manifest_hash"],
+            "fixture_manifest_hash": (
+                measurement.authorization.fixture_manifest["manifest_hash"]
+                if measurement.authorization.fixture_manifest is not None
+                else None
+            ),
+            "fixture_contract_version": (
+                measurement.authorization.fixture_manifest["contract_version"]
+                if measurement.authorization.fixture_manifest is not None
+                else None
+            ),
         },
         "fixture_sidecars": [
             {

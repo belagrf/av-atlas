@@ -30,7 +30,19 @@ def project_root() -> Path:
 def fixture_media(tmp_path: Path) -> Path:
     if shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None:
         pytest.skip("FFmpeg is unavailable")
-    return make_fixture(tmp_path / "fixture")
+    media = make_fixture(tmp_path / "fixture")
+    create_rights_manifest(
+        media,
+        media.with_suffix(".rights.json"),
+        "controlled-test",
+        "synthetic-controlled",
+        {"analysis", "evaluation", "derivative_artifact_retention"},
+    )
+    return media
+
+
+def _fixture_rights(media: Path) -> Path:
+    return media.with_suffix(".rights.json")
 
 
 def test_offline_cpu_end_to_end_and_artifact_validation(
@@ -46,6 +58,8 @@ def test_offline_cpu_end_to_end_and_artifact_validation(
                 str(project_root / "configs/baseline.yaml"),
                 "--output",
                 str(run_dir),
+                "--rights-manifest",
+                str(_fixture_rights(fixture_media)),
             ]
         )
         == 0
@@ -97,6 +111,8 @@ def test_interruption_and_idempotent_resume_do_not_duplicate_records(
         str(run_dir),
         "--stop-after",
         "inventory",
+        "--rights-manifest",
+        str(_fixture_rights(fixture_media)),
     ]
     assert main(["run", *args]) == 0
     assert not (run_dir / "events.final.jsonl").exists()
@@ -124,6 +140,8 @@ def test_resume_uses_verified_run_local_configuration_snapshot(
                 str(run_dir),
                 "--stop-after",
                 "inventory",
+                "--rights-manifest",
+                str(_fixture_rights(fixture_media)),
             ]
         )
         == 0
@@ -159,6 +177,8 @@ def test_interrupted_resume_reacquires_a_distinct_fresh_snapshot(
         str(run_dir),
         "--stop-after",
         "inventory",
+        "--rights-manifest",
+        str(_fixture_rights(fixture_media)),
     ]
     assert main(initialize) == 0
     assert main(["resume", str(run_dir), "--media", str(fixture_media)]) == 0
@@ -190,6 +210,7 @@ def test_cleanup_failure_cannot_leave_a_valid_complete_run(
             fixture_media,
             project_root / "configs/baseline.yaml",
             run_dir,
+            rights_manifest=_fixture_rights(fixture_media),
         )
     manifest = json.loads((run_dir / "run_manifest.json").read_text())
     assert manifest["status"] == "processing"
@@ -224,6 +245,7 @@ def test_adapter_timeout_cleans_private_snapshot_and_cannot_complete_run(
             fixture_media,
             project_root / "configs/baseline.yaml",
             run_dir,
+            rights_manifest=_fixture_rights(fixture_media),
         )
     assert private_root.is_dir()
     assert list(private_root.iterdir()) == []
@@ -244,6 +266,7 @@ def test_resume_recovers_stale_leases_before_expired_rights_failure(
         project_root / "configs/baseline.yaml",
         run_dir,
         stop_after="inventory",
+        rights_manifest=_fixture_rights(fixture_media),
     )
     rights_path = run_dir / "rights_manifest.json"
     rights = json.loads(rights_path.read_text())
@@ -335,14 +358,19 @@ def test_pre_m2b2_run_without_stable_receipt_remains_validation_compatible(
                 str(project_root / "configs/baseline.yaml"),
                 "--output",
                 str(run_dir),
+                "--rights-manifest",
+                str(_fixture_rights(fixture_media)),
             ]
         )
         == 0
     )
     (run_dir / "stable_input.json").unlink()
     manifest = json.loads((run_dir / "run_manifest.json").read_text())
+    manifest["schema_version"] = "1.0.0"
     manifest["software"]["av_atlas"] = legacy_version
     manifest["artifacts"].pop("stable_input.json")
+    for field in ("basis", "fixture_trust_mode", "fixture_manifest_hash"):
+        manifest["rights"].pop(field)
     write_json(run_dir / "run_manifest.json", manifest)
     report = validate_run(run_dir, write_report=False)
     assert report["valid"] is True
@@ -354,8 +382,16 @@ def test_equivalent_semantic_artifacts_for_identical_inputs(
 ) -> None:
     config = project_root / "configs/baseline.yaml"
     run_a, run_b = tmp_path / "a", tmp_path / "b"
-    assert main(["run", str(fixture_media), "--config", str(config), "--output", str(run_a)]) == 0
-    assert main(["run", str(fixture_media), "--config", str(config), "--output", str(run_b)]) == 0
+    base = [
+        "run",
+        str(fixture_media),
+        "--config",
+        str(config),
+        "--rights-manifest",
+        str(_fixture_rights(fixture_media)),
+    ]
+    assert main([*base, "--output", str(run_a)]) == 0
+    assert main([*base, "--output", str(run_b)]) == 0
     stable = [
         name
         for name in ARTIFACTS
@@ -378,7 +414,21 @@ def test_dangling_evidence_returns_nonzero(
 ) -> None:
     run_dir = tmp_path / "run"
     config = project_root / "configs/baseline.yaml"
-    assert main(["run", str(fixture_media), "--config", str(config), "--output", str(run_dir)]) == 0
+    assert (
+        main(
+            [
+                "run",
+                str(fixture_media),
+                "--config",
+                str(config),
+                "--output",
+                str(run_dir),
+                "--rights-manifest",
+                str(_fixture_rights(fixture_media)),
+            ]
+        )
+        == 0
+    )
     path = run_dir / "evidence_index.json"
     value = json.loads(path.read_text(encoding="utf-8"))
     value["evidence"].pop(next(iter(value["evidence"])))
@@ -402,6 +452,8 @@ def test_malformed_ocr_track_returns_nonzero_and_writes_actionable_quality_repor
                 str(project_root / "configs/baseline.yaml"),
                 "--output",
                 str(run_dir),
+                "--rights-manifest",
+                str(_fixture_rights(fixture_media)),
             ]
         )
         == 0
@@ -529,6 +581,8 @@ def test_clean_tracked_source_checkout_does_not_depend_on_ignored_runs(
                 str(project_root / "configs/baseline.yaml"),
                 "--output",
                 str(run_dir),
+                "--rights-manifest",
+                str(_fixture_rights(fixture_media)),
             ]
         )
         == 0

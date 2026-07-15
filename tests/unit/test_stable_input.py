@@ -190,7 +190,7 @@ def test_partial_writes_are_completed_and_snapshot_hash_mismatch_fails_closed(
 ) -> None:
     source = tmp_path / "source.bin"
     source.write_bytes(b"partial-write-test")
-    _fixture_marker(source)
+    rights = _rights(source, tmp_path / "rights.json")
     real_write = os.write
 
     def partial_write(descriptor: int, value: bytes) -> int:
@@ -198,7 +198,7 @@ def test_partial_writes_are_completed_and_snapshot_hash_mismatch_fails_closed(
 
     monkeypatch.setattr(os, "write", partial_write)
     with acquire_authorized_input(
-        source, None, "analysis", private_root=tmp_path / "partial"
+        source, rights, "analysis", private_root=tmp_path / "partial"
     ) as stable:
         assert stable.snapshot_path.read_bytes() == source.read_bytes()
 
@@ -209,7 +209,7 @@ def test_partial_writes_are_completed_and_snapshot_hash_mismatch_fails_closed(
     )
     with (
         pytest.raises(AtlasError, match="identity verification failed"),
-        acquire_authorized_input(source, None, "analysis", private_root=tmp_path / "mismatch"),
+        acquire_authorized_input(source, rights, "analysis", private_root=tmp_path / "mismatch"),
     ):
         pytest.fail("hash-mismatched snapshot must not be yielded")
     assert _children(tmp_path / "mismatch") == []
@@ -220,11 +220,11 @@ def test_receipt_is_private_root_independent_and_snapshot_is_not_a_hardlink(
 ) -> None:
     source = tmp_path / "source.bin"
     source.write_bytes(b"root-independent")
-    _fixture_marker(source)
+    rights = _rights(source, tmp_path / "rights.json")
     receipts = []
     for name in ("private-a", "private-b"):
         root = tmp_path / name
-        with acquire_authorized_input(source, None, "analysis", private_root=root) as stable:
+        with acquire_authorized_input(source, rights, "analysis", private_root=root) as stable:
             receipts.append(stable.receipt)
             assert source.stat().st_ino != stable.snapshot_path.stat().st_ino
             assert str(root) not in canonical_json(stable.receipt)
@@ -239,11 +239,11 @@ def test_ordinary_failure_timeout_and_interruption_clean_snapshot(
 ) -> None:
     source = tmp_path / "source.bin"
     source.write_bytes(b"fixture")
-    _fixture_marker(source)
+    rights = _rights(source, tmp_path / "rights.json")
     private = tmp_path / "private"
     with (
         pytest.raises(type(failure)),
-        acquire_authorized_input(source, None, "analysis", private_root=private),
+        acquire_authorized_input(source, rights, "analysis", private_root=private),
     ):
         raise failure
     assert _children(private) == []
@@ -417,7 +417,7 @@ def test_stale_recovery_fsyncs_deletions_before_removing_marker_and_directory(
 def test_cleanup_parent_replacement_cannot_escape_private_root(tmp_path: Path) -> None:
     source = tmp_path / "source.bin"
     source.write_bytes(b"cleanup-sensitive-bytes")
-    _fixture_marker(source)
+    rights = _rights(source, tmp_path / "rights.json")
     root = tmp_path / "private"
     outside = tmp_path / "outside"
     outside.mkdir()
@@ -430,7 +430,7 @@ def test_cleanup_parent_replacement_cannot_escape_private_root(tmp_path: Path) -
     moved: Path | None = None
     with (
         pytest.raises(AtlasError, match="cleanup failed"),
-        acquire_authorized_input(source, None, "analysis", private_root=root) as stable,
+        acquire_authorized_input(source, rights, "analysis", private_root=root) as stable,
     ):
         moved = root / "renamed-active-lease"
         stable.snapshot_path.parent.rename(moved)
@@ -450,7 +450,7 @@ def test_cleanup_failure_is_reported_and_marker_preserved_for_recovery(
 ) -> None:
     source = tmp_path / "source.bin"
     source.write_bytes(b"cleanup-failure")
-    _fixture_marker(source)
+    rights = _rights(source, tmp_path / "rights.json")
     root = tmp_path / "private"
     real_unlink = os.unlink
     with monkeypatch.context() as active:
@@ -463,7 +463,7 @@ def test_cleanup_failure_is_reported_and_marker_preserved_for_recovery(
         active.setattr(os, "unlink", fail_snapshot_unlink)
         with (
             pytest.raises(AtlasError, match="cleanup failed"),
-            acquire_authorized_input(source, None, "analysis", private_root=root),
+            acquire_authorized_input(source, rights, "analysis", private_root=root),
         ):
             pass
     residues = [path for path in root.iterdir() if path.is_dir()]

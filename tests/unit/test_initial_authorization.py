@@ -8,6 +8,7 @@ from typing import Any
 import pytest
 
 from av_atlas.errors import AtlasError
+from av_atlas.fixture_inputs import FIXTURE_CONTRACT_VERSION, fixture_manifest_digest
 from av_atlas.io import sha256_file, source_id_from_sha256, write_json
 from av_atlas.pipeline import initialize_run
 from av_atlas.rights import create_rights_manifest, manifest_digest
@@ -54,6 +55,35 @@ def _fixture_marker(media: Path) -> None:
     )
 
 
+def _current_fixture_marker(media: Path) -> None:
+    digest = sha256_file(media)
+    value: dict[str, Any] = {
+        "schema_version": "1.1.0",
+        "contract_version": FIXTURE_CONTRACT_VERSION,
+        "fixture_id": "PREFLIGHT_TEST_V1_1",
+        "profile": "m1",
+        "generator_version": "1.1.0",
+        "source_id": source_id_from_sha256(digest),
+        "content_sha256": digest,
+        "ffmpeg_version": "fixture-generation-only",
+        "parameters": {},
+        "sidecars": [],
+        "manifest_hash": "",
+    }
+    value["manifest_hash"] = fixture_manifest_digest(value)
+    write_json(media.with_suffix(".fixture.json"), value)
+
+
+def _synthetic_rights(media: Path, path: Path) -> dict[str, Any]:
+    return create_rights_manifest(
+        media,
+        path,
+        "test-operator",
+        "synthetic-controlled",
+        {"analysis", "derivative_artifact_retention"},
+    )
+
+
 def _forbid_parsers(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     calls: list[str] = []
 
@@ -71,6 +101,20 @@ def test_non_fixture_without_rights_fails_before_parser_or_run_creation(
 ) -> None:
     media = tmp_path / "untrusted.bin"
     media.write_bytes(b"not authorized")
+    calls = _forbid_parsers(monkeypatch)
+    run_dir = tmp_path / "run"
+    with pytest.raises(AtlasError, match="requires --rights-manifest"):
+        initialize_run(media, Path(__file__).parents[2] / "configs/baseline.yaml", run_dir)
+    assert calls == []
+    assert not run_dir.exists()
+
+
+def test_forged_legacy_fixture_marker_without_rights_fails_before_parser(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    media = tmp_path / "forged.mkv"
+    media.write_bytes(b"\x1aE\xdf\xa3forged legacy fixture")
+    _fixture_marker(media)
     calls = _forbid_parsers(monkeypatch)
     run_dir = tmp_path / "run"
     with pytest.raises(AtlasError, match="requires --rights-manifest"):
@@ -246,7 +290,9 @@ def test_valid_fixture_is_inspected_only_after_fixture_authorization(
 ) -> None:
     media = tmp_path / "controlled.bin"
     media.write_bytes(b"controlled fixture bytes")
-    _fixture_marker(media)
+    _current_fixture_marker(media)
+    rights = tmp_path / "rights.json"
+    _synthetic_rights(media, rights)
     authorized = False
     calls = 0
     from av_atlas import stable_input
@@ -273,6 +319,7 @@ def test_valid_fixture_is_inspected_only_after_fixture_authorization(
         Path(__file__).parents[2] / "configs/baseline.yaml",
         tmp_path / "run",
         stop_after="inventory",
+        rights_manifest=rights,
     )
     assert calls == 1
 
@@ -282,7 +329,8 @@ def test_changed_source_inventory_is_rejected_before_run_creation(
 ) -> None:
     media = tmp_path / "controlled.bin"
     media.write_bytes(b"controlled fixture bytes")
-    _fixture_marker(media)
+    rights = tmp_path / "rights.json"
+    _rights(media, rights)
     changed = _inventory(media)
     changed["sha256"] = "f" * 64
     changed["source_id"] = source_id_from_sha256(changed["sha256"])
@@ -296,7 +344,12 @@ def test_changed_source_inventory_is_rejected_before_run_creation(
     monkeypatch.setattr("av_atlas.pipeline.inspect_media", inspect)
     run_dir = tmp_path / "run"
     with pytest.raises(AtlasError, match="snapshot identity disagrees"):
-        initialize_run(media, Path(__file__).parents[2] / "configs/baseline.yaml", run_dir)
+        initialize_run(
+            media,
+            Path(__file__).parents[2] / "configs/baseline.yaml",
+            run_dir,
+            rights_manifest=rights,
+        )
     assert calls == 1
     assert not run_dir.exists()
 
@@ -308,11 +361,14 @@ def test_fixture_marker_for_other_bytes_does_not_authorize_parser(
     media.write_bytes(b"first bytes")
     _fixture_marker(media)
     media.write_bytes(b"changed bytes")
+    rights = tmp_path / "rights.json"
+    _synthetic_rights(media, rights)
     calls = _forbid_parsers(monkeypatch)
-    with pytest.raises(AtlasError, match="requires --rights-manifest"):
+    with pytest.raises(AtlasError, match="exact current controlled-fixture bundle"):
         initialize_run(
             media,
             Path(__file__).parents[2] / "configs/baseline.yaml",
             tmp_path / "run",
+            rights_manifest=rights,
         )
     assert calls == []

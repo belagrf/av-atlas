@@ -52,3 +52,11 @@ compatible but cannot newly authorize an adjacent observation sidecar. These are
 evidence-integrity checks, not new OCR metrics. The frozen fixture, gold, normalization, OCR metric
 definitions, observations, and accepted quality claims do not change. No M2B.2 result is evidence
 of real-media accuracy or semantic perception.
+
+Explicit fixture-trust regressions separately prove that forged legacy and current markers without
+rights stop before parsing; ordinary explicit rights neither change fixture status nor admit
+adjacent observations; synthetic-controlled rights accept only an exact current bundle; missing or
+mismatched bundles fail closed; resume cannot cross between ordinary and controlled trust; and
+semantic validation rejects impossible controlled states. Accepted v1/v1.1 artifacts remain
+read-only compatible. These tests establish authorization/evidence behavior only and do not alter
+the frozen OCR fixture, gold, normalization, or quality metrics.

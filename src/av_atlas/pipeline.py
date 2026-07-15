@@ -19,6 +19,9 @@ from av_atlas.io import atomic_write_text, safe_relative_path, sha256_file, writ
 from av_atlas.media import enforce_media_limits, inspect_media, tool_version
 from av_atlas.ocr import TesseractOcrAdapter
 from av_atlas.rights import (
+    SYNTHETIC_CONTROLLED_EXPLICIT_RIGHTS,
+    AuthorizationPreflight,
+    fixture_trust_mode_for_rights_basis,
     load_and_validate_rights,
 )
 from av_atlas.schemas import validate_instance
@@ -75,9 +78,10 @@ def _manifest(
     inventory: dict[str, Any],
     rights: dict[str, Any],
     operation: str,
+    authorization: AuthorizationPreflight,
 ) -> dict[str, Any]:
     return {
-        "schema_version": "1.0.0",
+        "schema_version": "1.1.0",
         "run_id": run_dir.name,
         "status": "processing",
         "created_at": _timestamp(),
@@ -86,6 +90,13 @@ def _manifest(
         "rights": {
             "manifest_hash": rights["manifest_hash"],
             "independently_reviewed": rights["independently_reviewed"],
+            "basis": rights["rights_basis"],
+            "fixture_trust_mode": authorization.fixture_trust_mode,
+            "fixture_manifest_hash": (
+                authorization.fixture_manifest["manifest_hash"]
+                if authorization.fixture_manifest is not None
+                else None
+            ),
         },
         "source": {
             "source_id": inventory["source_id"],
@@ -349,7 +360,14 @@ def initialize_run(
         write_json(run_dir / "dependency_bom.json", bom)
         if fixture_marker is not None:
             write_json(run_dir / "fixture_manifest.json", fixture_marker)
-        manifest = _manifest(run_dir, config_snapshot, inventory, rights, operation)
+        manifest = _manifest(
+            run_dir,
+            config_snapshot,
+            inventory,
+            rights,
+            operation,
+            stable.authorization,
+        )
         write_json(run_dir / "run_manifest.json", manifest)
         write_jsonl(
             run_dir / "run.log.jsonl",
@@ -398,13 +416,21 @@ def resume_run(run_dir: Path, media_override: Path | None = None) -> None:
         or inventory["source_id"] != manifest["source"]["source_id"]
     ):
         raise AtlasError("run manifest source linkage does not match inventory")
-    load_and_validate_rights(
+    persisted_rights = load_and_validate_rights(
         run_dir / "rights_manifest.json",
         str(manifest["source"]["sha256"]),
         str(manifest["source"]["source_id"]),
         str(manifest["operation"]),
         expected_manifest_hash=str(manifest["rights"]["manifest_hash"]),
     )
+    expected_trust_mode = fixture_trust_mode_for_rights_basis(str(persisted_rights["rights_basis"]))
+    if manifest.get("schema_version") == "1.1.0":
+        manifest_rights = manifest["rights"]
+        if (
+            manifest_rights.get("basis") != persisted_rights["rights_basis"]
+            or manifest_rights.get("fixture_trust_mode") != expected_trust_mode
+        ):
+            raise AtlasError("run manifest fixture trust linkage is invalid on resume")
     config_path = (run_dir / str(state["config_path"])).resolve()
     if sha256_file(config_path) != manifest["configuration"]["sha256"]:
         raise AtlasError("configuration hash changed since run initialization")
@@ -431,6 +457,19 @@ def resume_run(run_dir: Path, media_override: Path | None = None) -> None:
         )
         if initial_fixture_authorized != persisted_fixture_present:
             raise AtlasError("persisted controlled-fixture linkage is incomplete on resume")
+        if prior_stable.get("schema_version") == "1.2.0":
+            prior_authorization = prior_stable["authorization"]
+            if (
+                prior_authorization.get("fixture_trust_mode") != expected_trust_mode
+                or prior_authorization.get("rights_basis") != persisted_rights["rights_basis"]
+                or prior_authorization.get("fixture_manifest_hash")
+                != manifest.get("rights", {}).get("fixture_manifest_hash")
+            ):
+                raise AtlasError("stable-input fixture trust linkage is invalid on resume")
+    if manifest.get("schema_version") == "1.1.0":
+        expected_controlled = expected_trust_mode == SYNTHETIC_CONTROLLED_EXPLICIT_RIGHTS
+        if expected_controlled != persisted_fixture_present:
+            raise AtlasError("run manifest fixture trust state is impossible on resume")
     completion: _Completion | None = None
     with acquire_authorized_input(
         media,
@@ -446,11 +485,17 @@ def resume_run(run_dir: Path, media_override: Path | None = None) -> None:
         current_fixture_authorized = stable.authorization.fixture_manifest is not None
         if current_fixture_authorized != initial_fixture_authorized:
             raise AtlasError("controlled-fixture authorization changed after run initialization")
+        if stable.authorization.fixture_trust_mode != expected_trust_mode:
+            raise AtlasError("controlled-fixture trust decision changed after run initialization")
         if persisted_fixture_present:
             persisted_fixture_value = _read_json(persisted_fixture)
             validate_instance("fixture_manifest", persisted_fixture_value, "fixture_manifest.json")
             if persisted_fixture_value != stable.authorization.fixture_manifest:
                 raise AtlasError("persisted controlled-fixture linkage is invalid on resume")
+            if persisted_fixture_value.get("manifest_hash") != manifest.get("rights", {}).get(
+                "fixture_manifest_hash"
+            ):
+                raise AtlasError("run manifest fixture binding is invalid on resume")
             sidecar_observations = stable.authorization.fixture_observations
         # Do not mutate canonical run evidence until persisted fixture linkage is accepted.
         write_json(run_dir / "stable_input.json", stable.receipt)

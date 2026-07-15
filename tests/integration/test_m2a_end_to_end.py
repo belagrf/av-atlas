@@ -27,18 +27,33 @@ def project_root() -> Path:
 def controlled_media(tmp_path_factory: pytest.TempPathFactory) -> Path:
     if shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None:
         pytest.skip("FFmpeg is unavailable")
-    return make_m2a_fixture(tmp_path_factory.mktemp("m2a_fixture"))
+    media = make_m2a_fixture(tmp_path_factory.mktemp("m2a_fixture"))
+    _rights(
+        media,
+        media.with_suffix(".rights.json"),
+        {"analysis", "evaluation", "derivative_artifact_retention"},
+    )
+    return media
 
 
-def _rights(media: Path, path: Path, allowed: set[str]) -> Path:
+def _rights(
+    media: Path,
+    path: Path,
+    allowed: set[str],
+    basis: str = "synthetic-controlled",
+) -> Path:
     create_rights_manifest(
         media,
         path,
         "test-operator",
-        "synthetic-controlled",
+        basis,
         allowed,
     )
     return path
+
+
+def _controlled_rights(media: Path) -> Path:
+    return media.with_suffix(".rights.json")
 
 
 def test_non_fixture_refusal_mismatch_permission_and_valid_acceptance(
@@ -100,6 +115,7 @@ def test_non_fixture_refusal_mismatch_permission_and_valid_acceptance(
         media,
         tmp_path / "valid.json",
         {"analysis", "evaluation", "derivative_artifact_retention"},
+        basis="owned",
     )
     run_dir = tmp_path / "accepted"
     assert (
@@ -189,6 +205,8 @@ def test_m2a_interruption_repeated_resume_and_semantic_determinism(
                 str(interrupted),
                 "--stop-after",
                 "inventory",
+                "--rights-manifest",
+                str(_controlled_rights(controlled_media)),
             ]
         )
         == 0
@@ -200,7 +218,19 @@ def test_m2a_interruption_repeated_resume_and_semantic_determinism(
 
     second = tmp_path / "second"
     assert (
-        main(["run", str(controlled_media), "--config", str(config), "--output", str(second)]) == 0
+        main(
+            [
+                "run",
+                str(controlled_media),
+                "--config",
+                str(config),
+                "--output",
+                str(second),
+                "--rights-manifest",
+                str(_controlled_rights(controlled_media)),
+            ]
+        )
+        == 0
     )
     for name in ("shots.jsonl", "keyframes.jsonl", "subtitles.jsonl", "subtitle_tracks.json"):
         assert sha256_file(interrupted / name) == sha256_file(second / name)
@@ -277,6 +307,8 @@ def test_run_native_parser_arguments_never_contain_original_media_path(
                 str(project_root / "configs/m2a.yaml"),
                 "--output",
                 str(run_dir),
+                "--rights-manifest",
+                str(_controlled_rights(controlled_media)),
             ]
         )
         == 0
@@ -329,6 +361,7 @@ def test_authorized_nonfixture_run_uses_only_snapshot_and_exports_no_input_paths
         media,
         tmp_path / "rights.json",
         {"analysis", "derivative_artifact_retention"},
+        basis="owned",
     )
     real_run = subprocess.run
     argument_lists: list[list[str]] = []
@@ -461,6 +494,8 @@ def test_validate_recomputes_rights_manifest_digest(
                 str(project_root / "configs/m2a.yaml"),
                 "--output",
                 str(run_dir),
+                "--rights-manifest",
+                str(_controlled_rights(controlled_media)),
             ]
         )
         == 0
@@ -491,6 +526,8 @@ def test_resume_rehashed_rights_with_stale_run_linkage_invokes_no_processing(
                 str(run_dir),
                 "--stop-after",
                 "inventory",
+                "--rights-manifest",
+                str(_controlled_rights(controlled_media)),
             ]
         )
         == 0

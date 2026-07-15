@@ -35,10 +35,16 @@ optional. No API key, network connection, checkpoint, or GPU is needed after env
 
 ```bash
 uv run av-atlas make-fixture --output tests/fixtures/generated
+uv run av-atlas make-rights tests/fixtures/generated/synthetic.mkv \
+  --output tests/fixtures/generated/rights.json \
+  --operator-id controlled-demo-operator --basis synthetic-controlled \
+  --allow analysis --allow evaluation --allow derivative_artifact_retention
 uv run av-atlas inspect tests/fixtures/generated/synthetic.mkv \
+  --rights-manifest tests/fixtures/generated/rights.json \
   --output tests/fixtures/generated/inventory.json
 uv run av-atlas run tests/fixtures/generated/synthetic.mkv \
-  --config configs/baseline.yaml --output runs/example
+  --config configs/baseline.yaml --rights-manifest tests/fixtures/generated/rights.json \
+  --output runs/example
 uv run av-atlas validate runs/example
 uv run av-atlas export runs/example
 ```
@@ -54,8 +60,10 @@ uv run av-atlas make-rights tests/fixtures/generated/m2a/m2a_controlled.mkv \
   --allow analysis --allow evaluation --allow derivative_artifact_retention \
   --notes "Project-authored M2A controlled fixture"
 uv run av-atlas inspect tests/fixtures/generated/m2a/m2a_controlled.mkv \
+  --rights-manifest tests/fixtures/generated/m2a/rights.json \
   --output tests/fixtures/generated/m2a/inventory.json
-uv run av-atlas inspect-subtitles tests/fixtures/generated/m2a/m2a_controlled.mkv
+uv run av-atlas inspect-subtitles tests/fixtures/generated/m2a/m2a_controlled.mkv \
+  --rights-manifest tests/fixtures/generated/m2a/rights.json
 uv run av-atlas run tests/fixtures/generated/m2a/m2a_controlled.mkv \
   --config configs/m2a.yaml --rights-manifest tests/fixtures/generated/m2a/rights.json \
   --operation analysis --output runs/m2a-demo
@@ -67,8 +75,8 @@ uv run av-atlas validate runs/m2a-demo
 uv run av-atlas resume runs/m2a-demo
 ```
 
-Controlled fixtures auto-authorize only when their marker matches the exact bytes. For any other
-local source, standalone inspection is rights-gated too:
+Every fresh run and standalone inspection requires an explicit source-bound rights manifest,
+including controlled fixtures:
 
 ```bash
 uv run av-atlas inspect LOCAL_MEDIA --rights-manifest LOCAL_RIGHTS
@@ -78,7 +86,12 @@ uv run av-atlas inspect-subtitles LOCAL_MEDIA --rights-manifest LOCAL_RIGHTS
 `inspect --output` is create-only. It refuses an existing path, symlink, or hard link so inspection
 cannot replace the source or another file.
 
-Non-fixture media is refused without `--rights-manifest`. Executable `run` modes are distinct from
+All fresh media is refused without `--rights-manifest`. Only an explicit `synthetic-controlled`
+rights basis plus an exact current fixture 1.1 bundle enables controlled-fixture status and bound
+sidecar observations. Owned, licensed, public-domain, and other documented authorization remain
+ordinary rights: adjacent fixture markers and sidecars are ignored. A marker checksum is an
+integrity check, not a trust credential. Legacy fixture markers remain readable only in historical
+run validation. Executable `run` modes are distinct from
 the broader rights vocabulary: `analysis` requires analysis plus derivative retention, while
 `evaluation` requires analysis, evaluation, and derivative retention. Annotation, training,
 derivative retention, and redistribution are permissions but are not executable run modes.
@@ -130,7 +143,8 @@ limits, component metrics, and M2A resume/determinism.
 - `run directory is not empty`: choose a new output directory or validate/resume the existing run.
 - validation errors are actionable and return a nonzero status; inspect `quality_report.json` for
   schema, evidence, time, revision, or hash failures.
-- `non-fixture media requires --rights-manifest`: create an operator declaration with `make-rights`;
+- `fresh processing and inspection authorization requires --rights-manifest`: create an operator
+  declaration with `make-rights`, including for a controlled fixture;
   do not select permissions you do not actually possess.
 - `resume requires --media`: the source path was intentionally not retained; provide the original
   exact file, whose hash and rights are rechecked before a fresh snapshot is acquired.
@@ -145,8 +159,13 @@ Tesseract is optional and never installed automatically:
 ```bash
 uv run av-atlas inspect-ocr
 uv run av-atlas make-fixture --profile m2b --output tests/fixtures/generated/m2b
+uv run av-atlas make-rights tests/fixtures/generated/m2b/m2b_ocr_controlled.mkv \
+  --output tests/fixtures/generated/m2b/rights.json \
+  --operator-id controlled-demo-operator --basis synthetic-controlled \
+  --allow analysis --allow evaluation --allow derivative_artifact_retention
 uv run av-atlas run tests/fixtures/generated/m2b/m2b_ocr_controlled.mkv \
-  --config configs/m2b.yaml --output runs/m2b-ocr
+  --config configs/m2b.yaml --rights-manifest tests/fixtures/generated/m2b/rights.json \
+  --output runs/m2b-ocr
 uv run av-atlas export runs/m2b-ocr
 uv run av-atlas validate runs/m2b-ocr
 uv run av-atlas evaluate-ocr runs/m2b-ocr tests/gold/m2b-ocr-controlled.gold.json
@@ -192,16 +211,21 @@ Fixture-manifest 1.1 binds the sole currently accepted runtime sidecar type by c
 payload schema, SHA-256, and size. It is opened without following a final symlink, read under a
 1 MB ceiling with pre/post identity checks, parsed once, and supplied to adapters as immutable
 `Observation` values. Adapters never reread an original adjacent sidecar path. Historical 1.0
-fixture manifests remain validation-compatible but cannot authorize fresh adjacent observations.
+fixture manifests remain validation-compatible but cannot authorize fresh execution. Neither a
+current marker nor its self-checksum is an authorization credential.
 
-Current stable-input receipt 1.1 records versioned, path-free source and sidecar acquisition
-provenance; media-inventory 1.1 records the exact native-input policy. Receipt/inventory 1.0 remain
-validation-compatible. The snapshot is unlinked before successful completion. Interrupted resume
-always reacquires a fresh snapshot and re-verifies sidecars:
+Current stable-input receipt 1.2 records versioned, path-free explicit trust mode, rights basis,
+rights-checksum linkage, exact current fixture-manifest checksum/contract when controlled, and
+sidecar acquisition provenance. Run-manifest 1.1 records the same declaration-derived trust
+decision. Media-inventory 1.1 records the exact native-input policy. Historical receipt, run, and
+inventory contracts remain validation-compatible. The snapshot is unlinked before successful
+completion. Interrupted resume always reacquires a fresh snapshot and requires the same trust
+decision and exact bundle bindings:
 
 ```bash
 uv run av-atlas run tests/fixtures/generated/m2b/m2b_ocr_controlled.mkv \
-  --config configs/m2b2.yaml --output runs/m2b2-controlled
+  --config configs/m2b2.yaml --rights-manifest tests/fixtures/generated/m2b/rights.json \
+  --output runs/m2b2-controlled
 uv run av-atlas validate runs/m2b2-controlled
 uv run av-atlas resume runs/m2b2-controlled --media \
   tests/fixtures/generated/m2b/m2b_ocr_controlled.mkv

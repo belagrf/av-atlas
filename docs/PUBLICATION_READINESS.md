@@ -74,6 +74,12 @@ fixture observations to adapters. Hostile local-manifest and loopback-network ca
 under pytest temporary directories and produce zero parser calls, local-sentinel access, and HTTP
 requests; they are not tracked media or downloaded content.
 
+The follow-up trust correction requires explicit rights for every fresh run and inspection. Only
+`synthetic-controlled` plus an exact current fixture bundle admits sidecars; ordinary rights ignore
+adjacent marker/sidecar data, and legacy markers are validation-only. Stable-input 1.2 and run-
+manifest 1.1 persist and validate this decision. Forged-marker, missing-bundle, ordinary-isolation,
+trust-transition, and impossible-state regressions contain only temporary synthetic bytes.
+
 The candidate adds no media, frame, audio, subtitle, annotation, rights workspace, traineddata,
 checkpoint, model, binary, or run directory. Private lease roots, snapshots, verified sidecar
 payloads, and residues are ignored and are not release artifacts. Snapshot unlinking is documented

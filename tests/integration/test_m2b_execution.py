@@ -10,8 +10,10 @@ import pytest
 from av_atlas.adapters import AdapterContext
 from av_atlas.cli import main
 from av_atlas.config import BaselineConfig
+from av_atlas.fixture import make_m2b_fixture
 from av_atlas.io import sha256_file
 from av_atlas.ocr import TesseractOcrAdapter, inspect_ocr
+from av_atlas.rights import create_rights_manifest
 
 
 def _approved_engine() -> None:
@@ -22,7 +24,15 @@ def _approved_engine() -> None:
 
 def _run_frozen(tmp_path: Path) -> tuple[Path, Path, Path]:
     root = Path(__file__).parents[2]
-    media = root / "tests/fixtures/generated/m2b/m2b_ocr_controlled.mkv"
+    media = make_m2b_fixture(tmp_path / "fixture")
+    rights = tmp_path / "rights.json"
+    create_rights_manifest(
+        media,
+        rights,
+        "controlled-test",
+        "synthetic-controlled",
+        {"analysis", "evaluation", "derivative_artifact_retention"},
+    )
     run_dir = tmp_path / "run"
     assert (
         main(
@@ -33,6 +43,8 @@ def _run_frozen(tmp_path: Path) -> tuple[Path, Path, Path]:
                 str(root / "configs/m2b.yaml"),
                 "--output",
                 str(run_dir),
+                "--rights-manifest",
+                str(rights),
             ]
         )
         == 0

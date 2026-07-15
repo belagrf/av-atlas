@@ -13,7 +13,11 @@ from av_atlas.fixture_inputs import fixture_manifest_digest
 from av_atlas.io import canonical_json, sha256_file, write_json
 from av_atlas.ocr_tracks import POLICY_VERSION, associate_temporal_text, spatially_compatible
 from av_atlas.pipeline import ARTIFACTS
-from av_atlas.rights import load_and_validate_rights
+from av_atlas.rights import (
+    SYNTHETIC_CONTROLLED_EXPLICIT_RIGHTS,
+    fixture_trust_mode_for_rights_basis,
+    load_and_validate_rights,
+)
 from av_atlas.schemas import validate_instance
 
 
@@ -367,7 +371,7 @@ def validate_run(run_dir: Path, write_report: bool = True) -> dict[str, Any]:
         or initial_inventory["source_id"] != initial_manifest["source"]["source_id"]
     ):
         raise AtlasError("run manifest source linkage does not match inventory")
-    load_and_validate_rights(
+    persisted_rights = load_and_validate_rights(
         run_dir / "rights_manifest.json",
         str(initial_manifest["source"]["sha256"]),
         str(initial_manifest["source"]["source_id"]),
@@ -519,12 +523,31 @@ def validate_run(run_dir: Path, write_report: bool = True) -> dict[str, Any]:
                     "rights", {}
                 ).get("manifest_hash"):
                     errors.append("stable-input receipt rights linkage disagrees with run manifest")
-                if stable.get("schema_version") == "1.1.0" and stable.get(
+                if stable.get("schema_version") in {"1.1.0", "1.2.0"} and stable.get(
                     "fixture_sidecars"
                 ) != fixture_value.get("sidecars", []):
                     errors.append(
                         "stable-input receipt sidecar bindings disagree with fixture manifest"
                     )
+                if stable.get("schema_version") == "1.2.0":
+                    stable_authorization = stable.get("authorization", {})
+                    expected_trust_mode = fixture_trust_mode_for_rights_basis(
+                        str(persisted_rights["rights_basis"])
+                    )
+                    expected_fixture_hash = (
+                        fixture_value.get("manifest_hash")
+                        if expected_trust_mode == SYNTHETIC_CONTROLLED_EXPLICIT_RIGHTS
+                        else None
+                    )
+                    if (
+                        stable_authorization.get("rights_basis") != persisted_rights["rights_basis"]
+                        or stable_authorization.get("fixture_trust_mode") != expected_trust_mode
+                        or stable_authorization.get("fixture_manifest_hash")
+                        != expected_fixture_hash
+                    ):
+                        errors.append(
+                            "stable-input receipt contains an impossible fixture trust state"
+                        )
                 config = BaselineConfig.load(run_dir / "config.snapshot.yaml")
                 acquisition = stable.get("acquisition", {})
                 if acquisition.get("bytes_copied") != stable.get("source", {}).get("size_bytes"):
@@ -537,6 +560,26 @@ def validate_run(run_dir: Path, write_report: bool = True) -> dict[str, Any]:
                     errors.append("stable-input receipt ceilings disagree with run configuration")
             except (AtlasError, AttributeError, TypeError, ValueError, OverflowError) as exc:
                 errors.append(f"cannot verify stable-input receipt linkage: {exc}")
+        if manifest.get("schema_version") == "1.1.0":
+            expected_trust_mode = fixture_trust_mode_for_rights_basis(
+                str(persisted_rights["rights_basis"])
+            )
+            manifest_rights = manifest.get("rights", {})
+            controlled = expected_trust_mode == SYNTHETIC_CONTROLLED_EXPLICIT_RIGHTS
+            expected_fixture_hash = fixture_value.get("manifest_hash") if controlled else None
+            if (
+                manifest_rights.get("basis") != persisted_rights["rights_basis"]
+                or manifest_rights.get("fixture_trust_mode") != expected_trust_mode
+                or manifest_rights.get("fixture_manifest_hash") != expected_fixture_hash
+            ):
+                errors.append("run manifest contains an impossible fixture trust state")
+            if controlled:
+                if not fixture_value or fixture_value.get("schema_version") != "1.1.0":
+                    errors.append(
+                        "synthetic-controlled run lacks an exact current fixture manifest"
+                    )
+            elif fixture_value:
+                errors.append("ordinary-rights run improperly contains a fixture manifest")
 
     duration_ms = int(inventory.get("duration_ms", 0))
     provisional_by_id = {record.get("event_id"): record for record in provisional}

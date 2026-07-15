@@ -110,7 +110,7 @@ def _pilot_spec(tmp_path: Path, *, deny_last: bool = False) -> Path:
             media,
             rights,
             "pilot-test",
-            "synthetic-controlled",
+            "owned",
             permissions,
         )
         if source_index == 0:
