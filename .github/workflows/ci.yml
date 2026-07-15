@@ -92,11 +92,11 @@ jobs:
         run: uv run ruff format --check .
 
       - name: Capture formatting diff
-        if: steps.formatting.outcome == 'failure'
-        run: uv run ruff format --diff . > ruff-format.diff
+        if: always() && steps.formatting.outcome == 'failure'
+        run: uv run ruff format --diff . > ruff-format.diff || true
 
       - name: Upload formatting diff
-        if: steps.formatting.outcome == 'failure'
+        if: always() && steps.formatting.outcome == 'failure'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: ruff-format-diff
@@ -105,7 +105,7 @@ jobs:
           retention-days: 1
 
       - name: Enforce formatting result
-        if: steps.formatting.outcome == 'failure'
+        if: always() && steps.formatting.outcome == 'failure'
         run: exit 1
 
       - name: Lint source and tests
