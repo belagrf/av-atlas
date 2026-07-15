@@ -87,7 +87,26 @@ jobs:
         run: uv run ruff format --check tests/unit/test_pipeline_stable_input.py
 
       - name: Check all formatting
+        id: formatting
+        continue-on-error: true
         run: uv run ruff format --check .
+
+      - name: Capture formatting diff
+        if: steps.formatting.outcome == 'failure'
+        run: uv run ruff format --diff . > ruff-format.diff
+
+      - name: Upload formatting diff
+        if: steps.formatting.outcome == 'failure'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ruff-format-diff
+          path: ruff-format.diff
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Enforce formatting result
+        if: steps.formatting.outcome == 'failure'
+        run: exit 1
 
       - name: Lint source and tests
         run: uv run ruff check .
