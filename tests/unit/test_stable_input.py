@@ -49,32 +49,38 @@ def test_verified_copy_is_private_identity_bound_and_removed(tmp_path: Path) -> 
 def test_body_failure_still_removes_snapshot(tmp_path: Path) -> None:
     source = tmp_path / "source.bin"
     source.write_bytes(b"body failure")
-    with pytest.raises(RuntimeError, match="consumer failed"):
-        with verified_stable_input(source, sha256_file(source), temporary_root=tmp_path):
-            raise RuntimeError("consumer failed")
+    with (
+        pytest.raises(RuntimeError, match="consumer failed"),
+        verified_stable_input(source, sha256_file(source), temporary_root=tmp_path),
+    ):
+        raise RuntimeError("consumer failed")
     assert _snapshot_directories(tmp_path) == []
 
 
 def test_hash_mismatch_fails_and_removes_snapshot(tmp_path: Path) -> None:
     source = tmp_path / "source.bin"
     source.write_bytes(b"hash mismatch")
-    with pytest.raises(AtlasError, match="does not match the authorized source hash"):
-        with verified_stable_input(source, "0" * 64, temporary_root=tmp_path):
-            raise AssertionError("unreachable")
+    with (
+        pytest.raises(AtlasError, match="does not match the authorized source hash"),
+        verified_stable_input(source, "0" * 64, temporary_root=tmp_path),
+    ):
+        raise AssertionError("unreachable")
     assert _snapshot_directories(tmp_path) == []
 
 
 def test_oversize_source_fails_before_snapshot_file_survives(tmp_path: Path) -> None:
     source = tmp_path / "source.bin"
     source.write_bytes(b"12345")
-    with pytest.raises(AtlasError, match="exceeds stable snapshot limit"):
-        with verified_stable_input(
+    with (
+        pytest.raises(AtlasError, match="exceeds stable snapshot limit"),
+        verified_stable_input(
             source,
             sha256_file(source),
             max_snapshot_bytes=4,
             temporary_root=tmp_path,
-        ):
-            raise AssertionError("unreachable")
+        ),
+    ):
+        raise AssertionError("unreachable")
     assert _snapshot_directories(tmp_path) == []
 
 
@@ -86,9 +92,11 @@ def test_symlink_source_is_rejected(tmp_path: Path) -> None:
         source.symlink_to(target)
     except OSError:
         pytest.skip("symlinks are unavailable on this platform")
-    with pytest.raises(AtlasError, match="symlinks are not accepted"):
-        with verified_stable_input(source, sha256_file(target), temporary_root=tmp_path):
-            raise AssertionError("unreachable")
+    with (
+        pytest.raises(AtlasError, match="symlinks are not accepted"),
+        verified_stable_input(source, sha256_file(target), temporary_root=tmp_path),
+    ):
+        raise AssertionError("unreachable")
     assert _snapshot_directories(tmp_path) == []
 
 
@@ -97,9 +105,11 @@ def test_non_directory_or_symlink_temporary_root_is_rejected(tmp_path: Path) -> 
     source.write_bytes(b"source")
     file_root = tmp_path / "not-a-directory"
     file_root.write_bytes(b"x")
-    with pytest.raises(AtlasError, match="must be a real directory"):
-        with verified_stable_input(source, sha256_file(source), temporary_root=file_root):
-            raise AssertionError("unreachable")
+    with (
+        pytest.raises(AtlasError, match="must be a real directory"),
+        verified_stable_input(source, sha256_file(source), temporary_root=file_root),
+    ):
+        raise AssertionError("unreachable")
 
     directory = tmp_path / "directory"
     directory.mkdir()
@@ -108,9 +118,11 @@ def test_non_directory_or_symlink_temporary_root_is_rejected(tmp_path: Path) -> 
         link.symlink_to(directory, target_is_directory=True)
     except OSError:
         return
-    with pytest.raises(AtlasError, match="must be a real directory"):
-        with verified_stable_input(source, sha256_file(source), temporary_root=link):
-            raise AssertionError("unreachable")
+    with (
+        pytest.raises(AtlasError, match="must be a real directory"),
+        verified_stable_input(source, sha256_file(source), temporary_root=link),
+    ):
+        raise AssertionError("unreachable")
 
 
 def test_partial_writes_are_completed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -133,9 +145,11 @@ def test_zero_progress_write_fails_closed_and_cleans_up(
     source = tmp_path / "source.bin"
     source.write_bytes(b"cannot write")
     monkeypatch.setattr(stable_input, "_write_chunk", lambda _descriptor, _value: 0)
-    with pytest.raises(AtlasError, match="write made no progress"):
-        with verified_stable_input(source, sha256_file(source), temporary_root=tmp_path):
-            raise AssertionError("unreachable")
+    with (
+        pytest.raises(AtlasError, match="write made no progress"),
+        verified_stable_input(source, sha256_file(source), temporary_root=tmp_path),
+    ):
+        raise AssertionError("unreachable")
     assert _snapshot_directories(tmp_path) == []
 
 
@@ -158,9 +172,11 @@ def test_in_place_mutation_during_copy_is_rejected(
 
     monkeypatch.setattr(stable_input, "COPY_CHUNK_BYTES", 4)
     monkeypatch.setattr(stable_input, "_read_chunk", mutate_after_first_read)
-    with pytest.raises(AtlasError, match="changed during stable copy|authorized source hash"):
-        with verified_stable_input(source, _digest(original_payload), temporary_root=tmp_path):
-            raise AssertionError("unreachable")
+    with (
+        pytest.raises(AtlasError, match="changed during stable copy|authorized source hash"),
+        verified_stable_input(source, _digest(original_payload), temporary_root=tmp_path),
+    ):
+        raise AssertionError("unreachable")
     assert _snapshot_directories(tmp_path) == []
 
 
@@ -185,9 +201,11 @@ def test_path_replacement_during_copy_is_rejected(
 
     monkeypatch.setattr(stable_input, "COPY_CHUNK_BYTES", 4)
     monkeypatch.setattr(stable_input, "_read_chunk", replace_after_first_read)
-    with pytest.raises(AtlasError, match="path was replaced"):
-        with verified_stable_input(source, _digest(original_payload), temporary_root=tmp_path):
-            raise AssertionError("unreachable")
+    with (
+        pytest.raises(AtlasError, match="path was replaced"),
+        verified_stable_input(source, _digest(original_payload), temporary_root=tmp_path),
+    ):
+        raise AssertionError("unreachable")
     assert _snapshot_directories(tmp_path) == []
 
 
@@ -197,7 +215,9 @@ def test_invalid_expected_hash_is_rejected_before_temp_creation(
 ) -> None:
     source = tmp_path / "source.bin"
     source.write_bytes(b"source")
-    with pytest.raises(AtlasError, match="expected source SHA-256"):
-        with verified_stable_input(source, expected, temporary_root=tmp_path):
-            raise AssertionError("unreachable")
+    with (
+        pytest.raises(AtlasError, match="expected source SHA-256"),
+        verified_stable_input(source, expected, temporary_root=tmp_path),
+    ):
+        raise AssertionError("unreachable")
     assert _snapshot_directories(tmp_path) == []
