@@ -118,12 +118,64 @@ lifecycle remain unsupported. Issues [#11](https://github.com/belagrf/av-atlas/i
 [#12](https://github.com/belagrf/av-atlas/issues/12), and
 [#14](https://github.com/belagrf/av-atlas/issues/14) closed after review and merge of this
 implementation. Issue [#17](https://github.com/belagrf/av-atlas/issues/17) remains the security and
-temporary-root gate before any real-media pilot; the pilot has not begun.
+temporary-root/source-review gate before any real-media pilot; no authorized real-media pilot has
+begun.
 
 Snapshot cleanup unlinks the private file and removes its lease directory. This is logical
 lifecycle cleanup, not cryptographic or secure erasure; AV-Atlas does not claim filesystem blocks
 are erased. The default OS temporary root may be disk-backed, journaled, snapshotted, swapped, or
 backed up. Before real operator media, the operator must select and document an appropriately
 private, capacity-bounded temporary root—for example an encrypted local volume or suitably
-configured tmpfs—or explicitly accept residual data-remanence risk. A tmpfs may still swap unless
-configured appropriately.
+configured tmpfs—or obtain an independently reviewed, pilot-scoped, expiring residual-remanence
+acceptance with compensating controls and a deletion plan. A tmpfs may still swap unless configured
+appropriately. This storage decision never waives the mandatory native-process sandbox.
+
+M2B.3 makes that selection machine-checkable for pilot mode. The local-private policy must bind an
+exact pilot/spec, expire, self-hash, name an explicit pre-created root, and record expected
+device/inode/current-UID ownership/exact `0700` mode, local filesystem type, source and temporary
+ceilings, and reserve. AV-Atlas pins the root with a directory descriptor and creates leases and
+workspaces relative to it. It rejects symlinks, identity or permission drift, remote filesystems,
+insufficient capacity, and unreviewed/expired storage decisions before native execution. The
+private policy is never exported. Its public receipt is path-free and publishes only sanitized,
+hash-linked facts and booleans.
+
+Pilot mode has no native-parser waiver or direct fallback. Bubblewrap profile
+`av-atlas-bubblewrap-pilot/1.0.0` must match the policy by executable hash/size/version and must pass
+the kernel namespace capability smoke test. It creates user, PID, IPC, UTS, mount, and network
+namespaces; drops capabilities; clears the environment; supplies no operator home; remounts the
+sandbox root read-only; exposes minimum read-only runtime plus descriptor-backed read-only input;
+and makes only `/work` and a private tmpfs `/tmp` writable. The fixed root does not expose the whole
+host root. The UTS hostname is replaced by a fixed non-host value. Hostile probes must measure
+denial of loopback/external network, an out-of-mount local sentinel, a parent-proven host-writable
+outside target, root/device writes, home, hostname, and inherited environment before a receipt can
+claim success.
+When a policy pins an approved Bubblewrap hash and size, AV-Atlas opens the candidate without
+following its final path component and verifies those bytes before invoking that candidate for
+`--version` or the namespace smoke test. A mismatch produces an unsupported state with zero
+candidate subprocesses.
+
+A central typed runner is the only pilot interface to FFprobe, FFmpeg, and Tesseract. It does not
+accept an arbitrary executable or mount profile. Descriptor identity and content hashes are
+rechecked at use. The `/work` parent and child identities are checked before descriptor binding and
+again after execution so persistent or mid-invocation replacement cannot silently redirect output.
+Policy/reviewer expiry and the retained root are rechecked before every native invocation and
+before a success receipt or final artifact is emitted. Commands use argument arrays and
+`shell=False`; capture is bounded; and timeout or handled interruption terminates the process group
+before private-workspace cleanup. A minimal
+helper sets `RLIMIT_CPU`, `RLIMIT_AS`, `RLIMIT_FSIZE`, `RLIMIT_NOFILE`, `RLIMIT_NPROC`, and
+`RLIMIT_CORE=0` before `exec`, avoiding unsafe `preexec_fn` behavior with OCR workers.
+
+`RLIMIT_NPROC` applies to the host real UID before Bubblewrap enters the user namespace. Its ceiling
+must accommodate processes already owned by that UID and is not a precise per-sandbox process
+count. PID isolation, CPU/memory/file/descriptor limits, wall timeout, process-group termination,
+and measured hostile probes remain necessary additional controls. Bubblewrap and its minimum
+read-only runtime are still part of the trusted computing base; a sandbox does not prove native
+parsers free of vulnerabilities.
+
+Cleanup is deliberately described as logical deletion. AV-Atlas does not claim overwrite-based or
+cryptographic erasure; encrypted-volume status is a reviewed operator assertion, and tmpfs may
+swap. The sanitized receipt must say `secure_erasure_claimed=false` and
+`private_paths_exported=false`. No M2B.3 completion or real-media safety claim follows from schema
+or dependency availability alone: the project-authored synthetic pilot must actually exercise
+FFprobe, FFmpeg, and Tesseract, denial tests, cleanup/interruption, immutable-baseline validation,
+all local/CI/CodeQL gates, and source review.

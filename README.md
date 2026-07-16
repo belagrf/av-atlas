@@ -5,8 +5,9 @@ does not grant reuse rights beyond applicable law. AV-Atlas is therefore not cur
 open source.
 
 AV-Atlas is an evidence-first research implementation for comprehensive audiovisual
-transcription. This repository implements M0/M1, M2A, the bounded M2B frame-OCR increment, and the
-reviewed M2B.2 stable-input hardening increment. The original M1 path
+transcription. This repository implements M0/M1, M2A, the bounded M2B frame-OCR increment, the
+reviewed M2B.2 stable-input increment, and the M2B.3 pilot-security implementation now under source
+review. The original M1 path
 remains available:
 deterministic synthetic media is inventoried, chunked, sampled, combined with production-shaped
 sidecar perception adapters, and written as a validated evidence ledger plus derived transcript and
@@ -22,6 +23,8 @@ frame text detection/recognition; it is not semantic visual understanding.
 - [uv](https://docs.astral.sh/uv/)
 - FFmpeg and ffprobe on `PATH`
 - DejaVu Sans at `/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf` for byte-stable fixtures
+- Bubblewrap on Linux for the M2B.3 pilot path; controlled baseline commands remain usable without
+  it, while pilot native parsing fails closed
 
 ```bash
 uv sync --extra dev
@@ -190,7 +193,8 @@ for a future versioned configuration; the frozen baseline remains unchanged.
 An authorized real-media pilot is prepared, annotated, frozen, run, and evaluated with
 `pilot-prepare`, `pilot-annotation-packages`, `pilot-compare-annotations`, `pilot-freeze`,
 `pilot-run-ocr`, and `pilot-evaluate`. These commands do nothing without operator-supplied local
-media and sufficient rights. No pilot media or human annotation is currently present.
+media and sufficient rights. No real/operator-supplied pilot media or human annotation is present;
+the M2B.3 security check uses only project-authored synthetic bytes.
 
 M2B.1 hardening uses strict configuration types, fail-closed rights checksum/linkage validation,
 versioned `partial_success` unit accounting, actual overlapping-chunk provenance, and a derived
@@ -235,17 +239,81 @@ uv run av-atlas resume runs/m2b2-controlled --media \
 ```
 
 Crash recovery examines only a bounded set of marker-recognized inactive private leases; it never
-recursively deletes an unrecognized directory or follows a symlink. `SIGKILL`/power loss, same-UID
-hostility, native-parser sandboxing, growing livestream input, and retained-frame lifecycle remain
-limitations. Runtime decode helpers reclassify their input and require the fixed policy, but this
-allowlist is defense-in-depth rather than an operating-system sandbox.
+recursively deletes an unrecognized directory or follows a symlink. `SIGKILL`/power loss, hostile
+same-UID host processes, growing livestream input, and retained-frame lifecycle remain limitations
+in every mode. Runtime decode helpers reclassify their input and require the fixed policy. The
+controlled compatibility path is still not an operating-system sandbox; pilot mode isolates its
+native child processes through the mandatory boundary described below.
 
 Snapshot cleanup unlinks the private file and removes its lease directory. This is logical
 lifecycle cleanup, not cryptographic or secure erasure. The default OS temporary root may be
 disk-backed, journaled, snapshotted, swapped, or backed up. Before real operator media, the operator
 must select and document an appropriately private, capacity-bounded temporary root—such as an
-encrypted local volume or suitably configured tmpfs—or explicitly accept residual data-remanence
-risk. A tmpfs may still swap unless configured appropriately.
+encrypted local volume or suitably configured tmpfs—or obtain an independent, pilot-scoped,
+expiring residual-remanence acceptance with compensating controls and a deletion plan. A tmpfs may
+still swap unless configured appropriately. Storage-remanence acceptance never waives the mandatory
+native-process sandbox.
+
+## M2B.3 private pilot-security path
+
+M2B.3 adds versioned local-private policy and sanitized public-receipt contracts without
+authorizing real media. The private policy binds one pilot ID and frozen specification to an
+explicit pre-created current-UID-owned `0700` local root, its device/inode and filesystem identity,
+an expiring storage decision, capacity ceilings and reserve, exact Bubblewrap identity/profile,
+and native resource limits. The root must be outside the tracked checkout. The policy is mode
+`0600`, must be named `pilot-security-policy.local.json` or
+`*.pilot-security-policy.local.json`, is ignored by Git, and must never be copied into a run, log,
+report, annotation package, release, or PR. Cleanup is logical deletion only, never a secure-
+erasure claim; tmpfs may swap and reviewed encryption remains an operator/reviewer assertion.
+
+Pilot FFprobe, FFmpeg, and Tesseract calls share the typed Bubblewrap profile
+`av-atlas-bubblewrap-pilot/1.0.0`. It has no direct-execution fallback: missing or changed
+Bubblewrap or failed namespace capability checks stop before pilot parsing. The profile denies
+networking, exposes descriptor-verified inputs read-only, makes only host-backed `/work` writable,
+provides a writable sandbox-local private `/tmp`, clears the environment, exposes no home
+directory, drops capabilities, and applies CPU, address-space, file-size, descriptor,
+process-count, capture, core-dump, and wall-time bounds.
+
+The local operator flow is explicit. `LOCAL_PRIVATE_ROOT` must be an absolute canonical path
+outside the checkout. `PRIVATE_POLICY_DIR/PILOT_ID.pilot-security-policy.local.json` must also be
+outside the checkout; both paths are private and must remain outside tracked/public artifacts:
+
+```bash
+uv run av-atlas inspect-bubblewrap
+uv run av-atlas pilot-security-create \
+  --root LOCAL_PRIVATE_ROOT --pilot-id PILOT_ID --pilot-spec PILOT_SPEC \
+  --output PRIVATE_POLICY_DIR/PILOT_ID.pilot-security-policy.local.json \
+  --expires-at EXPIRY_RFC3339 \
+  --storage-decision verified-tmpfs
+uv run av-atlas pilot-security-inspect \
+  PRIVATE_POLICY_DIR/PILOT_ID.pilot-security-policy.local.json --pilot-spec PILOT_SPEC
+uv run av-atlas pilot-security-validate \
+  PRIVATE_POLICY_DIR/PILOT_ID.pilot-security-policy.local.json --pilot-spec PILOT_SPEC
+uv run av-atlas pilot-security-synthetic-check \
+  CONTROLLED_MEDIA CONTROLLED_RIGHTS PILOT_SPEC \
+  PRIVATE_POLICY_DIR/PILOT_ID.pilot-security-policy.local.json \
+  --output FRESH_IGNORED_SYNTHETIC_REPORT_DIR
+uv run av-atlas pilot-prepare PILOT_SPEC \
+  --security-policy PRIVATE_POLICY_DIR/PILOT_ID.pilot-security-policy.local.json \
+  --output FRESH_PRIVATE_PILOT_DIR
+uv run av-atlas pilot-run-ocr FRESH_PRIVATE_PILOT_DIR FROZEN_MANIFEST \
+  --security-policy PRIVATE_POLICY_DIR/PILOT_ID.pilot-security-policy.local.json \
+  --output FRESH_PRIVATE_OCR_DIR
+uv run av-atlas pilot-security-validate-artifacts FRESH_PRIVATE_PILOT_DIR \
+  --security-policy PRIVATE_POLICY_DIR/PILOT_ID.pilot-security-policy.local.json
+```
+
+On the measured Ubuntu host, approved locally installed, system-packaged Bubblewrap 0.9.0 actually
+ran a project-authored
+synthetic fixture through sandboxed FFprobe, FFmpeg, and Tesseract. Measured hostile probes denied
+loopback/external network, an out-of-mount sentinel, and root/device/host-backed writes outside
+`/work`; a parent-created writable outside positive control remained unchanged. The UTS hostname
+was replaced with a fixed non-host value, and the private sandbox-local `/tmp` remained writable as
+designed. Private workspace cleanup and path-redaction checks passed. These are host-security
+engineering measurements, not real-media OCR accuracy or proof that native parsers contain no
+vulnerabilities. Final M2B.3
+acceptance remains pending source review of issue
+[#17](https://github.com/belagrf/av-atlas/issues/17); the issue and PR remain open and unmerged.
 
 Temporal OCR tracks are validated relationally against immutable raw observations; malformed
 parallel arrays become actionable quality-report errors rather than validator tracebacks.
@@ -261,4 +329,5 @@ is incomplete, and M2C is unimplemented. Issues
 [#12](https://github.com/belagrf/av-atlas/issues/12), and
 [#14](https://github.com/belagrf/av-atlas/issues/14) closed with reviewed M2B.2 implementation.
 The real-media pilot remains gated by
-[#17](https://github.com/belagrf/av-atlas/issues/17). No pilot media was processed.
+[#17](https://github.com/belagrf/av-atlas/issues/17). No real or operator-supplied pilot media was
+processed.

@@ -12,6 +12,13 @@ from typing import Any
 from av_atlas.errors import AtlasError, redact_private_paths
 from av_atlas.io import sha256_file, source_id_from_sha256
 from av_atlas.native_media import classify_authorized_source
+from av_atlas.native_process import (
+    BubblewrapNativeRunner,
+    NativeInvocation,
+    NativeTool,
+    ReadOnlyBind,
+    WritableDirectory,
+)
 
 
 def _run(
@@ -59,29 +66,56 @@ def _milliseconds(value: Any) -> int | None:
         return None
 
 
-def inspect_media(path: Path) -> dict[str, Any]:
+def inspect_media(
+    path: Path,
+    *,
+    native_runner: BubblewrapNativeRunner | None = None,
+    sandbox_work_directory: Path | None = None,
+    expected_source_sha256: str | None = None,
+    expected_source_size: int | None = None,
+) -> dict[str, Any]:
     if not path.is_file():
         raise AtlasError("authorized media input is not a regular file")
     executable = shutil.which("ffprobe")
     if executable is None:
         raise AtlasError("ffprobe is required; install FFmpeg or use tested sidecar fixtures")
     native_policy = classify_authorized_source(path)
-    completed = _run(
-        [
-            executable,
-            "-v",
-            "error",
-            "-show_format",
-            "-show_streams",
-            "-show_chapters",
-            "-of",
-            "json",
-            *native_policy.arguments(path),
-        ],
-        private_paths=(path,),
-    )
+    native_arguments = [
+        "-v",
+        "error",
+        "-show_format",
+        "-show_streams",
+        "-show_chapters",
+        "-of",
+        "json",
+        *native_policy.arguments(Path("/input/source") if native_runner is not None else path),
+    ]
+    if native_runner is None:
+        completed_stdout = _run([executable, *native_arguments], private_paths=(path,)).stdout
+    else:
+        if (
+            sandbox_work_directory is None
+            or expected_source_sha256 is None
+            or expected_source_size is None
+        ):
+            raise AtlasError("sandboxed FFprobe requires exact input identity and private work")
+        bind = ReadOnlyBind.measure_file(
+            path,
+            "/input/source",
+            expected_size=expected_source_size,
+            expected_sha256=expected_source_sha256,
+        )
+        completed_stdout = native_runner.run(
+            NativeInvocation(
+                NativeTool.FFPROBE,
+                tuple(native_arguments),
+                WritableDirectory.measure(sandbox_work_directory),
+                (bind,),
+                private_paths=(path, sandbox_work_directory),
+            )
+        ).stdout
     try:
-        raw: dict[str, Any] = json.loads(completed.stdout)
+        raw: dict[str, Any] = json.loads(completed_stdout)
     except json.JSONDecodeError as exc:
         raise AtlasError("ffprobe returned corrupt JSON metadata") from exc
     raw_format_name = raw.get("format", {}).get("format_name")
@@ -136,12 +170,14 @@ def inspect_media(path: Path) -> dict[str, Any]:
         }
         for index, chapter in enumerate(raw.get("chapters", []))
     ]
-    source_hash = sha256_file(path)
+    source_hash = expected_source_sha256 if native_runner is not None else sha256_file(path)
+    source_size = expected_source_size if native_runner is not None else path.stat().st_size
+    assert source_hash is not None and source_size is not None
     return {
         "schema_version": "1.1.0",
         "source_id": source_id_from_sha256(source_hash),
         "sha256": source_hash,
-        "size_bytes": path.stat().st_size,
+        "size_bytes": source_size,
         "duration_ms": duration_ms,
         "format_names": format_names,
         "native_input_policy": native_policy.as_record(),

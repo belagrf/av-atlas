@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import math
+import os
 import shutil
+import stat
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -15,6 +17,13 @@ from av_atlas.contracts import AdapterResult, Observation
 from av_atlas.errors import AtlasError, ResourceLimitError, redact_private_paths
 from av_atlas.io import sha256_file, write_jsonl
 from av_atlas.native_media import NativeInputPolicy, enforce_path_policy, policy_from_inventory
+from av_atlas.native_process import (
+    BubblewrapNativeRunner,
+    NativeInvocation,
+    NativeTool,
+    ReadOnlyBind,
+    WritableDirectory,
+)
 
 FRAME_WIDTH = 64
 FRAME_HEIGHT = 36
@@ -42,7 +51,13 @@ class ShotAdapter:
                 {},
                 (),
             )
-        return detect_shots(context.media, context.inventory, context.run_dir, context.config)
+        return detect_shots(
+            context.media,
+            context.inventory,
+            context.run_dir,
+            context.config,
+            native_runner=context.native_runner,
+        )
 
 
 def _difference(left: bytes, right: bytes) -> float:
@@ -56,14 +71,93 @@ def _decode_frames(
     config: BaselineConfig,
     duration_ms: int,
     native_policy: NativeInputPolicy,
+    *,
+    native_runner: BubblewrapNativeRunner | None = None,
+    sandbox_work_directory: Path | None = None,
+    expected_source_sha256: str | None = None,
+    expected_source_size: int | None = None,
 ) -> list[bytes]:
-    ffmpeg = shutil.which("ffmpeg")
-    if ffmpeg is None:
-        raise AtlasError("ffmpeg is unavailable")
     maximum_frames = math.ceil(duration_ms * config.shot_sample_fps / 1000) + 2
     if maximum_frames > config.max_duration_ms * config.shot_sample_fps / 1000 + 2:
         raise ResourceLimitError("frame-count budget exceeds configured duration")
     enforce_path_policy(media, native_policy)
+    if native_runner is not None:
+        if (
+            sandbox_work_directory is None
+            or expected_source_sha256 is None
+            or expected_source_size is None
+        ):
+            raise AtlasError("sandboxed shot decoding requires exact source identity")
+        output = sandbox_work_directory / ".av-atlas-shot-samples.rgb"
+        _prepare_sandbox_output(sandbox_work_directory, output)
+        source = ReadOnlyBind.measure_file(
+            media,
+            "/input/source",
+            expected_size=expected_source_size,
+            expected_sha256=expected_source_sha256,
+        )
+        try:
+            native_runner.run(
+                NativeInvocation(
+                    NativeTool.FFMPEG,
+                    (
+                        "-hide_banner",
+                        "-loglevel",
+                        "error",
+                        "-nostdin",
+                        *native_policy.arguments(Path("/input/source")),
+                        "-map",
+                        "0:v:0",
+                        "-vf",
+                        f"fps={config.shot_sample_fps},scale={FRAME_WIDTH}:{FRAME_HEIGHT}:flags=neighbor,format=rgb24",
+                        "-frames:v",
+                        str(maximum_frames),
+                        "-f",
+                        "rawvideo",
+                        "-y",
+                        "--",
+                        "/work/.av-atlas-shot-samples.rgb",
+                    ),
+                    WritableDirectory.measure(sandbox_work_directory),
+                    (source,),
+                    private_paths=(media, sandbox_work_directory),
+                )
+            )
+            try:
+                descriptor = os.open(
+                    output,
+                    os.O_RDONLY
+                    | getattr(os, "O_CLOEXEC", 0)
+                    | getattr(os, "O_NOFOLLOW", 0)
+                    | getattr(os, "O_NONBLOCK", 0),
+                )
+            except OSError as exc:
+                raise AtlasError("sandboxed shot decoding produced no frame artifact") from exc
+            try:
+                measured = os.fstat(descriptor)
+                if not stat.S_ISREG(measured.st_mode) or measured.st_uid != os.geteuid():
+                    raise AtlasError("sandboxed shot output is not a private regular file")
+                maximum_bytes = maximum_frames * FRAME_BYTES
+                if measured.st_size > maximum_bytes:
+                    raise ResourceLimitError(
+                        "shot decoding exceeded the configured frame-count limit"
+                    )
+                payload = bytearray()
+                while len(payload) <= maximum_bytes:
+                    block = os.read(descriptor, min(1024 * 1024, maximum_bytes + 1 - len(payload)))
+                    if not block:
+                        break
+                    payload.extend(block)
+                decoded = bytes(payload)
+            finally:
+                os.close(descriptor)
+        finally:
+            output.unlink(missing_ok=True)
+        return _split_complete_frames(decoded, maximum_frames)
+
+    ffmpeg = shutil.which("ffmpeg")
+    if ffmpeg is None:
+        raise AtlasError("ffmpeg is unavailable")
     try:
         completed = subprocess.run(
             [
@@ -97,15 +191,58 @@ def _decode_frames(
         raise AtlasError(f"shot decoding failed: {detail.strip().splitlines()[-1]}") from exc
     except OSError as exc:
         raise AtlasError("shot decoding could not start safely") from exc
-    if len(completed.stdout) > maximum_frames * FRAME_BYTES:
+    return _split_complete_frames(completed.stdout, maximum_frames)
+
+
+def _split_complete_frames(payload: bytes, maximum_frames: int) -> list[bytes]:
+    if len(payload) > maximum_frames * FRAME_BYTES:
         raise ResourceLimitError("shot decoding exceeded the configured frame-count limit")
-    complete_size = len(completed.stdout) - len(completed.stdout) % FRAME_BYTES
+    complete_size = len(payload) - len(payload) % FRAME_BYTES
     if complete_size == 0:
         raise AtlasError("shot decoding produced no complete video frames")
     return [
-        completed.stdout[offset : offset + FRAME_BYTES]
-        for offset in range(0, complete_size, FRAME_BYTES)
+        payload[offset : offset + FRAME_BYTES] for offset in range(0, complete_size, FRAME_BYTES)
     ]
+
+
+def _prepare_sandbox_output(
+    work_directory: Path, output: Path, *, create_parent: bool = False
+) -> str:
+    try:
+        work_identity = work_directory.lstat()
+        relative = output.relative_to(work_directory)
+    except (OSError, ValueError) as exc:
+        raise AtlasError("sandbox output must remain inside the private work directory") from exc
+    if (
+        work_directory.is_symlink()
+        or not work_directory.is_dir()
+        or relative.name in {"", ".", ".."}
+    ):
+        raise AtlasError("sandbox work and output paths must be stable directories")
+    current = work_directory
+    for component in relative.parts[:-1]:
+        if component in {"", ".", ".."}:
+            raise AtlasError("sandbox output path traversal is prohibited")
+        current = current / component
+        if not current.exists():
+            if not create_parent:
+                raise AtlasError("sandbox output directory is unavailable")
+            current.mkdir(mode=0o700)
+        if current.is_symlink() or not current.is_dir():
+            raise AtlasError("sandbox output parent must be a non-symlink directory")
+    if work_identity.st_uid != os.geteuid():
+        raise AtlasError("sandbox work directory must be owned by the current operator")
+    if output.exists() or output.is_symlink():
+        try:
+            measured = output.lstat()
+        except OSError as exc:
+            raise AtlasError("sandbox output identity could not be inspected") from exc
+        if not output.is_file() or output.is_symlink():
+            raise AtlasError("sandbox output must not replace a non-regular path")
+        if measured.st_uid != os.geteuid():
+            raise AtlasError("sandbox output must be owned by the current operator")
+        output.unlink()
+    return f"/work/{relative.as_posix()}"
 
 
 def _boundaries(
@@ -183,12 +320,64 @@ def _extract_keyframe(
     timestamp_ms: int,
     timeout_seconds: int,
     native_policy: NativeInputPolicy,
+    *,
+    native_runner: BubblewrapNativeRunner | None = None,
+    sandbox_work_directory: Path | None = None,
+    expected_source_sha256: str | None = None,
+    expected_source_size: int | None = None,
 ) -> None:
+    enforce_path_policy(media, native_policy)
+    if native_runner is not None:
+        if (
+            sandbox_work_directory is None
+            or expected_source_sha256 is None
+            or expected_source_size is None
+        ):
+            raise AtlasError("sandboxed keyframe extraction requires exact source identity")
+        sandbox_output = _prepare_sandbox_output(sandbox_work_directory, path, create_parent=True)
+        source = ReadOnlyBind.measure_file(
+            media,
+            "/input/source",
+            expected_size=expected_source_size,
+            expected_sha256=expected_source_sha256,
+        )
+        try:
+            native_runner.run(
+                NativeInvocation(
+                    NativeTool.FFMPEG,
+                    (
+                        "-hide_banner",
+                        "-loglevel",
+                        "error",
+                        "-nostdin",
+                        *native_policy.arguments(Path("/input/source"), seek_ms=timestamp_ms),
+                        "-map",
+                        "0:v:0",
+                        "-frames:v",
+                        "1",
+                        "-vf",
+                        "scale=320:180:force_original_aspect_ratio=decrease",
+                        "-c:v",
+                        "png",
+                        "-y",
+                        "--",
+                        sandbox_output,
+                    ),
+                    WritableDirectory.measure(sandbox_work_directory),
+                    (source,),
+                    private_paths=(media, sandbox_work_directory),
+                )
+            )
+        except (AtlasError, ResourceLimitError):
+            path.unlink(missing_ok=True)
+            raise
+        _validate_keyframe_output(path)
+        return
+
+    path.parent.mkdir(parents=True, exist_ok=True)
     ffmpeg = shutil.which("ffmpeg")
     if ffmpeg is None:
         raise AtlasError("ffmpeg is unavailable")
-    enforce_path_policy(media, native_policy)
-    path.parent.mkdir(parents=True, exist_ok=True)
     try:
         subprocess.run(
             [
@@ -229,7 +418,11 @@ def _extract_keyframe(
     except OSError as exc:
         path.unlink(missing_ok=True)
         raise AtlasError("keyframe extraction could not start safely") from exc
-    if not path.is_file() or path.stat().st_size == 0:
+    _validate_keyframe_output(path)
+
+
+def _validate_keyframe_output(path: Path) -> None:
+    if path.is_symlink() or not path.is_file() or path.stat().st_size == 0:
         raise AtlasError("keyframe extraction produced no image")
     if path.stat().st_size > 8_000_000:
         path.unlink(missing_ok=True)
@@ -237,7 +430,12 @@ def _extract_keyframe(
 
 
 def detect_shots(
-    media: Path, inventory: dict[str, Any], run_dir: Path, config: BaselineConfig
+    media: Path,
+    inventory: dict[str, Any],
+    run_dir: Path,
+    config: BaselineConfig,
+    *,
+    native_runner: BubblewrapNativeRunner | None = None,
 ) -> ShotOutput:
     video_streams = [stream for stream in inventory["streams"] if stream["codec_type"] == "video"]
     if not video_streams:
@@ -254,7 +452,7 @@ def detect_shots(
             {},
             (),
         )
-    if shutil.which("ffmpeg") is None:
+    if native_runner is None and shutil.which("ffmpeg") is None:
         return ShotOutput(
             AdapterResult(
                 "shot",
@@ -270,7 +468,21 @@ def detect_shots(
         )
     try:
         native_policy = policy_from_inventory(inventory)
-        frames = _decode_frames(media, config, int(inventory["duration_ms"]), native_policy)
+        source_hash, source_size = inventory.get("sha256"), inventory.get("size_bytes")
+        if native_runner is not None and (
+            not isinstance(source_hash, str) or not isinstance(source_size, int)
+        ):
+            raise AtlasError("sandboxed shot detection requires inventory source identity")
+        frames = _decode_frames(
+            media,
+            config,
+            int(inventory["duration_ms"]),
+            native_policy,
+            native_runner=native_runner,
+            sandbox_work_directory=run_dir if native_runner is not None else None,
+            expected_source_sha256=source_hash if isinstance(source_hash, str) else None,
+            expected_source_size=source_size if isinstance(source_size, int) else None,
+        )
         boundaries = _boundaries(frames, config, int(inventory["duration_ms"]))
         if len(boundaries) > config.max_keyframes:
             raise ResourceLimitError("detected shot count exceeds the configured keyframe limit")
@@ -293,6 +505,10 @@ def detect_shots(
                 timestamp_ms,
                 config.subprocess_timeout_seconds,
                 native_policy,
+                native_runner=native_runner,
+                sandbox_work_directory=run_dir if native_runner is not None else None,
+                expected_source_sha256=source_hash if isinstance(source_hash, str) else None,
+                expected_source_size=source_size if isinstance(source_size, int) else None,
             )
             shot_ref = f"VID:{inventory['source_id']}:ms:{start_ms}-{end_ms}"
             key_ref = f"VID:{inventory['source_id']}:frame:{timestamp_ms}"

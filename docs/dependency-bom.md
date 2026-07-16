@@ -53,3 +53,26 @@ FFmpeg/libavformat build: an explicit `file` protocol whitelist, a forced and wh
 OCR frames. The supported-format narrowing is AV-Atlas policy, not a new dependency or a claim that
 native parsing is sandboxed. No network component, model, checkpoint, language data, or package was
 added.
+
+M2B.3 inventories the already installed, system-class Bubblewrap dependency without installing or
+downloading it. The measured executable basename is `bwrap`, version `bubblewrap 0.9.0`, size
+72,160 bytes, SHA-256
+`52231e1caf55bcbc667b269f49c63599a6f7db4767ae6a039580d0ff853db712`. Ubuntu package metadata
+reports `bubblewrap` `0.9.0-1ubuntu0.1` for `amd64`, source package/version
+`bubblewrap 0.9.0-1ubuntu0.1`, and license `LGPL-2+` from installed copyright metadata with SHA-256
+`229a402fddba5c81005950f28de162359383cba731f5b859b8f82a03c338bf01`. The sanitized dependency
+identity is `85905bce616b6f7327efca1c7196f4758752561a0c41bca23401c1fee4ece3f2`.
+
+The versioned Bubblewrap profile is `av-atlas-bubblewrap-pilot/1.0.0`, with profile SHA-256
+`b69562979857a6c33d59d7db88ce8a14a7ceaa46504539284edc86d0d0e07a0a`. The hash binds the exact
+static argument prefix/suffix and fixed tool paths used by the runner. Its current-host namespace
+smoke test passed without network access. That smoke test is a dependency/capability measurement,
+not the complete synthetic-pilot gate and not evidence of real-media safety. Pilot mode fails
+closed if Bubblewrap is missing, changed, or incapable. AV-Atlas does not install it; on this
+Ubuntu host the minimal operator command would be `sudo apt-get install bubblewrap`.
+
+Bubblewrap is not a model, checkpoint, trained weight, or inference service. The checkpoint
+inventory remains empty. `RLIMIT_NPROC` applies to the host real UID before namespace entry and is
+therefore a bounded host-UID control, not a precise per-sandbox process counter. The sandbox's
+minimum read-only host runtime and kernel namespace implementation remain part of the trusted
+computing base.

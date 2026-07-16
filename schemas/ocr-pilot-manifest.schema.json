@@ -1,28 +1,371 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://av-atlas.local/schemas/ocr-pilot-manifest/1.0.0",
-  "type": "object",
-  "additionalProperties": false,
-  "required": ["schema_version", "pilot_id", "state", "selection_protocol", "sources", "frames", "counts", "privacy", "manifest_hash"],
-  "properties": {
-    "schema_version": {"const": "1.0.0"},
-    "pilot_id": {"type": "string", "pattern": "^PILOT_[A-Z0-9_-]+$"},
-    "state": {"enum": ["prepared_unannotated", "two_annotations_received", "adjudicated_frozen"]},
-    "selection_protocol": {
-      "type": "object", "additionalProperties": false,
-      "required": ["method", "random_seed", "inclusion_criteria", "exclusion_criteria", "duplicate_frame_policy"],
+  "$id": "https://av-atlas.local/schemas/ocr-pilot-manifest/1.1.0",
+  "oneOf": [
+    {"$ref": "#/$defs/historicalV1"},
+    {"$ref": "#/$defs/sandboxedV1_1"}
+  ],
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "selectionProtocol": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "method",
+        "random_seed",
+        "inclusion_criteria",
+        "exclusion_criteria",
+        "duplicate_frame_policy"
+      ],
       "properties": {
         "method": {"type": "string", "minLength": 1},
         "random_seed": {"type": ["integer", "null"]},
-        "inclusion_criteria": {"type": "array", "items": {"type": "string"}, "minItems": 1},
-        "exclusion_criteria": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+        "inclusion_criteria": {
+          "type": "array",
+          "items": {"type": "string"},
+          "minItems": 1
+        },
+        "exclusion_criteria": {
+          "type": "array",
+          "items": {"type": "string"},
+          "minItems": 1
+        },
         "duplicate_frame_policy": {"type": "string", "minLength": 1}
       }
     },
-    "sources": {"type": "array", "minItems": 3, "items": {"type": "object"}},
-    "frames": {"type": "array", "minItems": 80, "maxItems": 80, "items": {"type": "object"}},
-    "counts": {"type": "object"},
-    "privacy": {"type": "object"},
-    "manifest_hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+    "sandboxedSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_id",
+        "source_sha256",
+        "duration_ms",
+        "rights_manifest",
+        "rights_manifest_sha256",
+        "rights_manifest_hash"
+      ],
+      "properties": {
+        "source_id": {"type": "string", "pattern": "^SRC_[A-F0-9]{12}$"},
+        "source_sha256": {"$ref": "#/$defs/sha256"},
+        "duration_ms": {"type": "integer", "minimum": 1},
+        "rights_manifest": {
+          "type": "string",
+          "pattern": "^rights/SRC_[A-F0-9]{12}\\.rights\\.json$"
+        },
+        "rights_manifest_sha256": {"$ref": "#/$defs/sha256"},
+        "rights_manifest_hash": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "sandboxedFrame": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "frame_id",
+        "source_id",
+        "timestamp_ms",
+        "split",
+        "categories",
+        "difficulty",
+        "path",
+        "sha256",
+        "size_bytes"
+      ],
+      "properties": {
+        "frame_id": {
+          "type": "string",
+          "pattern": "^FRM_[A-F0-9]{12}_[0-9]{10}$"
+        },
+        "source_id": {"type": "string", "pattern": "^SRC_[A-F0-9]{12}$"},
+        "timestamp_ms": {"type": "integer", "minimum": 0},
+        "split": {"enum": ["calibration", "evaluation"]},
+        "categories": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"type": "string", "minLength": 1},
+          "uniqueItems": true
+        },
+        "difficulty": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"type": "string", "minLength": 1},
+          "uniqueItems": true
+        },
+        "path": {
+          "type": "string",
+          "pattern": "^frames/FRM_[A-F0-9]{12}_[0-9]{10}\\.png$"
+        },
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "size_bytes": {"type": "integer", "minimum": 1, "maximum": 1073741824}
+      }
+    },
+    "sandboxedCounts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sources", "calibration_frames", "evaluation_frames"],
+      "properties": {
+        "sources": {"type": "integer", "minimum": 3},
+        "calibration_frames": {"const": 20},
+        "evaluation_frames": {"const": 60}
+      }
+    },
+    "sandboxedPrivacy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_media_copied",
+        "source_ids_hash_derived",
+        "absolute_paths_exported",
+        "legal_determination"
+      ],
+      "properties": {
+        "source_media_copied": {"const": false},
+        "source_ids_hash_derived": {"const": true},
+        "absolute_paths_exported": {"const": false},
+        "legal_determination": {"const": false}
+      }
+    },
+    "resourceLimits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "wall_timeout_seconds",
+        "cpu_time_seconds",
+        "address_space_bytes",
+        "output_file_size_bytes",
+        "open_files",
+        "process_count",
+        "core_dump_bytes",
+        "capture_bytes",
+        "cleanup_timeout_seconds"
+      ],
+      "properties": {
+        "wall_timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 3600},
+        "cpu_time_seconds": {"type": "integer", "minimum": 1, "maximum": 3600},
+        "address_space_bytes": {"type": "integer", "minimum": 1048576, "maximum": 68719476736},
+        "output_file_size_bytes": {"type": "integer", "minimum": 1024, "maximum": 1073741824},
+        "open_files": {"type": "integer", "minimum": 8, "maximum": 1024},
+        "process_count": {"type": "integer", "minimum": 1, "maximum": 4096},
+        "core_dump_bytes": {"const": 0},
+        "capture_bytes": {"type": "integer", "minimum": 1024, "maximum": 16777216},
+        "cleanup_timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 60}
+      }
+    },
+    "pilotSecurity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "policy_sha256",
+        "receipt_path",
+        "receipt_sha256",
+        "receipt_stage",
+        "pilot_spec_sha256",
+        "pilot_spec_size_bytes",
+        "source_set_sha256",
+        "source_rights_aggregate_sha256",
+        "root_identity_sha256",
+        "filesystem_type",
+        "storage_decision",
+        "sandbox",
+        "resource_limits",
+        "capability",
+        "lifecycle",
+        "privacy"
+      ],
+      "properties": {
+        "policy_sha256": {"$ref": "#/$defs/sha256"},
+        "receipt_path": {"const": "pilot_security_receipt.json"},
+        "receipt_sha256": {"$ref": "#/$defs/sha256"},
+        "receipt_stage": {"const": "prepared"},
+        "pilot_spec_sha256": {"$ref": "#/$defs/sha256"},
+        "pilot_spec_size_bytes": {"type": "integer", "minimum": 1, "maximum": 1000000},
+        "source_set_sha256": {"$ref": "#/$defs/sha256"},
+        "source_rights_aggregate_sha256": {"$ref": "#/$defs/sha256"},
+        "root_identity_sha256": {"$ref": "#/$defs/sha256"},
+        "filesystem_type": {"type": "string", "pattern": "^[A-Za-z0-9._+-]+$"},
+        "storage_decision": {
+          "enum": [
+            "verified-tmpfs",
+            "reviewed-encrypted-volume",
+            "reviewed-remanence-acceptance"
+          ]
+        },
+        "sandbox": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "provider",
+            "profile_contract_version",
+            "profile_sha256",
+            "dependency_identity_sha256",
+            "capability_smoke_test_passed"
+          ],
+          "properties": {
+            "provider": {"const": "bubblewrap"},
+            "profile_contract_version": {"const": "av-atlas-bubblewrap-pilot/1.0.0"},
+            "profile_sha256": {"$ref": "#/$defs/sha256"},
+            "dependency_identity_sha256": {"$ref": "#/$defs/sha256"},
+            "capability_smoke_test_passed": {"const": true}
+          }
+        },
+        "resource_limits": {"$ref": "#/$defs/resourceLimits"},
+        "capability": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "namespace_smoke_test_passed",
+            "network_denied",
+            "external_sentinel_denied",
+            "outside_write_denied"
+          ],
+          "properties": {
+            "namespace_smoke_test_passed": {"const": true},
+            "network_denied": {"const": true},
+            "external_sentinel_denied": {"const": true},
+            "outside_write_denied": {"const": true}
+          }
+        },
+        "lifecycle": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "cleanup_method",
+            "cleanup_outcome",
+            "logical_deletion",
+            "secure_erasure_claimed",
+            "bounded_stale_recovery"
+          ],
+          "properties": {
+            "cleanup_method": {"const": "logical-unlink-and-directory-removal"},
+            "cleanup_outcome": {"const": "logical-deletion-complete"},
+            "logical_deletion": {"const": true},
+            "secure_erasure_claimed": {"const": false},
+            "bounded_stale_recovery": {"const": true}
+          }
+        },
+        "privacy": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "private_paths_exported",
+            "original_path_exported",
+            "snapshot_path_exported",
+            "user_identity_exported",
+            "hostname_exported",
+            "raw_environment_exported"
+          ],
+          "properties": {
+            "private_paths_exported": {"const": false},
+            "original_path_exported": {"const": false},
+            "snapshot_path_exported": {"const": false},
+            "user_identity_exported": {"const": false},
+            "hostname_exported": {"const": false},
+            "raw_environment_exported": {"const": false}
+          }
+        }
+      }
+    },
+    "historicalV1": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "pilot_id",
+        "state",
+        "selection_protocol",
+        "sources",
+        "frames",
+        "counts",
+        "privacy",
+        "manifest_hash"
+      ],
+      "properties": {
+        "schema_version": {"const": "1.0.0"},
+        "pilot_id": {"type": "string", "pattern": "^PILOT_[A-Z0-9_-]+$"},
+        "state": {
+          "enum": ["prepared_unannotated", "two_annotations_received", "adjudicated_frozen"]
+        },
+        "selection_protocol": {"$ref": "#/$defs/selectionProtocol"},
+        "sources": {"type": "array", "minItems": 3, "items": {"type": "object"}},
+        "frames": {
+          "type": "array",
+          "minItems": 80,
+          "maxItems": 80,
+          "items": {"type": "object"}
+        },
+        "counts": {"type": "object"},
+        "privacy": {"type": "object"},
+        "manifest_hash": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "sandboxedV1_1": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "pilot_id",
+        "state",
+        "selection_protocol",
+        "sources",
+        "frames",
+        "counts",
+        "privacy",
+        "pilot_security",
+        "manifest_hash"
+      ],
+      "properties": {
+        "schema_version": {"const": "1.1.0"},
+        "pilot_id": {"type": "string", "pattern": "^PILOT_[A-Z0-9_-]+$"},
+        "state": {
+          "enum": ["prepared_unannotated", "two_annotations_received", "adjudicated_frozen"]
+        },
+        "selection_protocol": {"$ref": "#/$defs/selectionProtocol"},
+        "sources": {
+          "type": "array",
+          "minItems": 3,
+          "items": {"$ref": "#/$defs/sandboxedSource"}
+        },
+        "frames": {
+          "type": "array",
+          "minItems": 80,
+          "maxItems": 80,
+          "items": {"$ref": "#/$defs/sandboxedFrame"}
+        },
+        "counts": {"$ref": "#/$defs/sandboxedCounts"},
+        "privacy": {"$ref": "#/$defs/sandboxedPrivacy"},
+        "pilot_security": {"$ref": "#/$defs/pilotSecurity"},
+        "human_annotation_sha256": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {"$ref": "#/$defs/sha256"},
+          "uniqueItems": true
+        },
+        "adjudicated_gold_sha256": {"$ref": "#/$defs/sha256"},
+        "disagreement_report_sha256": {"$ref": "#/$defs/sha256"},
+        "normalization_rules_sha256": {"$ref": "#/$defs/sha256"},
+        "ocr_configuration_sha256": {"$ref": "#/$defs/sha256"},
+        "region_matching_rule": {"type": "string", "minLength": 1},
+        "metric_definition": {"type": "string", "minLength": 1},
+        "disagreement_count": {"type": "integer", "minimum": 0, "maximum": 60},
+        "manifest_hash": {"$ref": "#/$defs/sha256"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"state": {"const": "adjudicated_frozen"}}},
+          "then": {
+            "required": [
+              "human_annotation_sha256",
+              "adjudicated_gold_sha256",
+              "disagreement_report_sha256",
+              "normalization_rules_sha256",
+              "ocr_configuration_sha256",
+              "region_matching_rule",
+              "metric_definition",
+              "disagreement_count"
+            ]
+          }
+        }
+      ]
+    }
   }
 }

@@ -165,5 +165,48 @@ otherwise common self-contained formats until each receives a separate transitiv
 
 Snapshot unlinking and lease-directory removal are logical lifecycle cleanup, not secure erasure.
 The OS temporary root may be disk-backed, journaled, snapshotted, swapped, or backed up. A private,
-capacity-bounded encrypted volume or suitably configured tmpfs—or explicit documented risk
-acceptance—is required before real operator media; tmpfs can still swap unless configured not to.
+capacity-bounded encrypted volume or suitably configured tmpfs—or an independently reviewed,
+pilot-scoped, expiring remanence acceptance with compensating controls and a deletion plan—is
+required before real operator media; tmpfs can still swap unless configured not to. A storage
+remanence acceptance cannot replace the mandatory native-process sandbox.
+
+M2B.3 adds a separate pilot-only host-security boundary without changing the accepted controlled
+baseline. Its local-private policy contract (`av-atlas-pilot-security-policy/1.0.0`) binds one pilot
+ID and frozen specification to an explicit pre-created root, root device/inode/owner/mode, storage
+decision, capacity ceilings plus reserve, expiry, exact Bubblewrap identity/profile, and native
+resource limits. That policy can contain an operator path and host facts, remains mode `0600`, and
+is never copied into a public artifact. A sanitized public receipt
+(`av-atlas-pilot-security-receipt/1.0.0`) publishes only hash-derived linkage, storage class and
+measured capacity, sandbox identity, limits, denial/cleanup booleans, and proof that private paths
+were not exported.
+
+The root is opened once as a directory descriptor and rechecked for an absolute, non-symlink,
+current-UID-owned, exact-`0700`, local-filesystem identity with adequate capacity. Pilot snapshot
+leases and workspaces are created and removed relative to that descriptor. Supported storage
+decisions are measured `verified-tmpfs`, independently reviewed and expiring
+`reviewed-encrypted-volume`, and independently reviewed, pilot-scoped, expiring
+`reviewed-remanence-acceptance` with compensating controls and a deletion plan. In every case,
+cleanup is logical unlinking/directory removal; no secure-erasure claim is made, and tmpfs can still
+swap.
+
+Pilot FFprobe, FFmpeg, and Tesseract execution has one typed runner and no unsandboxed fallback.
+Bubblewrap profile `av-atlas-bubblewrap-pilot/1.0.0` uses new user, PID, IPC, UTS, mount, and network
+namespaces, a new session, parent-death behavior, dropped capabilities, a cleared fixed environment,
+no home, a fixed non-host UTS hostname, minimum read-only system runtime, read-only `/input`,
+output-only writable `/work`, and a private tmpfs `/tmp`; the host root is not bound wholesale. A
+host-writable outside positive control must remain unchanged. `/work` parent/child identity is
+verified around descriptor binding. A helper sets CPU, address-space,
+file-size, descriptor, process-count, and core-dump limits before `exec`, while the parent bounds
+capture and wall time and terminates the process group. `RLIMIT_NPROC` is charged against the host
+real UID before namespace entry, so it is a host-UID ceiling rather than a precise isolated-process
+counter.
+
+The additive pilot-manifest 1.1 security block links the policy and sanitized receipt hashes to the
+exact pilot/spec, source set, aggregate rights identity, root identity digest, storage decision,
+sandbox profile/dependency, limits, denial results, path privacy, and cleanup. Prepare and OCR run
+must use the same current decision. Preparation reacquires a verified source snapshot for each
+source; OCR execution hash/size-verifies each frozen prepared frame while copying it into a fresh
+private workspace. Evaluation that invokes no native parser may consume only the frozen receipt.
+Direct native execution is retained solely as an explicit controlled-synthetic compatibility path;
+activating pilot mode without the verified sandbox runner is an error. Policy/reviewer expiry and
+the retained private root are rechecked before every native unit and before success output.

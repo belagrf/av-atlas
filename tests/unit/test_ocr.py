@@ -117,9 +117,15 @@ def test_operator_home_executable_and_tessdata_paths_are_redacted() -> None:
                 "used_by_default_m2b": True,
             }
         ],
-        "relevant_environment": {"TESSDATA_PREFIX": "/home/operator/private/tessdata"},
+        "relevant_environment": {
+            "TESSDATA_PREFIX": "/home/operator/private/tessdata",
+            "LANG": "/home/operator/private/secret-locale",
+            "OMP_THREAD_LIMIT": "secret-like-value",
+        },
         "network_accessed": False,
     }
     rendered = json.dumps(sanitize_ocr_inventory(private))
     assert "/home/operator" not in rendered
+    assert "secret-like-value" not in rendered
+    assert "set-value-redacted" in rendered
     assert "operator-supplied" in rendered

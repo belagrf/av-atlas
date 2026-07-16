@@ -22,6 +22,11 @@ from av_atlas.fixture import (
 )
 from av_atlas.io import write_json_new
 from av_atlas.media import inspect_media, tool_version
+from av_atlas.native_process import (
+    BUBBLEWRAP_INSTALL_COMMAND,
+    NativeResourceLimits,
+    inspect_bubblewrap,
+)
 from av_atlas.ocr import inspect_ocr
 from av_atlas.ocr_evaluation import benchmark_ocr, evaluate_ocr
 from av_atlas.ocr_pilot import (
@@ -31,6 +36,24 @@ from av_atlas.ocr_pilot import (
     make_annotation_packages,
     prepare_pilot,
     run_pilot_ocr,
+    run_synthetic_pilot_security_check,
+    validate_current_pilot_sandbox,
+    validate_pilot_security_artifacts,
+)
+from av_atlas.pilot_security import (
+    DEFAULT_MAX_SOURCE_BYTES as DEFAULT_PILOT_MAX_SOURCE_BYTES,
+)
+from av_atlas.pilot_security import (
+    DEFAULT_MAX_TEMPORARY_BYTES as DEFAULT_PILOT_MAX_TEMPORARY_BYTES,
+)
+from av_atlas.pilot_security import (
+    DEFAULT_RESERVE_BYTES,
+    create_pilot_security_policy,
+    load_pilot_security_policy,
+    open_verified_pilot_root,
+    policy_resource_limits,
+    preflight_pilot_security_root,
+    validate_private_policy_output_path,
 )
 from av_atlas.pipeline import export_run, initialize_run, resume_run
 from av_atlas.rights import OPERATIONS, create_rights_manifest, required_permissions_for_run_mode
@@ -92,6 +115,70 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="include full local paths; never attach this output to exported runs",
     )
+    inspect_bubblewrap_parser = commands.add_parser(
+        "inspect-bubblewrap",
+        help="inspect the mandatory local pilot sandbox dependency",
+    )
+    inspect_bubblewrap_parser.add_argument(
+        "--local-private-diagnostic",
+        action="store_true",
+        help="include the resolved local path; never export or publish this output",
+    )
+    security_create = commands.add_parser(
+        "pilot-security-create",
+        help="create a private, pilot-bound storage and sandbox policy",
+    )
+    security_create.add_argument("--root", type=Path, required=True)
+    security_create.add_argument("--pilot-id", required=True)
+    security_create.add_argument("--pilot-spec", type=Path, required=True)
+    security_create.add_argument("--output", type=Path, required=True)
+    security_create.add_argument("--expires-at", required=True)
+    security_create.add_argument(
+        "--storage-decision",
+        required=True,
+        choices=[
+            "verified-tmpfs",
+            "reviewed-encrypted-volume",
+            "reviewed-remanence-acceptance",
+        ],
+    )
+    security_create.add_argument(
+        "--source-byte-ceiling", type=int, default=DEFAULT_PILOT_MAX_SOURCE_BYTES
+    )
+    security_create.add_argument(
+        "--temporary-byte-ceiling", type=int, default=DEFAULT_PILOT_MAX_TEMPORARY_BYTES
+    )
+    security_create.add_argument("--reserve-bytes", type=int, default=DEFAULT_RESERVE_BYTES)
+    security_create.add_argument("--reviewer-pseudonym")
+    security_create.add_argument("--review-record")
+    security_create.add_argument("--review-expires-at")
+    security_create.add_argument("--compensating-control", action="append", default=[])
+    security_create.add_argument("--deletion-plan")
+    _add_native_resource_limit_arguments(security_create)
+    for name, help_text in (
+        ("pilot-security-inspect", "inspect a private pilot policy without revealing its root"),
+        ("pilot-security-validate", "validate a private pilot policy and its bound root"),
+    ):
+        security_command = commands.add_parser(name, help=help_text)
+        security_command.add_argument("policy", type=Path)
+        security_command.add_argument("--pilot-spec", type=Path)
+        security_command.add_argument("--pilot-id")
+    security_artifacts = commands.add_parser(
+        "pilot-security-validate-artifacts",
+        help="validate sanitized receipt, rights, and pilot-manifest linkage",
+    )
+    security_artifacts.add_argument("pilot_dir", type=Path)
+    security_artifacts.add_argument("--manifest", type=Path)
+    security_artifacts.add_argument("--security-policy", type=Path)
+    synthetic_check = commands.add_parser(
+        "pilot-security-synthetic-check",
+        help="exercise the sandboxed native stack on an authorized controlled fixture",
+    )
+    synthetic_check.add_argument("media", type=Path)
+    synthetic_check.add_argument("rights_manifest", type=Path)
+    synthetic_check.add_argument("pilot_spec", type=Path)
+    synthetic_check.add_argument("security_policy", type=Path)
+    synthetic_check.add_argument("--output", type=Path, required=True)
     run = commands.add_parser("run", help="process a sidecar fixture into a complete run")
     run.add_argument("media", type=Path)
     run.add_argument("--config", type=Path, required=True)
@@ -127,6 +214,7 @@ def _parser() -> argparse.ArgumentParser:
     )
     pilot_prepare.add_argument("spec", type=Path)
     pilot_prepare.add_argument("--output", type=Path, required=True)
+    pilot_prepare.add_argument("--security-policy", type=Path, required=True)
     pilot_packages = commands.add_parser(
         "pilot-annotation-packages", help="create two independent blank annotation packages"
     )
@@ -161,7 +249,24 @@ def _parser() -> argparse.ArgumentParser:
     pilot_run.add_argument("pilot_dir", type=Path)
     pilot_run.add_argument("frozen_manifest", type=Path)
     pilot_run.add_argument("--output", type=Path, required=True)
+    pilot_run.add_argument("--security-policy", type=Path, required=True)
     return parser
+
+
+def _add_native_resource_limit_arguments(parser: argparse.ArgumentParser) -> None:
+    defaults = NativeResourceLimits()
+    parser.add_argument("--wall-timeout-seconds", type=int, default=int(defaults.wall_seconds))
+    parser.add_argument("--cpu-time-seconds", type=int, default=defaults.cpu_seconds)
+    parser.add_argument("--address-space-bytes", type=int, default=defaults.address_space_bytes)
+    parser.add_argument("--output-file-size-bytes", type=int, default=defaults.file_size_bytes)
+    parser.add_argument("--open-files", type=int, default=defaults.open_files)
+    parser.add_argument("--process-count", type=int, default=defaults.process_count)
+    parser.add_argument("--capture-bytes", type=int, default=defaults.stdout_bytes)
+    parser.add_argument(
+        "--cleanup-timeout-seconds",
+        type=int,
+        default=int(defaults.termination_grace_seconds),
+    )
 
 
 def _add_inspection_rights_arguments(parser: argparse.ArgumentParser) -> None:
@@ -215,13 +320,65 @@ def _run_mode(value: str) -> str:
     return value
 
 
+def _native_resource_limits(args: argparse.Namespace) -> NativeResourceLimits:
+    return NativeResourceLimits(
+        wall_seconds=args.wall_timeout_seconds,
+        cpu_seconds=args.cpu_time_seconds,
+        address_space_bytes=args.address_space_bytes,
+        file_size_bytes=args.output_file_size_bytes,
+        open_files=args.open_files,
+        process_count=args.process_count,
+        stdout_bytes=args.capture_bytes,
+        stderr_bytes=args.capture_bytes,
+        termination_grace_seconds=args.cleanup_timeout_seconds,
+    )
+
+
+def _sanitized_pilot_policy_summary(
+    policy: dict[str, object], *, root_validation: str
+) -> dict[str, object]:
+    private_root = policy["private_root"]
+    storage = policy["storage"]
+    if not isinstance(private_root, dict) or not isinstance(storage, dict):
+        raise AtlasError("private pilot security policy has invalid structured fields")
+    return {
+        "schema_version": policy["schema_version"],
+        "contract_version": policy["contract_version"],
+        "pilot_id": policy["pilot_id"],
+        "pilot_spec_sha256": policy["pilot_spec_sha256"],
+        "pilot_spec_size_bytes": policy["pilot_spec_size_bytes"],
+        "created_at": policy["created_at"],
+        "expires_at": policy["expires_at"],
+        "policy_hash": policy["policy_hash"],
+        "private_root": {
+            "path_redacted": True,
+            "identity_bound": True,
+            "expected_mode": private_root["expected_mode"],
+            "root_validation": root_validation,
+        },
+        "storage": {
+            "decision": storage["decision"],
+            "expected_filesystem_type": storage["expected_filesystem_type"],
+            "independently_reviewed": storage["independently_reviewed"],
+            "review_expires_at": storage["review_expires_at"],
+            "secure_erasure_claimed": storage["secure_erasure_claimed"],
+        },
+        "capacity": policy["capacity"],
+        "sandbox": policy["sandbox"],
+        "resource_limits": policy["resource_limits"],
+        "contains_private_paths": False,
+    }
+
+
 def _doctor() -> int:
+    pilot_sandbox = inspect_bubblewrap()
     required = {
         "python": platform.python_version(),
         **{name: tool_version(name) for name in ("ffmpeg", "ffprobe")},
     }
     optional = {
         "ocr": inspect_ocr(),
+        "pilot_sandbox": pilot_sandbox,
         "gpu": "available" if shutil.which("nvidia-smi") else "not detected (not required)",
         "pytorch": (
             "available"
@@ -235,6 +392,12 @@ def _doctor() -> int:
         print(f"Install FFmpeg; missing required tools: {', '.join(missing)}", file=sys.stderr)
         return 1
     print("Required CPU/offline dependencies are available. GPU/model dependencies are optional.")
+    if pilot_sandbox["state"] != "available":
+        print(
+            "M2B.3 pilot execution is unavailable and fails closed. "
+            f"Operator installation command: {BUBBLEWRAP_INSTALL_COMMAND}",
+            file=sys.stderr,
+        )
     return 0
 
 
@@ -251,6 +414,87 @@ def main(arguments: list[str] | None = None) -> int:
                     sort_keys=True,
                 )
             )
+            return 0
+        if args.command == "inspect-bubblewrap":
+            print(
+                json.dumps(
+                    inspect_bubblewrap(include_private_path=args.local_private_diagnostic),
+                    indent=2,
+                    sort_keys=True,
+                )
+            )
+            return 0
+        if args.command == "pilot-security-create":
+            validate_private_policy_output_path(args.output)
+            preflight_pilot_security_root(
+                args.root,
+                args.storage_decision,
+                args.source_byte_ceiling,
+                args.temporary_byte_ceiling,
+                args.reserve_bytes,
+            )
+            policy = create_pilot_security_policy(
+                root=args.root,
+                pilot_id=args.pilot_id,
+                pilot_spec=args.pilot_spec,
+                output=args.output,
+                expires_at=args.expires_at,
+                storage_decision=args.storage_decision,
+                bubblewrap_inventory=inspect_bubblewrap(),
+                resource_limits=policy_resource_limits(_native_resource_limits(args)),
+                reviewer_pseudonym=args.reviewer_pseudonym,
+                review_record=args.review_record,
+                review_expires_at=args.review_expires_at,
+                compensating_controls=tuple(args.compensating_control),
+                deletion_plan=args.deletion_plan,
+                max_source_bytes=args.source_byte_ceiling,
+                max_temporary_bytes=args.temporary_byte_ceiling,
+                reserve_bytes=args.reserve_bytes,
+            )
+            print(
+                json.dumps(
+                    _sanitized_pilot_policy_summary(policy, root_validation="creation-measured"),
+                    indent=2,
+                    sort_keys=True,
+                )
+            )
+            return 0
+        if args.command in {"pilot-security-inspect", "pilot-security-validate"}:
+            policy = load_pilot_security_policy(
+                args.policy,
+                pilot_id=args.pilot_id,
+                pilot_spec=args.pilot_spec,
+            )
+            root_state = "not-requested"
+            if args.command == "pilot-security-validate":
+                with open_verified_pilot_root(policy):
+                    validate_current_pilot_sandbox(policy)
+                    root_state = "passed-with-current-sandbox"
+            print(
+                json.dumps(
+                    _sanitized_pilot_policy_summary(policy, root_validation=root_state),
+                    indent=2,
+                    sort_keys=True,
+                )
+            )
+            return 0
+        if args.command == "pilot-security-validate-artifacts":
+            report = validate_pilot_security_artifacts(
+                args.pilot_dir,
+                args.manifest,
+                args.security_policy,
+            )
+            print(json.dumps(report, indent=2, sort_keys=True))
+            return 0
+        if args.command == "pilot-security-synthetic-check":
+            report = run_synthetic_pilot_security_check(
+                args.media,
+                args.rights_manifest,
+                args.pilot_spec,
+                args.security_policy,
+                args.output,
+            )
+            print(json.dumps(report, indent=2, sort_keys=True))
             return 0
         if args.command == "make-fixture":
             media = {"m1": make_fixture, "m2a": make_m2a_fixture, "m2b": make_m2b_fixture}[
@@ -341,7 +585,13 @@ def main(arguments: list[str] | None = None) -> int:
             validate_run(args.run_dir, write_report=False)
             print(json.dumps(benchmark_ocr(args.run_dir, args.gold), indent=2, sort_keys=True))
         elif args.command == "pilot-prepare":
-            print(json.dumps(prepare_pilot(args.spec, args.output), indent=2, sort_keys=True))
+            print(
+                json.dumps(
+                    prepare_pilot(args.spec, args.output, args.security_policy),
+                    indent=2,
+                    sort_keys=True,
+                )
+            )
         elif args.command == "pilot-annotation-packages":
             make_annotation_packages(args.pilot_dir)
             print(args.pilot_dir)
@@ -364,7 +614,12 @@ def main(arguments: list[str] | None = None) -> int:
             )
             print(json.dumps(report, indent=2, sort_keys=True))
         elif args.command == "pilot-run-ocr":
-            report = run_pilot_ocr(args.pilot_dir, args.frozen_manifest, args.output)
+            report = run_pilot_ocr(
+                args.pilot_dir,
+                args.frozen_manifest,
+                args.output,
+                args.security_policy,
+            )
             print(json.dumps(report, indent=2, sort_keys=True))
     except AtlasError as exc:
         print(f"error: {exc}", file=sys.stderr)

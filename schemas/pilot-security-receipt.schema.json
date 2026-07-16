@@ -1,0 +1,229 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://av-atlas.local/schemas/pilot-security-receipt/1.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "contract_version",
+    "stage",
+    "measured_at",
+    "pilot_id",
+    "pilot_spec_sha256",
+    "pilot_spec_size_bytes",
+    "policy_sha256",
+    "source_rights_aggregate_sha256",
+    "root_identity_sha256",
+    "filesystem_type",
+    "storage",
+    "sandbox",
+    "resource_limits",
+    "capability",
+    "lifecycle",
+    "privacy",
+    "receipt_hash"
+  ],
+  "properties": {
+    "schema_version": {"const": "1.0.0"},
+    "contract_version": {"const": "av-atlas-pilot-security-receipt/1.0.0"},
+    "stage": {
+      "enum": ["policy-validated", "prepared", "ocr-complete", "synthetic-smoke-complete"]
+    },
+    "measured_at": {"type": "string", "format": "date-time", "minLength": 1},
+    "pilot_id": {"type": "string", "pattern": "^PILOT_[A-Z0-9_-]+$"},
+    "pilot_spec_sha256": {"$ref": "#/$defs/sha256"},
+    "pilot_spec_size_bytes": {"type": "integer", "minimum": 1, "maximum": 1000000},
+    "policy_sha256": {"$ref": "#/$defs/sha256"},
+    "source_rights_aggregate_sha256": {"$ref": "#/$defs/sha256"},
+    "root_identity_sha256": {"$ref": "#/$defs/sha256"},
+    "filesystem_type": {"type": "string", "pattern": "^[A-Za-z0-9._+-]+$"},
+    "storage": {"$ref": "#/$defs/storageReceipt"},
+    "sandbox": {"$ref": "#/$defs/sandboxReceipt"},
+    "resource_limits": {"$ref": "#/$defs/resourceLimits"},
+    "capability": {"$ref": "#/$defs/capability"},
+    "lifecycle": {"$ref": "#/$defs/lifecycle"},
+    "privacy": {"$ref": "#/$defs/privacy"},
+    "receipt_hash": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "storageReceipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "decision",
+        "available_bytes",
+        "required_bytes",
+        "reserve_bytes",
+        "root_identity_verified",
+        "owner_verified",
+        "mode_verified",
+        "local_filesystem_verified",
+        "capacity_verified"
+      ],
+      "properties": {
+        "decision": {
+          "enum": [
+            "verified-tmpfs",
+            "reviewed-encrypted-volume",
+            "reviewed-remanence-acceptance"
+          ]
+        },
+        "available_bytes": {"type": "integer", "minimum": 0},
+        "required_bytes": {"type": "integer", "minimum": 1},
+        "reserve_bytes": {"type": "integer", "minimum": 0},
+        "root_identity_verified": {"const": true},
+        "owner_verified": {"const": true},
+        "mode_verified": {"const": true},
+        "local_filesystem_verified": {"const": true},
+        "capacity_verified": {"const": true}
+      }
+    },
+    "sandboxReceipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "provider",
+        "profile_contract_version",
+        "profile_sha256",
+        "dependency_identity_sha256",
+        "executable_basename",
+        "executable_sha256",
+        "executable_size_bytes",
+        "version",
+        "package_identity",
+        "source_identity",
+        "license_id",
+        "license_verification",
+        "capability_smoke_test_passed",
+        "namespaces",
+        "capabilities_dropped",
+        "environment_cleared",
+        "home_exposed",
+        "whole_root_bound",
+        "input_read_only",
+        "output_only_writable",
+        "private_tmp"
+      ],
+      "properties": {
+        "provider": {"const": "bubblewrap"},
+        "profile_contract_version": {"const": "av-atlas-bubblewrap-pilot/1.0.0"},
+        "profile_sha256": {"$ref": "#/$defs/sha256"},
+        "dependency_identity_sha256": {"$ref": "#/$defs/sha256"},
+        "executable_basename": {"const": "bwrap"},
+        "executable_sha256": {"$ref": "#/$defs/sha256"},
+        "executable_size_bytes": {"type": "integer", "minimum": 1},
+        "version": {"type": "string", "pattern": "^[^/\\\\]+$", "minLength": 1},
+        "package_identity": {"type": ["string", "null"], "pattern": "^[^/\\\\]+$", "minLength": 1},
+        "source_identity": {"type": ["string", "null"], "pattern": "^[^/\\\\]+$", "minLength": 1},
+        "license_id": {"type": "string", "pattern": "^[A-Za-z0-9.+-]+$", "minLength": 1},
+        "license_verification": {
+          "enum": ["installed-package-metadata-read", "unverified"]
+        },
+        "capability_smoke_test_passed": {"const": true},
+        "namespaces": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["network", "user", "pid", "ipc", "uts", "mount"],
+          "properties": {
+            "network": {"const": true},
+            "user": {"const": true},
+            "pid": {"const": true},
+            "ipc": {"const": true},
+            "uts": {"const": true},
+            "mount": {"const": true}
+          }
+        },
+        "capabilities_dropped": {"const": true},
+        "environment_cleared": {"const": true},
+        "home_exposed": {"const": false},
+        "whole_root_bound": {"const": false},
+        "input_read_only": {"const": true},
+        "output_only_writable": {"const": true},
+        "private_tmp": {"const": true}
+      }
+    },
+    "resourceLimits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "wall_timeout_seconds",
+        "cpu_time_seconds",
+        "address_space_bytes",
+        "output_file_size_bytes",
+        "open_files",
+        "process_count",
+        "core_dump_bytes",
+        "capture_bytes",
+        "cleanup_timeout_seconds"
+      ],
+      "properties": {
+        "wall_timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 3600},
+        "cpu_time_seconds": {"type": "integer", "minimum": 1, "maximum": 3600},
+        "address_space_bytes": {"type": "integer", "minimum": 1048576, "maximum": 68719476736},
+        "output_file_size_bytes": {"type": "integer", "minimum": 1024, "maximum": 1073741824},
+        "open_files": {"type": "integer", "minimum": 8, "maximum": 1024},
+        "process_count": {"type": "integer", "minimum": 1, "maximum": 4096},
+        "core_dump_bytes": {"const": 0},
+        "capture_bytes": {"type": "integer", "minimum": 1024, "maximum": 16777216},
+        "cleanup_timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 60}
+      }
+    },
+    "capability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "namespace_smoke_test_passed",
+        "network_denied",
+        "external_sentinel_denied",
+        "outside_write_denied"
+      ],
+      "properties": {
+        "namespace_smoke_test_passed": {"const": true},
+        "network_denied": {"const": true},
+        "external_sentinel_denied": {"const": true},
+        "outside_write_denied": {"const": true}
+      }
+    },
+    "lifecycle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "cleanup_method",
+        "cleanup_outcome",
+        "logical_deletion",
+        "secure_erasure_claimed",
+        "bounded_stale_recovery"
+      ],
+      "properties": {
+        "cleanup_method": {"const": "logical-unlink-and-directory-removal"},
+        "cleanup_outcome": {
+          "enum": ["logical-deletion-complete", "marker-recovery-required", "not-applicable"]
+        },
+        "logical_deletion": {"const": true},
+        "secure_erasure_claimed": {"const": false},
+        "bounded_stale_recovery": {"const": true}
+      }
+    },
+    "privacy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "private_paths_exported",
+        "original_path_exported",
+        "snapshot_path_exported",
+        "user_identity_exported",
+        "hostname_exported",
+        "raw_environment_exported"
+      ],
+      "properties": {
+        "private_paths_exported": {"const": false},
+        "original_path_exported": {"const": false},
+        "snapshot_path_exported": {"const": false},
+        "user_identity_exported": {"const": false},
+        "hostname_exported": {"const": false},
+        "raw_environment_exported": {"const": false}
+      }
+    }
+  }
+}

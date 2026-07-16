@@ -87,3 +87,27 @@ selection, and patent/publication review remain unresolved.
 
 No project license has been selected. Public visibility permits inspection of the source but does
 not grant reuse rights beyond applicable law.
+
+## Issue 17 M2B.3 implementation pull-request boundary
+
+The operator authorized implementation of issue 17 on `feat/m2b3-pilot-security` and an unmerged
+public pull request titled `Implement M2B.3 private storage and sandboxed pilot execution`. This
+authorization covers the versioned local-private-policy and sanitized-receipt/report contracts,
+typed Bubblewrap native runner, additive pilot-manifest linkage, project-authored hostile tests,
+ADR, dependency inventory, and sanitized engineering documentation. It does not authorize a merge
+before source review, a new tag or release, modification of v1/v1.1/v1.2 identities, operator-media
+processing, M2C, model/checkpoint acquisition, GPU, cloud inference, paid API, training, or license
+selection.
+
+The approved locally installed Bubblewrap dependency may execute only project-authored synthetic
+fixtures during this assignment. No Bubblewrap binary, FFmpeg/Tesseract binary, traineddata, source
+media, extracted frame/audio/subtitle, run directory, private policy/root/specification, rights
+manifest, annotation, archive, or local diagnostic is authorized for publication. Sanitized
+path-free receipts and synthetic security reports are eligible only after schema validation and the
+ordinary secret/path/media/staged-blob scan.
+
+Issue 17 and its pull request remain open and unmerged until CI, CodeQL, and source review accept the
+implementation. The local synthetic sandbox measurement does not establish real-media OCR accuracy,
+native-parser correctness, secure erasure, semantic visual understanding, learned-model capability,
+or full-M2 completion. The authorized double-annotated real-media pilot remains pending, M2C remains
+unimplemented, and no project license has been selected.

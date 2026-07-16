@@ -95,6 +95,21 @@ class StableInput:
     size_bytes: int
     authorization: AuthorizationPreflight
     receipt: dict[str, Any]
+    snapshot_fd: int | None = None
+
+
+@dataclass(frozen=True)
+class VerifiedPrivateRoot:
+    """Caller-owned open private root pinned to one expected filesystem identity.
+
+    The caller retains ownership of ``descriptor``. Stable-input operations duplicate
+    it and never close or replace the supplied descriptor.
+    """
+
+    path: Path
+    descriptor: int
+    device: int
+    inode: int
 
 
 @dataclass(frozen=True)
@@ -115,6 +130,7 @@ class _PrivateLease:
     root_fd: int
     directory_fd: int
     marker_fd: int
+    verified_root: VerifiedPrivateRoot | None = None
 
 
 def _metadata(value: os.stat_result) -> _SourceMetadata:
@@ -278,6 +294,61 @@ def _private_root(root: Path | None = None) -> Path:
     return selected
 
 
+def _verify_open_private_root(
+    verified_root: VerifiedPrivateRoot,
+    descriptor: int,
+) -> os.stat_result:
+    """Revalidate one caller-pinned private root without changing it."""
+    if (
+        not isinstance(verified_root.path, Path)
+        or not verified_root.path.is_absolute()
+        or not isinstance(verified_root.descriptor, int)
+        or isinstance(verified_root.descriptor, bool)
+        or verified_root.descriptor < 0
+        or not isinstance(verified_root.device, int)
+        or isinstance(verified_root.device, bool)
+        or not isinstance(verified_root.inode, int)
+        or isinstance(verified_root.inode, bool)
+        or verified_root.device < 0
+        or verified_root.inode <= 0
+    ):
+        raise AtlasError("verified private-root binding is malformed")
+    try:
+        opened = os.fstat(descriptor)
+        current = os.lstat(verified_root.path)
+    except OSError as exc:
+        raise AtlasError("verified private-root identity is unavailable") from exc
+    uid = _current_uid()
+    expected = (verified_root.device, verified_root.inode)
+    if (
+        not stat.S_ISDIR(opened.st_mode)
+        or not stat.S_ISDIR(current.st_mode)
+        or stat.S_IMODE(opened.st_mode) != 0o700
+        or stat.S_IMODE(current.st_mode) != 0o700
+        or (uid is not None and (opened.st_uid != uid or current.st_uid != uid))
+        or (opened.st_dev, opened.st_ino) != expected
+        or (current.st_dev, current.st_ino) != expected
+    ):
+        raise AtlasError("verified private-root identity, ownership, or permissions changed")
+    return opened
+
+
+def _duplicate_verified_root(verified_root: VerifiedPrivateRoot) -> int:
+    """Return a non-inheritable duplicate after validating both descriptors."""
+    _verify_open_private_root(verified_root, verified_root.descriptor)
+    try:
+        duplicate = os.dup(verified_root.descriptor)
+        os.set_inheritable(duplicate, False)
+    except OSError as exc:
+        raise AtlasError("verified private-root descriptor could not be duplicated") from exc
+    try:
+        _verify_open_private_root(verified_root, duplicate)
+        return duplicate
+    except BaseException:
+        os.close(duplicate)
+        raise
+
+
 def _read_marker(descriptor: int) -> dict[str, Any] | None:
     try:
         size = os.fstat(descriptor).st_size
@@ -417,24 +488,37 @@ def recover_stale_snapshots(
     policy: StableInputPolicy | None = None,
     *,
     root: Path | None = None,
+    verified_root: VerifiedPrivateRoot | None = None,
 ) -> int:
     """Boundedly remove only marker-recognized, inactive stale snapshot directories."""
     active_policy = policy or StableInputPolicy()
     active_policy.validate()
     _require_snapshot_platform()
-    private_root = _private_root(root)
+    if verified_root is not None and root is not None and root != verified_root.path:
+        raise AtlasError("verified private-root binding conflicts with the requested root")
+    private_root = verified_root.path if verified_root is not None else _private_root(root)
     root_fd: int | None = None
     try:
-        root_fd = os.open(
-            private_root,
-            os.O_RDONLY
-            | getattr(os, "O_DIRECTORY", 0)
-            | getattr(os, "O_CLOEXEC", 0)
-            | getattr(os, "O_NOFOLLOW", 0),
+        root_fd = (
+            _duplicate_verified_root(verified_root)
+            if verified_root is not None
+            else os.open(
+                private_root,
+                os.O_RDONLY
+                | getattr(os, "O_DIRECTORY", 0)
+                | getattr(os, "O_CLOEXEC", 0)
+                | getattr(os, "O_NOFOLLOW", 0),
+            )
         )
+        if verified_root is not None:
+            _verify_open_private_root(verified_root, root_fd)
         with os.scandir(root_fd) as iterator:
             entries = list(islice(iterator, MAX_STALE_SCAN))
         entries.sort(key=lambda item: item.name)
+    except AtlasError:
+        if root_fd is not None:
+            os.close(root_fd)
+        raise
     except OSError as exc:
         if root_fd is not None:
             os.close(root_fd)
@@ -445,6 +529,9 @@ def recover_stale_snapshots(
         for entry in entries:
             if removed >= MAX_STALE_REMOVALS or reclaimed >= MAX_POLICY_BYTES:
                 break
+            if verified_root is not None:
+                assert root_fd is not None
+                _verify_open_private_root(verified_root, root_fd)
             if not DIRECTORY_PATTERN.fullmatch(entry.name) or not entry.is_dir(
                 follow_symlinks=False
             ):
@@ -458,25 +545,37 @@ def recover_stale_snapshots(
             if did_remove:
                 reclaimed += size
                 removed += 1
+        if verified_root is not None:
+            assert root_fd is not None
+            _verify_open_private_root(verified_root, root_fd)
     finally:
         if root_fd is not None:
             os.close(root_fd)
     return removed
 
 
-def _new_private_directory(root: Path) -> _PrivateLease:
+def _new_private_directory(
+    root: Path,
+    verified_root: VerifiedPrivateRoot | None = None,
+) -> _PrivateLease:
     directory_name: str | None = None
     root_fd: int | None = None
     directory_fd: int | None = None
     marker_fd: int | None = None
     try:
-        root_fd = os.open(
-            root,
-            os.O_RDONLY
-            | getattr(os, "O_DIRECTORY", 0)
-            | getattr(os, "O_CLOEXEC", 0)
-            | getattr(os, "O_NOFOLLOW", 0),
+        root_fd = (
+            _duplicate_verified_root(verified_root)
+            if verified_root is not None
+            else os.open(
+                root,
+                os.O_RDONLY
+                | getattr(os, "O_DIRECTORY", 0)
+                | getattr(os, "O_CLOEXEC", 0)
+                | getattr(os, "O_NOFOLLOW", 0),
+            )
         )
+        if verified_root is not None:
+            _verify_open_private_root(verified_root, root_fd)
         for _ in range(8):
             candidate = f"snapshot-{secrets.token_hex(16)}"
             try:
@@ -526,12 +625,15 @@ def _new_private_directory(root: Path) -> _PrivateLease:
         os.fsync(marker_fd)
         os.fsync(directory_fd)
         os.fsync(root_fd)
+        if verified_root is not None:
+            _verify_open_private_root(verified_root, root_fd)
         return _PrivateLease(
             root,
             root / directory_name,
             root_fd,
             directory_fd,
             marker_fd,
+            verified_root,
         )
     except BaseException as exc:
         if marker_fd is not None:
@@ -629,7 +731,34 @@ def _hash_private_snapshot(
         os.close(descriptor)
 
 
+def _open_verified_snapshot_fd(directory_fd: int, expected_size: int) -> int:
+    """Open the leased snapshot read-only for the duration of its context."""
+    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    descriptor: int | None = None
+    try:
+        descriptor = os.open(SNAPSHOT_NAME, flags, dir_fd=directory_fd)
+        value = os.fstat(descriptor)
+        if (
+            not _stat_is_private_regular(value)
+            or value.st_size != expected_size
+            or value.st_nlink != 1
+        ):
+            raise AtlasError("stable-input snapshot descriptor identity is invalid")
+        os.set_inheritable(descriptor, False)
+        return descriptor
+    except BaseException as exc:
+        if descriptor is not None:
+            os.close(descriptor)
+        if isinstance(exc, AtlasError):
+            raise
+        if isinstance(exc, OSError):
+            raise AtlasError("stable-input snapshot descriptor could not be opened") from exc
+        raise
+
+
 def _verify_lease_path(lease: _PrivateLease) -> None:
+    if lease.verified_root is not None:
+        _verify_open_private_root(lease.verified_root, lease.root_fd)
     directory_stat = os.fstat(lease.directory_fd)
     path_directory_stat = os.stat(
         lease.directory.name,
@@ -669,6 +798,8 @@ def _verify_lease_path(lease: _PrivateLease) -> None:
         or descriptor_snapshot.st_nlink != 1
     ):
         raise AtlasError("stable-input private snapshot identity changed")
+    if lease.verified_root is not None:
+        _verify_open_private_root(lease.verified_root, lease.root_fd)
 
 
 def _cleanup_lease(lease: _PrivateLease | None) -> bool:
@@ -676,6 +807,8 @@ def _cleanup_lease(lease: _PrivateLease | None) -> bool:
         return True
     cleaned = False
     try:
+        if lease.verified_root is not None:
+            _verify_open_private_root(lease.verified_root, lease.root_fd)
         directory_stat = os.fstat(lease.directory_fd)
         path_directory_stat = os.stat(
             lease.directory.name,
@@ -712,14 +845,18 @@ def _cleanup_lease(lease: _PrivateLease | None) -> bool:
                 return False
             os.unlink(SNAPSHOT_NAME, dir_fd=lease.directory_fd)
             os.fsync(lease.directory_fd)
+        if lease.verified_root is not None:
+            _verify_open_private_root(lease.verified_root, lease.root_fd)
         if not path_identity_matches:
             return False
         os.unlink(MARKER_NAME, dir_fd=lease.directory_fd)
         os.fsync(lease.directory_fd)
         os.rmdir(lease.directory.name, dir_fd=lease.root_fd)
         os.fsync(lease.root_fd)
+        if lease.verified_root is not None:
+            _verify_open_private_root(lease.verified_root, lease.root_fd)
         cleaned = True
-    except (OSError, ValueError, TypeError, OverflowError):
+    except (AtlasError, OSError, ValueError, TypeError, OverflowError):
         # A replaced or unexpected entry is deliberately left for bounded,
         # marker-aware operator inspection rather than recursively deleted.
         pass
@@ -814,17 +951,35 @@ def acquire_authorized_input(
     expected_manifest_hash: str | None = None,
     additional_permissions: tuple[str, ...] = (),
     private_root: Path | None = None,
+    verified_private_root: VerifiedPrivateRoot | None = None,
     recover_stale: bool = True,
 ) -> Iterator[StableInput]:
     """Authorize, acquire, verify, lease, and always clean a private snapshot."""
     active_policy = policy or StableInputPolicy()
     active_policy.validate()
     _require_snapshot_platform()
-    root = _private_root(private_root)
+    if (
+        verified_private_root is not None
+        and private_root is not None
+        and private_root != verified_private_root.path
+    ):
+        raise AtlasError("verified private-root binding conflicts with the requested root")
+    root = (
+        verified_private_root.path
+        if verified_private_root is not None
+        else _private_root(private_root)
+    )
+    if verified_private_root is not None:
+        _verify_open_private_root(verified_private_root, verified_private_root.descriptor)
     if recover_stale:
-        recover_stale_snapshots(active_policy, root=root)
+        recover_stale_snapshots(
+            active_policy,
+            root=root,
+            verified_root=verified_private_root,
+        )
     descriptor, metadata = _open_source(source, active_policy)
     private_lease: _PrivateLease | None = None
+    snapshot_descriptor: int | None = None
     lease_ready = False
     try:
         source_hash, size = _hash_descriptor(descriptor, active_policy, metadata.size)
@@ -844,7 +999,7 @@ def acquire_authorized_input(
             additional_permissions=additional_permissions,
         )
         measurement = SourceMeasurement(source_hash, source_id, size, authorization)
-        private_lease = _new_private_directory(root)
+        private_lease = _new_private_directory(root, verified_private_root)
         snapshot_path = private_lease.directory / SNAPSHOT_NAME
         copied_hash, copied_size = _copy_snapshot(
             descriptor, private_lease.directory_fd, active_policy, metadata.size
@@ -865,6 +1020,8 @@ def acquire_authorized_input(
             raise AtlasError("stable-input snapshot identity verification failed")
         _verify_lease_path(private_lease)
         os.fsync(private_lease.directory_fd)
+        snapshot_descriptor = _open_verified_snapshot_fd(private_lease.directory_fd, size)
+        _verify_lease_path(private_lease)
         receipt = _receipt(measurement, active_policy, hasattr(os, "O_NOFOLLOW"))
         lease_ready = True
         yield StableInput(
@@ -874,6 +1031,7 @@ def acquire_authorized_input(
             size,
             authorization,
             receipt,
+            snapshot_descriptor,
         )
     except (AtlasError, ResourceLimitError):
         raise
@@ -882,6 +1040,9 @@ def acquire_authorized_input(
             raise
         raise AtlasError("stable-input acquisition failed safely") from exc
     finally:
+        if snapshot_descriptor is not None:
+            with suppress(OSError):
+                os.close(snapshot_descriptor)
         cleanup_succeeded = _cleanup_lease(private_lease)
         os.close(descriptor)
         if not cleanup_succeeded and sys.exc_info()[0] is None:

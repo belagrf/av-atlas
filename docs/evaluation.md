@@ -60,3 +60,23 @@ mismatched bundles fail closed; resume cannot cross between ordinary and control
 semantic validation rejects impossible controlled states. Accepted v1/v1.1 artifacts remain
 read-only compatible. These tests establish authorization/evidence behavior only and do not alter
 the frozen OCR fixture, gold, normalization, or quality metrics.
+
+M2B.3 adds pilot-host security measurements, not OCR model-quality metrics. The sanitized receipt
+separately records private-root identity/capacity verification, Bubblewrap dependency/profile and
+namespace-smoke identity, enforced CPU/address-space/file-size/descriptor/process/core/capture/
+wall limits, network and out-of-mount denial, path privacy, and logical cleanup. Hostile tests cover
+sentinel reads, root/device/host-backed writes outside `/work`, loopback/external network,
+inherited environment/home, resource exhaustion, timeouts, process-tree interruption, cleanup,
+policy transitions, and unsandboxed helper rejection. A sandbox-local private `/tmp` remains
+writable by design.
+
+Dependency availability or a schema-valid receipt is not sufficient to call M2B.3 complete. The
+completion gate requires an approved local Bubblewrap executable to run a project-authored
+synthetic pilot through FFprobe, FFmpeg, and Tesseract under the exact profile, with measured
+filesystem/network denial and cleanup, while all controlled milestones and immutable release
+evidence remain valid. Until those measurements, local gates, CI, CodeQL, and source review all
+pass, the state is implementation-in-progress or execution-blocked—not M2B.3 complete. Any later
+real-media OCR evaluation remains separate and still requires authorized media, two independent
+human annotations, adjudication, and a frozen evaluation split. Immutable M2B v1, v1.1, and v1.2
+artifacts retain their existing read-only validation path; the new security measurements do not
+replace or reinterpret their OCR metrics.

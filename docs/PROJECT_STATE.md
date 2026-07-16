@@ -27,6 +27,12 @@ Last verified: 2026-07-16 (Europe/Berlin)
   fixed native protocol/demuxer policy, and hash/size-bind fixture sidecars before immutable
   adapter delivery. Issues 11, 12, and 14 closed with the reviewed implementation; issue 17 remains
   the security and temporary-root gate before any real-media pilot.
+- **M2B.3 — implementation and local synthetic execution verified; source review pending.** A
+  versioned local-private storage decision, path-free public receipt, exact Bubblewrap inventory,
+  typed sandboxed native runner, bounded resource policy, pilot-manifest linkage, and hostile
+  filesystem/network tests are implemented. The approved local Bubblewrap executable actually ran
+  project-authored synthetic bytes through FFprobe, FFmpeg, and Tesseract. This is not final
+  milestone acceptance until CI, CodeQL, and source review pass; issue 17 remains open.
 - **M2 — in progress, not complete.** ASR/alignment, diarization, acoustic,
   and semantic visual perception, a human-adjudicated pilot, direct-VLM/loose-baseline comparisons,
   and the full M2 continuation gate in `AV-Atlas_GOAL.md` have not been delivered.
@@ -37,8 +43,9 @@ claimed. No weights were downloaded and no training was run.
 ## Final environment and quality gates
 
 Observed environment: uv 0.11.28, uv-managed CPython 3.14.3, Linux 6.8.0-134-generic x86_64,
-FFmpeg/ffprobe 6.1.1-3ubuntu5, Tesseract 5.3.4, and Leptonica 1.82.0. `doctor` reports optional GPU state, but the pipeline did not use it; PyTorch is not
-installed or required.
+FFmpeg/ffprobe 6.1.1-3ubuntu5, Tesseract 5.3.4, Leptonica 1.82.0, and Bubblewrap
+0.9.0-1ubuntu0.1. `doctor` reports optional GPU state, but the pipeline did not use it; PyTorch is
+not installed or required.
 
 Commands run from the repository root and exact final results:
 
@@ -46,17 +53,18 @@ Commands run from the repository root and exact final results:
 uv lock --check
   Resolved 19 packages
 uv sync --extra dev --locked --offline
-  Resolved 19 packages; checked 18 packages; local package 0.2.2
+  Resolved 19 packages; checked 18 packages; local package 0.2.3
 uv run ruff format --check .
-  51 files already formatted
+  60 files already formatted
 uv run ruff check .
   All checks passed!
 uv run mypy src
-  Success: no issues found in 24 source files
+  Success: no issues found in 27 source files
 uv run pytest -q
-  272 passed; zero failed; zero skipped
+  337 passed in 95.92 s; zero failed; zero skipped
 uv run av-atlas doctor
-  passed; required FFmpeg/ffprobe and approved local OCR inventory reported
+  passed; required FFmpeg/ffprobe, approved local OCR inventory, and available
+  Bubblewrap pilot-sandbox capability reported
 ```
 
 The final suite covers the M0/M1 behavior plus explicit fixture trust, rights refusal,
@@ -64,7 +72,9 @@ permission/hash/expiry/tamper failures, parser/subprocess zero-call sentinels, p
 lifecycle and recovery, hostile mutation, fixed native protocol/demuxer policy, immutable sidecar
 delivery, rights-gated inspection, subtitle and shot/keyframe paths, OCR, interruption, repeated
 resume, semantic determinism, evaluation, BOM, schemas, revisions, provenance, evidence, and
-artifact hashes. It requires no network or GPU.
+artifact hashes. M2B.3 adds private-root admission, Bubblewrap identity/profile checks, native
+resource limits, sandbox transition enforcement, actual filesystem/network denial probes, bounded
+cleanup, and public-artifact path redaction. It requires no external network or GPU.
 
 ## Independent M0/M1 verification
 
@@ -1505,3 +1515,183 @@ than secure; native parsers lack an OS sandbox; same-UID hostility, non-Matroska
 non-POSIX support, retained-frame lifecycle, authenticated rights signatures, license selection,
 patent/publication review, the double-annotated pilot, full M2, and M2C remain unresolved. No real
 media, pilot, M2C, model, checkpoint, training, tag, or release was processed or created.
+
+## 2026-07-16 — M2B.3 private storage and sandboxed pilot execution
+
+Implementation branch `feat/m2b3-pilot-security` adds the local-private policy and mandatory
+Bubblewrap execution boundary accepted in issue 17. Package version is `0.2.3`. The engineering
+implementation and actual project-authored synthetic execution pass locally; issue 17 remains open
+and M2B.3 acceptance remains pending source review of the unmerged pull request. No real or
+operator-supplied media was processed.
+
+### Contracts, policy, and lifecycle
+
+The new contracts are:
+
+- local-private policy schema/contract `1.0.0` /
+  `av-atlas-pilot-security-policy/1.0.0`;
+- sanitized receipt schema/contract `1.0.0` /
+  `av-atlas-pilot-security-receipt/1.0.0`;
+- synthetic security report schema/contract `1.0.0` /
+  `av-atlas-m2b3-synthetic-pilot/1.0.0`;
+- Bubblewrap profile `av-atlas-bubblewrap-pilot/1.0.0`; and
+- additive OCR pilot-manifest `1.1.0`, while historical manifest `1.0.0` remains validation-only.
+
+The private policy is self-hash checked, mode `0600`, expiry bound, and linked to an exact pilot ID
+and pilot-spec hash/size. It alone contains the private root path and must use the ignored
+`*.pilot-security-policy.local.json` name. The root must be an explicitly selected pre-created
+absolute directory outside the tracked checkout, current-UID-owned, a real non-symlink local
+directory with mode `0700`, and identical in device/inode/filesystem identity to the policy. The
+admission check verifies adequate capacity for source and temporary ceilings plus reserve before
+new work. Root identity is retained by descriptor; lease creation, bounded marker-aware recovery,
+and cleanup are relative to it. Cleanup remains available when free capacity later drops. Cleanup
+is logical unlink and directory removal, not cryptographic erasure; tmpfs may swap. Reviewed
+encrypted-volume and remanence-acceptance choices are explicit expiring reviewer assertions, not
+cryptographic claims by AV-Atlas.
+
+The supported pilot path has no unsandboxed fallback. A changed or unavailable Bubblewrap binary,
+failed namespace smoke test, changed profile, invalid root or policy, linkage failure, or resource
+admission failure stops before FFprobe, FFmpeg, Tesseract, or another native adapter starts. Policy
+scope/expiry and root identity are rechecked at source-unit boundaries. Pilot resume reacquires a
+fresh stable snapshot. Success, handled failure, timeout, and handled interruption clean the
+private work lease; bounded stale recovery never follows symlinks or recursively removes an
+unrecognized directory. `SIGKILL`, power loss, and same-UID hostile processes remain limitations.
+
+The typed native runner verifies the exact executable file descriptor, hash, size, dependency
+identity, and profile before use. It creates user/PID/IPC/UTS/network/mount namespaces, a new
+session, parent-death behavior, drops all capabilities, clears the environment, exposes no home,
+read-only binds only reviewed runtime/input paths, makes only `/work` host-backed and writable,
+uses a private tmpfs `/tmp`, and never binds the whole host root. A helper sets `umask(077)` and
+resource limits before `exec`, without multithreaded `preexec_fn`. The recorded bounds were wall
+30 s, CPU 30 s, address space 2 GiB, output file 256 MiB, 64 open descriptors, 4,096 processes,
+8 MiB each for stdout/stderr capture, core dump zero, and one-second cleanup escalation. Process-
+group termination covers timeout and handled interruption.
+
+The sanitized receipt contains no original/snapshot/root path, user, hostname, secret, or raw
+environment value. Pilot manifest `1.1.0` binds policy and receipt digests, storage decision,
+sandbox identity/profile, limits, source/spec linkage, denial/privacy booleans, and cleanup outcome.
+Rights records and frames remain local-private. The public metadata validator rejects absolute
+paths and secret-like values. Raw media text remains inert untrusted data.
+
+### Measured approved dependency and synthetic execution
+
+The locally packaged executable was installed by the operator before this work. Codex installed
+nothing. Measured inventory:
+
+- basename/version/package/source: `bwrap`, `bubblewrap 0.9.0`,
+  `bubblewrap:amd64 0.9.0-1ubuntu0.1`, source `bubblewrap 0.9.0-1ubuntu0.1`;
+- executable SHA-256/size:
+  `52231e1caf55bcbc667b269f49c63599a6f7db4767ae6a039580d0ff853db712`, 72,160 bytes;
+- installed-package license metadata: `LGPL-2+`, read from the installed copyright record whose
+  SHA-256 is `229a402fddba5c81005950f28de162359383cba731f5b859b8f82a03c338bf01`;
+- profile SHA-256:
+  `b69562979857a6c33d59d7db88ce8a14a7ceaa46504539284edc86d0d0e07a0a`;
+- dependency identity SHA-256:
+  `85905bce616b6f7327efca1c7196f4758752561a0c41bca23401c1fee4ece3f2`; and
+- Linux namespace/capability smoke test: passed. If absent on this detected Ubuntu family, the
+  operator command is `sudo apt-get install bubblewrap`; it was not run.
+
+The fresh ignored synthetic check used the unchanged four-frame M2B source hash
+`6d1f79c6a63b6a8d5510bcd67a74e522096fe97b6c2bba68587f0213ccc682a8`
+and a 224-byte pilot spec with SHA-256
+`e315d7ff3d881e37aba46166e2264570fa3fd4763c2ffaff7e0d10f727fcccac`.
+An explicitly selected verified tmpfs root passed identity, ownership, mode, local-filesystem and
+capacity checks; its path is intentionally absent from public records. The private policy hash was
+`e20fd210dc342dc278342901a4b93af069de2368a1b15c2dc209c1b87d720ba1`.
+The exact sandbox path ran FFprobe, FFmpeg, and Tesseract. It processed one extracted synthetic
+frame and emitted three OCR observations. Measured wall time was 2.9919315020088106 s, CPU time
+2.184933 s, peak child RSS 180,672 KiB, source/frame sizes 2,401,427/5,250 bytes, and retries/
+timeouts were 0/0.
+
+Actual hostile probes measured `network_denied=true`, including loopback against a reachable local
+listener; `external_sentinel_denied=true`; and `outside_write_denied=true`. The parent first created
+and wrote a host-writable outside positive-control file; the sandbox could not alter it and cleanup
+removed it. Root/device and other host-backed writes outside `/work` failed, while only the private
+sandbox-local `/tmp` remained writable as designed. The UTS hostname was fixed to the reviewed
+non-host value. The private root was empty after completion. Public-artifact scans found no private
+path, source/frame derivative, raw environment, username, hostname, or secret.
+
+Fresh M2B.3 artifact identities are:
+
+- policy/receipt/report schemas:
+  `c4d64903f8627c19796b38e945e95dfb20f6d61d29ad62a46457cb9a47636e28`,
+  `fd70d41ea55e49d9467e3bcbf30d5bb8e9412210fa0d73ddded4f1a97f88ea64`, and
+  `f94bbc9c3bc4e425ce2b815d70fdf877e1993bd37bc934fe79dfe70a61084e38`;
+- pilot manifest schema:
+  `6822218a7e67d72b0aaab41035d3dbac84d5939d9be50836efe6c7c613afd164`;
+- sanitized receipt detached/embedded hashes:
+  `183417dfe996e23b3a937320850cc2f82bfe814fa5d4a90ceef0790b18326a33` /
+  `9b922948c2fc776370794c888911f1013d06564160a44d74b03feb053168a3ef`;
+- synthetic security report detached/embedded hashes:
+  `31476516be06d60a30e85d56927cab44ff7609d0b90ff78dde2ba5e8a7710cd2` /
+  `d7bfe3e84f04ff54f32ff8e1752bf49d7a92a13b85680e7abe95f4bb5e77af6b`;
+- sandboxed OCR dependency inventory:
+  `ab20ef53a2039d191460b0b19fe306c710107735cc5370c0edee7c07b7ffdb12`; and
+- sandboxed raw OCR observations:
+  `7f3c10085a9e3e80289e925b0121d4aa673eaeab495517e8f2879b1627da805e`.
+
+The policy, receipt and report carry timestamps/capacity/runtime measurements and are fresh-run
+identities, not cross-host byte-stability promises. The source, pilot spec, schema, executable and
+profile identities are content-stable for the measured inputs and implementation.
+
+### Commands, regressions, and compatibility
+
+The exact final gate commands were the six commands in “Final environment and quality gates”
+above. Additional execution included `inspect-bubblewrap`, `pilot-security-create`,
+`pilot-security-inspect`, `pilot-security-validate`, `pilot-security-synthetic-check`, schema and
+artifact validation, fresh `make-fixture`/`make-rights`/`run`/`evaluate`/`evaluate-ocr`/
+`benchmark-ocr`/`validate` sequences for M1, M2A, M2B, M2B.1 and M2B.2, interruption, resume, and
+repeated resume. All fresh controlled runs validated with zero errors: artifact-hash counts were
+18 (M1), 32 (M2A), and 69 each for M2B, M2B.1, M2B.2, and interrupted/resumed M2B.2. Completed and
+interrupted/repeated-resume full-file maps remained byte-identical; their final canonical map
+SHA-256 values were `0252a38707d10081e7749f6e6a2dbd7af2805fc1beffe1dd2474a7fd26f1b7ee`
+and `8f4b1ca22169e1745b809ad4038267ff92936ac8f9eaf63ed7f6754f14e8127d`.
+
+Read-only validation of accepted v1, v1.1, and v1.2 evidence passed with zero errors and 64, 68,
+and 69 artifact hashes. Immutable tag object/commit pairs remain:
+
+- v1: `8cadd6c8ecda7d0b6f60421f312c199cbad163e1` /
+  `54d96dc25bdf03ab1e92d22150c5011faf16b7e6`;
+- v1.1: `8be328eef2fd10037b56921aff1f401c3ef3a12e` /
+  `5d016784c6b3d7226a9f6e0f56cca9fb3ef48822`; and
+- v1.2: `5427bb4639d94f0311d49f5ef8be9337fdcad167` /
+  `c24ff0c9dacb1d3e42cfe8e48e31ec866ab9a882`.
+
+The accepted v1 fixture/gold/config/raw-OCR/evaluation/benchmark/run/release hashes remain
+`6d1f79c6a63b6a8d5510bcd67a74e522096fe97b6c2bba68587f0213ccc682a8`,
+`e62e392aa45406f939edc1f2093d07f1dcf175c0c4ea9085cbeae3edde50bc1a`,
+`8f5545df1c78e5845e19e3ae0299a86cc7c950cb9c3ba7e7b5fee217f1a45c55`,
+`f851aef0d8a1c215023cd71b38120a2f317a10be3dd24567f2f023449acd6060`,
+`a1011542165e3b8974857aaee68bbaa8185987cbb3ca0353ad4afecda38803ad`,
+`479087002a126b1d442ca2e4d768bafd3e266e9f542dba92a01ea075a3280455`,
+`6779769594db6a7457ee30b7d9ffbdacc8ec345120433125e7e846978359b440`, and
+`e545855c11ee23542939a35aecf03d00c6f12bbd056d6d4bcae43df139b7c9b2`.
+The v1.1/v1.2 release-record JSON hashes remain
+`fbdc8e171811794d37bbdb018179ba736647795ed053d01cada4580fe5d29d73` and
+`da8ef265124bded29c389fe0eb35d16b0c08aa67d778eea3ebf8465c8a5b71bd`.
+
+Changed tracked files comprise the version bump/lock; three policy/receipt/report schemas and the
+additive pilot-manifest schema; the schema registry; central native helper/runner and pilot-
+security modules; pilot, media, stable-input, shot, subtitle, OCR and adapter integration; CLI;
+README, architecture, governance, security, evaluation, OCR guide, BOM, publication controls,
+ADR-0007, project state and publication manifest; plus contract, unit and integration regressions.
+Generated fixtures, private policies, rights files, run directories and measured media derivatives
+remain ignored and are not publication candidates.
+
+The 337-test local suite includes missing/stale/wrong-link policy zero-native-call paths; root
+symlink/replacement/owner/mode/device/inode/remote/capacity cases; changed/unavailable Bubblewrap
+and failed namespace/profile checks; host-writable positive-control, sentinel/read/write/network/
+environment/home/hostname isolation; replacement after work-fd acquisition; per-native-unit policy,
+review-expiry and root checks; CPU, memory, file-size, process, descriptor, capture, core and wall-
+time limits; timeout/interruption/process-tree cleanup; stale recovery; policy/prepare/run
+transitions; sandbox bypass prevention; strict pilot-manifest linkage; absolute-path/secret scans;
+and accepted-release compatibility.
+
+Remaining limits are source review and merge, same-UID host hostility, `SIGKILL`/power-loss
+recovery, logical rather than secure deletion, possible tmpfs swap, operator-asserted encrypted
+storage, Linux/Bubblewrap portability, native-parser residual vulnerability, retained-frame
+lifecycle, authenticated rights signatures, real independent annotations and adjudication, license
+selection, patent/publication review, ASR/alignment, diarization, acoustic events, semantic visual
+perception, direct-VLM comparison, full M2, and M2C. No model/checkpoint was downloaded, no GPU,
+cloud or paid API was used, no training occurred, no tag/release was created or moved, and no real-
+media pilot or M2C work began.

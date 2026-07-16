@@ -120,3 +120,37 @@ No tag or release is created from this branch before source review. No private m
 rights declaration, annotation, traineddata, checkpoint, model, run directory, or archive is
 included. No project license has been selected. Issue 17 and the operator-supplied authorized
 double-annotated pilot remain pending; full M2 is incomplete and M2C is unimplemented.
+
+## M2B.3 pull-request candidate
+
+Issue 17 authorizes a synthetic-only implementation branch and an unmerged public pull request for
+the sandboxed local pilot path. It does not authorize a tag, release, merge before source review,
+operator-media processing, model/checkpoint acquisition, GPU, cloud inference, paid API, training,
+M2C, or a project-license decision. The immutable v1, v1.1, and v1.2 tags, releases, fixtures, gold,
+configuration, and accepted evidence remain outside this change.
+
+The candidate adds versioned local-private policy, sanitized receipt, and synthetic-security-report
+schemas; a Linux Bubblewrap profile and typed native-process runner; descriptor-relative private
+root/workspace handling; an additive pilot-manifest security block; synthetic hostile/lifecycle/
+compatibility tests; ADR-0007; and current operator/security/governance documentation. The approved
+locally installed Bubblewrap executable is inventoried and exercised, not copied or redistributed.
+All executable tests use only project-authored synthetic bytes.
+
+The actual private-root path, local-private policy, private pilot specification, rights manifests,
+stable-input snapshots, extracted frames, private workspaces, structured run outputs, local
+diagnostics, and recovery residue are excluded from the tracked candidate. Eligible structured
+records contain only hash-derived linkage, sanitized storage/sandbox identity, measured limits and
+denial booleans, and logical-cleanup/privacy state. The final working-tree candidate scan covered
+147 paths and found no absolute personal/root path, user/host identity, raw environment value,
+credential, media, derivative, traineddata, checkpoint, weight, executable, archive, or unexpected
+large object. There are no symlinks, executable tracked files, or Git LFS pointers. The only object
+above 1 MiB is the previously approved 1,282,425-byte concept PDF. Inert `.invalid` addresses and
+`/home/operator` negative-test sentinels are not live personal data. The staged-blob scan is repeated
+after explicit staging. `docs/publication-manifest.json` covers the exact 147-path set using its
+established normalized self-entry convention; its detached hash is reported in the pull request to
+avoid a circular tracked claim.
+
+The local synthetic sandbox check is host-security engineering evidence only. It establishes no
+real-media safety or OCR accuracy, secure erasure, native-parser correctness, trained-model
+capability, M2B.3 final acceptance, or full-M2 completion. Issue 17 remains open and the pull request
+remains unmerged pending CI, CodeQL, and source review; no authorized real-media pilot has begun.

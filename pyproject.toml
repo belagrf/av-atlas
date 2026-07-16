@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "av-atlas"
-version = "0.2.2"
+version = "0.2.3"
 description = "Evidence-grounded offline audiovisual ingest and event-ledger baseline"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -22,7 +22,10 @@ where = ["src"]
 [tool.pytest.ini_options]
 addopts = "-ra"
 testpaths = ["tests"]
-markers = ["tesseract: requires an approved local Tesseract executable and English data"]
+markers = [
+  "tesseract: requires an approved local Tesseract executable and English data",
+  "bubblewrap: requires the approved local Bubblewrap executable and namespace capability",
+]
 
 [tool.ruff]
 line-length = 100

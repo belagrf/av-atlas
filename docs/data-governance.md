@@ -68,10 +68,36 @@ Blu-ray navigation, and other unreviewed formats before native parsing. This lim
 resource access but is not an operating-system sandbox and does not establish safety for arbitrary
 hostile media.
 
-The pilot remains unexecuted. Issues [#11](https://github.com/belagrf/av-atlas/issues/11),
+No authorized real-media pilot has executed. Issues
+[#11](https://github.com/belagrf/av-atlas/issues/11),
 [#12](https://github.com/belagrf/av-atlas/issues/12), and
 [#14](https://github.com/belagrf/av-atlas/issues/14) closed after the reviewed M2B.2
 implementation merged; closure records implementation and policy decisions, not legal sufficiency.
-Issue [#17](https://github.com/belagrf/av-atlas/issues/17) remains the security and temporary-root
-gate before any authorized real-media pilot. The release-preparation branch processes only
-project-authored synthetic fixtures.
+Issue [#17](https://github.com/belagrf/av-atlas/issues/17) remains open through source review before
+any authorized real-media pilot. The implementation branch processes only project-authored
+synthetic fixtures.
+
+M2B.3 separates private authorization material from publishable evidence. The versioned local
+pilot-security policy may contain the operator's temporary-root path, root identity, storage review
+record, and host-specific capacity; it must remain local, mode `0600`, ignored by Git, and absent
+from runs, logs, annotations, releases, and public reports. The sanitized receipt contains only
+hash-derived pilot/spec/policy/rights/root linkage, storage decision class, measured capacity,
+Bubblewrap identity/profile, enforced limits, denial/cleanup booleans, and explicit path-privacy
+claims. It does not make a storage-encryption, rights, legal-authority, or secure-erasure
+determination.
+
+The storage decision is independently governed from the media rights declaration. A measured
+`verified-tmpfs` decision must acknowledge that swap can retain data. A
+`reviewed-encrypted-volume` decision is an expiring, independently reviewed operator assertion, not
+cryptographic verification by AV-Atlas. A `reviewed-remanence-acceptance` decision is pilot-scoped,
+expiring, independently reviewed, and must record compensating controls and a deletion plan.
+Cleanup is logical deletion only, and receipts must never claim secure erasure.
+
+The rights manifest, frozen pilot specification, pilot-security policy, and pilot manifest remain
+distinct linked decisions. Preparation and OCR execution require the same current security policy
+and exact source/spec linkage; native-free evaluation may consume the sanitized frozen receipt.
+Missing or changed decisions fail closed. These contracts do not authorize operator media, replace
+two independent annotations, or establish real-media accuracy. The local synthetic sandbox gate
+executed successfully; final M2B.3 acceptance still requires CI, CodeQL, and source review. The
+authorized real-media pilot remains pending until the operator later supplies separately
+authorized media and two independent human annotations.
