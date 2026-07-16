@@ -193,10 +193,15 @@ pilots, annotation packages, authenticated OCR outputs, and evaluations are crea
 the retained descriptor with exact directory/file modes `0700`/`0600`, stable parent and child
 identity, and an aggregate retained-byte ceiling. Every production retained writer uses a pinned
 direct-child package descriptor, create-only files, stable reads for retained inputs, and bounded
-pre-write aggregate/capacity checks. Repository-local or arbitrary output locations, symlinks,
+pre-write aggregate/capacity checks. One retained-root transaction owns the advisory lock across
+direct and nested byte writes, immutable file copies, directory placement, post-write aggregate
+verification, fsync, and exact-inode rollback; nested placement no longer uses a post-lock hard
+link. This serializes cooperating AV-Atlas processes using independently opened root descriptors,
+but is not a defense against a malicious process running as the same operating-system user.
+Repository-local or arbitrary output locations, symlinks,
 special files, identity/permission drift, remote filesystems, replacement, and capacity failure
-are denied. Failed and handled-interruption partial retained output is removed; successful output remains
-under the policy-bound retention and deletion lifecycle. Supported storage decisions are
+are denied. Failed and handled-interruption partial retained output is removed; successful output
+remains under the policy-bound retention and deletion lifecycle. Supported storage decisions are
 measured `verified-tmpfs`, independently reviewed and expiring
 `reviewed-encrypted-volume`, and independently reviewed, pilot-scoped, expiring
 `reviewed-remanence-acceptance` with compensating controls and a deletion plan. In every case,
@@ -239,6 +244,10 @@ exact current fixture bundle before FFprobe or FFmpeg can run. Policy/reviewer i
 expiry and both roots are rechecked before every native unit and before success output. Current
 synthetic security reports use `av-atlas-m2b3-synthetic-pilot/1.1.0`; 1.0 reports remain readable
 only for historical validation and cannot authorize current execution.
+For current-policy execution, the prepared receipt's retained-root identity, filesystem type,
+retained byte ceiling, reserve, and storage decision are recomputed from the open verified root and
+policy. The same trusted five-field binding is required again when authenticating an OCR package
+for evaluation; internally consistent but false rehashed claims are rejected.
 
 Raw pilot OCR observations and their evidence index remain authoritative. A secondary versioned
 `av-atlas-pilot-ocr-output/1.0.0` manifest authenticates the complete OCR package after native

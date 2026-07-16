@@ -123,8 +123,8 @@ double-annotated pilot remain pending; full M2 is incomplete and M2C is unimplem
 
 ## M2B.3 pull-request candidate
 
-Issue 17 authorizes a synthetic-only implementation branch and an unmerged public pull request for
-the sandboxed local pilot path. It does not authorize a tag, release, merge before source review,
+Issue 17 authorized a synthetic-only implementation branch and public source review for the
+sandboxed local pilot path. It did not authorize a tag, release, merge before source review,
 operator-media processing, model/checkpoint acquisition, GPU, cloud inference, paid API, training,
 M2C, or a project-license decision. The immutable v1, v1.1, and v1.2 tags, releases, fixtures, gold,
 configuration, and accepted evidence remain outside this change.
@@ -153,5 +153,5 @@ avoid a circular tracked claim.
 
 The local synthetic sandbox check is host-security engineering evidence only. It establishes no
 real-media safety or OCR accuracy, secure erasure, native-parser correctness, trained-model
-capability, M2B.3 final acceptance, or full-M2 completion. Issue 17 remains open and the pull request
-remains unmerged pending CI, CodeQL, and source review; no authorized real-media pilot has begun.
+capability, real-media pilot completion, or full-M2 completion. Final merge, issue, CI, and CodeQL
+identities are verified externally; no authorized real-media pilot has begun.

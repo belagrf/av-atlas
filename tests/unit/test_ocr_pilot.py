@@ -29,6 +29,7 @@ from av_atlas.pilot_security import (
     create_pilot_security_policy,
     load_pilot_security_policy,
     open_verified_retained_root,
+    retained_output_directory,
     validate_security_receipt,
 )
 from av_atlas.rights import create_rights_manifest
@@ -253,23 +254,55 @@ def test_private_annotation_directory_replacement_cleans_only_original(
     spec.write_text('{"pilot_id":"PILOT_PINNED_PACKAGE"}\n', encoding="utf-8")
     policy_path, _, retained_root = _security_policy(tmp_path, spec)
     policy = load_pilot_security_policy(policy_path)
+    output_path = retained_root / "annotation-package"
 
     with (
         open_verified_retained_root(policy) as root,
+        retained_output_directory(policy, root, output_path) as output,
         pytest.raises(AtlasError, match="package identity changed"),
-        _create_pinned_private_directory(root.descriptor, "annotator_A"),
+        _create_pinned_private_directory(output, output, "annotator_A"),
     ):
-        (retained_root / "annotator_A").rename(retained_root / "moved-original")
-        replacement = retained_root / "annotator_A"
+        (output_path / "annotator_A").rename(output_path / "moved-original")
+        replacement = output_path / "annotator_A"
         replacement.mkdir(mode=0o700)
         sentinel = replacement / "sentinel"
         sentinel.write_bytes(b"replacement must survive cleanup")
         sentinel.chmod(0o600)
 
-    assert not (retained_root / "moved-original").exists()
-    assert (retained_root / "annotator_A/sentinel").read_bytes() == (
+    assert not (output_path / "moved-original").exists()
+    assert (output_path / "annotator_A/sentinel").read_bytes() == (
         b"replacement must survive cleanup"
     )
+
+
+def test_nested_annotation_directory_placement_failure_leaves_no_partial_inode(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from av_atlas import ocr_pilot
+
+    spec = tmp_path / "spec.json"
+    spec.write_text('{"pilot_id":"PILOT_NESTED_ROLLBACK"}\n', encoding="utf-8")
+    policy_path, _, retained_root = _security_policy(tmp_path, spec)
+    policy = load_pilot_security_policy(policy_path)
+    output_path = retained_root / "annotation-package"
+    with (
+        open_verified_retained_root(policy) as root,
+        retained_output_directory(policy, root, output_path) as output,
+    ):
+        monkeypatch.setattr(
+            ocr_pilot.os,
+            "fchmod",
+            lambda _descriptor, _mode: (_ for _ in ()).throw(
+                OSError("injected nested placement failure")
+            ),
+        )
+        with (
+            pytest.raises(OSError, match="injected nested placement failure"),
+            _create_pinned_private_directory(output, output, "annotator_A"),
+        ):
+            pytest.fail("failed nested placement must not yield")
+        assert not (output_path / "annotator_A").exists()
+        assert root.measure_aggregate_bytes() == 0
 
 
 def test_derivative_copy_rejects_replacement_without_deleting_replacement(
@@ -717,6 +750,56 @@ def test_synthetic_pilot_preparation_parses_and_extracts_only_from_snapshots(
             pilot,
             security_policy_path=replacement_policy,
         )
+
+
+def test_current_policy_rejects_rehashed_false_prepared_retained_storage_semantics(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from av_atlas.pilot_security import _digest as security_digest
+
+    spec = _pilot_spec(tmp_path)
+    policy, _, retained_root = _security_policy(tmp_path, spec)
+    _fake_sandbox(monkeypatch)
+    monkeypatch.setattr(
+        "av_atlas.ocr_pilot.inspect_media",
+        lambda path, **_kwargs: _inventory_for_snapshot(path),
+    )
+    monkeypatch.setattr(
+        "av_atlas.ocr_pilot._extract_frame",
+        lambda _path, timestamp_ms, output, _policy, **_kwargs: output.write_bytes(
+            f"synthetic-frame-{timestamp_ms}".encode()
+        ),
+    )
+    pilot = retained_root / "pilot"
+    original_manifest = prepare_pilot(spec, pilot, policy)
+    receipt_path = pilot / "pilot_security_receipt.json"
+    manifest_path = pilot / "pilot_manifest.json"
+    original_receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    false_values: tuple[tuple[str, object], ...] = (
+        ("root_identity_sha256", "d" * 64),
+        ("filesystem_type", "xfs"),
+        ("byte_ceiling", int(original_receipt["retained_storage"]["byte_ceiling"]) - 1),
+        ("reserve_bytes", int(original_receipt["retained_storage"]["reserve_bytes"]) - 1),
+        ("decision", "reviewed-encrypted-volume"),
+    )
+
+    for field, false_value in false_values:
+        receipt = json.loads(json.dumps(original_receipt))
+        receipt["retained_storage"][field] = false_value
+        receipt["receipt_hash"] = security_digest(receipt, "receipt_hash")
+        receipt_path.write_text(json.dumps(receipt, sort_keys=True) + "\n", encoding="utf-8")
+
+        manifest = json.loads(json.dumps(original_manifest))
+        manifest["pilot_security"]["receipt_sha256"] = sha256_file(receipt_path)
+        manifest["pilot_security"]["retained_storage"] = receipt["retained_storage"]
+        manifest["manifest_hash"] = _digest(manifest)
+        manifest_path.write_text(json.dumps(manifest, sort_keys=True) + "\n", encoding="utf-8")
+
+        with pytest.raises(AtlasError, match="retained-storage boundary"):
+            validate_pilot_security_artifacts(
+                pilot,
+                security_policy_path=policy,
+            )
 
 
 def test_current_annotation_packages_are_private_bounded_and_rollback_together(

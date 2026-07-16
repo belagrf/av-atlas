@@ -41,6 +41,16 @@ PROFILE_SHA256 = "7" * 64
 SANDBOX_DEPENDENCY_SHA256 = "8" * 64
 
 
+def _retained_storage_binding() -> dict[str, Any]:
+    return {
+        "decision": "reviewed-remanence-acceptance",
+        "root_identity_sha256": "c" * 64,
+        "filesystem_type": "ext4",
+        "byte_ceiling": 10_000_000,
+        "reserve_bytes": 1_000_000,
+    }
+
+
 def _digest(value: dict[str, Any], excluded: str) -> str:
     import hashlib
 
@@ -62,13 +72,7 @@ def _receipt(pilot_id: str, stage: str, binding_sha256: str | None) -> dict[str,
         "root_identity_sha256": ROOT_SHA256,
         "filesystem_type": "ext4",
         "resource_limits": {"wall_timeout_seconds": 30},
-        "retained_storage": {
-            "decision": "reviewed-remanence-acceptance",
-            "root_identity_sha256": "c" * 64,
-            "filesystem_type": "ext4",
-            "byte_ceiling": 10_000_000,
-            "reserve_bytes": 1_000_000,
-        },
+        "retained_storage": _retained_storage_binding(),
         "sandbox": {
             "profile_contract_version": "av-atlas-bubblewrap-pilot/1.1.0",
             "profile_sha256": PROFILE_SHA256,
@@ -330,9 +334,49 @@ def _arguments(paths: dict[str, Path], **overrides: Any) -> dict[str, Any]:
         "source_rights_aggregate_sha256": RIGHTS_SHA256,
         "ocr_configuration_sha256": CONFIG_SHA256,
         "ocr_configuration_size_bytes": CONFIG_SIZE,
+        "expected_retained_storage": _retained_storage_binding(),
     }
     values.update(overrides)
     return values
+
+
+def _builder_arguments(paths: dict[str, Path]) -> dict[str, Any]:
+    return {
+        key: item for key, item in _arguments(paths).items() if key != "expected_retained_storage"
+    }
+
+
+def _rebuild_with_false_retained_storage(
+    paths: dict[str, Path], field: str, value: object
+) -> dict[str, Any]:
+    false_binding = _retained_storage_binding()
+    false_binding[field] = value
+    prepared = json.loads(paths["prepared"].read_text(encoding="utf-8"))
+    prepared["retained_storage"] = false_binding
+    prepared["receipt_hash"] = _digest(prepared, "receipt_hash")
+    write_json(paths["prepared"], prepared)
+
+    frozen = json.loads(paths["frozen"].read_text(encoding="utf-8"))
+    frozen["pilot_security"]["receipt_sha256"] = sha256_file(paths["prepared"])
+    frozen["pilot_security"]["retained_storage"] = false_binding
+    frozen["manifest_hash"] = _digest(frozen, "manifest_hash")
+    write_json(paths["frozen"], frozen)
+
+    package = paths["package"]
+    (package / OUTPUT_MANIFEST_FILENAME).unlink()
+    (package / COMPLETION_RECEIPT_FILENAME).unlink()
+    build_arguments = _builder_arguments(paths)
+    binding = build_pilot_ocr_output_binding(package, **build_arguments)
+    completion = _receipt(
+        str(frozen["pilot_id"]),
+        "ocr-complete",
+        output_binding_sha256(binding),
+    )
+    completion["retained_storage"] = false_binding
+    completion["receipt_hash"] = _digest(completion, "receipt_hash")
+    write_json(package / COMPLETION_RECEIPT_FILENAME, completion)
+    write_pilot_ocr_output_manifest(package, **build_arguments)
+    return false_binding
 
 
 def test_valid_authenticated_pilot_ocr_output_round_trip(
@@ -350,6 +394,39 @@ def test_valid_authenticated_pilot_ocr_output_round_trip(
         "ocr_evidence_entries": 1,
     }
     assert output.completion_receipt["stage"] == "ocr-complete"
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    (
+        ("root_identity_sha256", "d" * 64),
+        ("filesystem_type", "xfs"),
+        ("byte_ceiling", 9_999_999),
+        ("reserve_bytes", 999_999),
+        ("decision", "reviewed-encrypted-volume"),
+    ),
+)
+def test_output_validation_rejects_self_consistent_false_retained_storage_semantics(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    field: str,
+    value: object,
+) -> None:
+    paths = _make_package(tmp_path / field, monkeypatch)
+    false_binding = _rebuild_with_false_retained_storage(paths, field, value)
+
+    # The altered receipt, frozen manifest, completion receipt, and output manifest
+    # are all internally checksum-consistent; only the trusted current boundary
+    # distinguishes the false claim.
+    assert (
+        validate_pilot_ocr_output_package(
+            paths["package"],
+            **_arguments(paths, expected_retained_storage=false_binding),
+        ).manifest["state"]
+        == "complete"
+    )
+    with pytest.raises(AtlasError, match="current retained-storage boundary"):
+        validate_pilot_ocr_output_package(paths["package"], **_arguments(paths))
 
 
 def test_authenticated_output_accepts_an_already_held_frozen_manifest_descriptor(
@@ -484,9 +561,9 @@ def test_missing_manifest_and_replacement_attempt_are_rejected(
     with pytest.raises(AtlasError, match="manifest is missing"):
         validate_pilot_ocr_output_package(paths["package"], **_arguments(paths))
 
-    write_pilot_ocr_output_manifest(paths["package"], **_arguments(paths))
+    write_pilot_ocr_output_manifest(paths["package"], **_builder_arguments(paths))
     with pytest.raises(AtlasError, match="refusing to replace"):
-        write_pilot_ocr_output_manifest(paths["package"], **_arguments(paths))
+        write_pilot_ocr_output_manifest(paths["package"], **_builder_arguments(paths))
 
 
 def test_semantic_hash_is_independent_of_jsonl_formatting() -> None:
@@ -631,6 +708,11 @@ def _install_evaluation_boundaries(
         ocr_pilot,
         "_validate_pilot_security_linkage",
         lambda *_args, **_kwargs: ({}, RIGHTS_SHA256),
+    )
+    monkeypatch.setattr(
+        ocr_pilot,
+        "verified_retained_storage_binding",
+        lambda *_args, **_kwargs: _retained_storage_binding(),
     )
 
 

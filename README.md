@@ -6,8 +6,8 @@ open source.
 
 AV-Atlas is an evidence-first research implementation for comprehensive audiovisual
 transcription. This repository implements M0/M1, M2A, the bounded M2B frame-OCR increment, the
-reviewed M2B.2 stable-input increment, and the M2B.3 pilot-security implementation now under source
-review. The original M1 path
+reviewed M2B.2 stable-input increment, and the reviewed M2B.3 private-storage and sandboxed
+pilot-security boundary. The original M1 path
 remains available:
 deterministic synthetic media is inventoried, chunked, sampled, combined with production-shaped
 sidecar perception adapters, and written as a validated evidence ledger plus derived transcript and
@@ -355,9 +355,9 @@ writable outside positive control remained unchanged. The UTS hostname was repla
 non-host value, and the private sandbox-local `/tmp` remained writable as designed. Transient
 workspace cleanup, retained-output bounds, and path-redaction checks passed. These are
 host-security engineering measurements, not real-media OCR accuracy or proof that native parsers
-contain no vulnerabilities. Final M2B.3
-acceptance remains pending source review of issue
-[#17](https://github.com/belagrf/av-atlas/issues/17); the issue and PR remain open and unmerged.
+contain no vulnerabilities. M2B.3 implements the reviewed private-storage and sandboxed
+pilot-security boundary for project-authored synthetic input; final merge and issue identities are
+verified externally.
 
 Temporal OCR tracks are validated relationally against immutable raw observations; malformed
 parallel arrays become actionable quality-report errors rather than validator tracebacks.

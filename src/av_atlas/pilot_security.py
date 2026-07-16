@@ -20,7 +20,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Protocol
 
 if TYPE_CHECKING:
     from av_atlas.native_process import NativeResourceLimits
@@ -814,6 +814,31 @@ class VerifiedRetainedRoot:
         return aggregate
 
 
+def verified_retained_storage_binding(
+    policy: dict[str, Any], root: VerifiedRetainedRoot
+) -> dict[str, Any]:
+    """Return the current policy/root semantics that a retained receipt must bind."""
+    require_current_pilot_security_policy(policy)
+    ensure_pilot_security_policy_current(policy)
+    root.verify()
+    expected_filesystem = policy["retained_storage"]["expected_filesystem_type"]
+    expected_ceiling = int(policy["capacity"]["retained_byte_ceiling"])
+    expected_reserve = int(policy["capacity"]["retained_reserve_bytes"])
+    if (
+        root.filesystem_type != expected_filesystem
+        or root.byte_ceiling != expected_ceiling
+        or root.reserve_bytes != expected_reserve
+    ):
+        raise AtlasError("verified retained root differs from its current policy semantics")
+    return {
+        "decision": policy["retained_storage"]["decision"],
+        "root_identity_sha256": root.identity_sha256,
+        "filesystem_type": root.filesystem_type,
+        "byte_ceiling": root.byte_ceiling,
+        "reserve_bytes": root.reserve_bytes,
+    }
+
+
 @dataclass
 class _RetainedTreeBudget:
     entries: int
@@ -878,6 +903,33 @@ class _RemovalBudget:
     maximum_bytes: int
 
 
+class RetainedWriteDestination(Protocol):
+    """A descriptor-pinned retained directory accepted by the write transaction."""
+
+    @property
+    def descriptor(self) -> int:
+        """Return the pinned destination directory descriptor."""
+
+    def verify(self) -> None:
+        """Verify the destination and its complete pinned ancestor chain."""
+
+
+@contextmanager
+def _retained_root_transaction(
+    root: VerifiedRetainedRoot, *, verify_identity: bool = True
+) -> Iterator[None]:
+    """Serialize one cooperating retained-root mutation under the sole root lock."""
+    if fcntl is None:
+        raise AtlasError("retained aggregate locking is unavailable on this platform")
+    fcntl.flock(root.descriptor, fcntl.LOCK_EX)
+    try:
+        if verify_identity:
+            root.verify()
+        yield
+    finally:
+        fcntl.flock(root.descriptor, fcntl.LOCK_UN)
+
+
 def _write_all(descriptor: int, value: bytes) -> None:
     offset = 0
     while offset < len(value):
@@ -885,6 +937,16 @@ def _write_all(descriptor: int, value: bytes) -> None:
         if written <= 0:
             raise AtlasError("pilot private work marker write made no progress")
         offset += written
+
+
+def _sha256_descriptor(descriptor: int) -> str:
+    """Hash a regular file descriptor without changing its shared offset."""
+    digest = hashlib.sha256()
+    offset = 0
+    while block := os.pread(descriptor, 1024 * 1024, offset):
+        digest.update(block)
+        offset += len(block)
+    return digest.hexdigest()
 
 
 def _try_lock(descriptor: int) -> bool:
@@ -1165,12 +1227,10 @@ class RetainedOutputLease:
         ):
             raise AtlasError("pilot retained output identity, owner, or permissions changed")
 
-    def ensure_additional_capacity(self, byte_count: int) -> None:
-        """Fail before a bounded retained write could exceed the policy aggregate."""
+    def _ensure_additional_capacity_locked(self, byte_count: int, aggregate: int) -> None:
+        """Check one write while the caller holds the sole retained-root lock."""
         if not isinstance(byte_count, int) or isinstance(byte_count, bool) or byte_count < 0:
             raise AtlasError("retained write size must be a nonnegative integer")
-        self.verify()
-        aggregate = self.root.measure_aggregate_bytes()
         if byte_count > self.root.byte_ceiling - aggregate:
             raise ResourceLimitError("pilot retained write would exceed its aggregate byte ceiling")
         capacity = os.fstatvfs(self.root.descriptor)
@@ -1179,67 +1239,273 @@ class RetainedOutputLease:
             raise ResourceLimitError("pilot retained write lacks policy-required free capacity")
 
     def write_bounded_bytes(self, name: str, value: bytes) -> None:
-        """Create one private file after an exact aggregate-size preflight.
+        """Create one direct private file in a complete retained-root transaction."""
+        self.write_bounded_bytes_to(self, name, value)
 
-        The policy-bound retained root is private, but the advisory root lock also
-        serializes cooperating AV-Atlas writers so the preflight and write form one
-        bounded operation. Uncooperative host mutation is detected by the identity
-        and aggregate checks and fails closed.
-        """
+    def write_bounded_bytes_to(
+        self,
+        destination: RetainedWriteDestination,
+        name: str,
+        value: bytes,
+    ) -> None:
+        """Create one direct or nested file while capacity and placement stay locked."""
         if not isinstance(name, str) or not RETAINED_OUTPUT_PATTERN.fullmatch(name):
             raise AtlasError("retained artifact name is invalid")
         if not isinstance(value, bytes):
             raise AtlasError("retained artifact payload must be bytes")
-        if fcntl is None:
-            raise AtlasError("retained aggregate locking is unavailable on this platform")
         descriptor: int | None = None
         identity: tuple[int, int] | None = None
         created = False
-        fcntl.flock(self.root.descriptor, fcntl.LOCK_EX)
-        try:
-            self.ensure_additional_capacity(len(value))
-            flags = (
-                os.O_WRONLY
-                | os.O_CREAT
-                | os.O_EXCL
-                | getattr(os, "O_CLOEXEC", 0)
-                | getattr(os, "O_NOFOLLOW", 0)
-            )
-            descriptor = os.open(name, flags, 0o600, dir_fd=self.descriptor)
-            created = True
-            os.fchmod(descriptor, 0o600)
-            opened = os.fstat(descriptor)
-            identity = (opened.st_dev, opened.st_ino)
-            _write_all(descriptor, value)
-            os.fsync(descriptor)
-            written = os.fstat(descriptor)
-            if (
-                not stat.S_ISREG(written.st_mode)
-                or stat.S_IMODE(written.st_mode) != 0o600
-                or written.st_nlink != 1
-                or written.st_size != len(value)
-            ):
-                raise AtlasError("retained artifact changed during its bounded write")
+        with _retained_root_transaction(self.root):
             self.verify()
+            destination.verify()
+            aggregate_before = self.root.measure_aggregate_bytes()
+            self._ensure_additional_capacity_locked(len(value), aggregate_before)
+            try:
+                flags = (
+                    os.O_RDWR
+                    | os.O_CREAT
+                    | os.O_EXCL
+                    | getattr(os, "O_CLOEXEC", 0)
+                    | getattr(os, "O_NOFOLLOW", 0)
+                )
+                descriptor = os.open(name, flags, 0o600, dir_fd=destination.descriptor)
+                created = True
+                opened = os.fstat(descriptor)
+                identity = (opened.st_dev, opened.st_ino)
+                visible_created = os.stat(
+                    name, dir_fd=destination.descriptor, follow_symlinks=False
+                )
+                if (visible_created.st_dev, visible_created.st_ino) != identity:
+                    raise AtlasError("retained artifact changed while opening")
+                os.fchmod(descriptor, 0o600)
+                _write_all(descriptor, value)
+                os.fsync(descriptor)
+                written = os.fstat(descriptor)
+                visible = os.stat(name, dir_fd=destination.descriptor, follow_symlinks=False)
+                if (
+                    (visible.st_dev, visible.st_ino) != identity
+                    or not stat.S_ISREG(written.st_mode)
+                    or stat.S_IMODE(written.st_mode) != 0o600
+                    or written.st_nlink != 1
+                    or written.st_size != len(value)
+                    or hashlib.sha256(value).hexdigest() != _sha256_descriptor(descriptor)
+                ):
+                    raise AtlasError("retained artifact changed during its bounded write")
+                destination.verify()
+                self.verify()
+                aggregate_after = self.root.measure_aggregate_bytes()
+                if aggregate_after != aggregate_before + len(value):
+                    raise AtlasError("retained aggregate changed during its bounded write")
+                os.fsync(destination.descriptor)
+                os.fsync(self.descriptor)
+                os.fsync(self.root.descriptor)
+            except BaseException:
+                if created:
+                    if identity is None:
+                        self._rollback_preidentity_created_file_locked(destination, name)
+                    else:
+                        self._rollback_created_file_locked(destination, name, identity)
+                if descriptor is not None:
+                    os.close(descriptor)
+                    descriptor = None
+                raise
+            finally:
+                if descriptor is not None:
+                    os.close(descriptor)
+
+    def copy_bounded_file_to(
+        self,
+        destination: RetainedWriteDestination,
+        name: str,
+        source: Path,
+        *,
+        expected_sha256: str,
+        expected_size: int,
+    ) -> int:
+        """Copy one immutable file into retained storage under the root transaction."""
+        if not isinstance(name, str) or not RETAINED_OUTPUT_PATTERN.fullmatch(name):
+            raise AtlasError("retained artifact name is invalid")
+        if (
+            not isinstance(expected_size, int)
+            or isinstance(expected_size, bool)
+            or expected_size < 0
+        ):
+            raise AtlasError("retained copy size must be a nonnegative integer")
+        if not re.fullmatch(r"[0-9a-f]{64}", expected_sha256):
+            raise AtlasError("retained copy SHA-256 is invalid")
+        source_descriptor: int | None = None
+        destination_descriptor: int | None = None
+        destination_identity: tuple[int, int] | None = None
+        created = False
+        source_flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+        with _retained_root_transaction(self.root):
+            self.verify()
+            destination.verify()
+            aggregate_before = self.root.measure_aggregate_bytes()
+            self._ensure_additional_capacity_locked(expected_size, aggregate_before)
+            try:
+                source_before = os.lstat(source)
+                if not stat.S_ISREG(source_before.st_mode):
+                    raise AtlasError("pilot derivative source must be a regular non-symlink file")
+                source_descriptor = os.open(source, source_flags)
+                source_opened = os.fstat(source_descriptor)
+                if (source_opened.st_dev, source_opened.st_ino) != (
+                    source_before.st_dev,
+                    source_before.st_ino,
+                ) or source_opened.st_size != expected_size:
+                    raise AtlasError("pilot derivative source differs from its frozen identity")
+                destination_descriptor = os.open(
+                    name,
+                    os.O_RDWR
+                    | os.O_CREAT
+                    | os.O_EXCL
+                    | getattr(os, "O_CLOEXEC", 0)
+                    | getattr(os, "O_NOFOLLOW", 0),
+                    0o600,
+                    dir_fd=destination.descriptor,
+                )
+                created = True
+                destination_opened = os.fstat(destination_descriptor)
+                destination_identity = (
+                    destination_opened.st_dev,
+                    destination_opened.st_ino,
+                )
+                visible_created = os.stat(
+                    name, dir_fd=destination.descriptor, follow_symlinks=False
+                )
+                if (
+                    visible_created.st_dev,
+                    visible_created.st_ino,
+                ) != destination_identity:
+                    raise AtlasError("pilot derivative destination changed while opening")
+                os.fchmod(destination_descriptor, 0o600)
+                digest = hashlib.sha256()
+                total = 0
+                while block := os.read(source_descriptor, 1024 * 1024):
+                    total += len(block)
+                    if total > expected_size:
+                        raise ResourceLimitError(
+                            "pilot derivative source exceeded its bounded size"
+                        )
+                    digest.update(block)
+                    _write_all(destination_descriptor, block)
+                os.fsync(destination_descriptor)
+                source_after = os.fstat(source_descriptor)
+                source_current = os.lstat(source)
+                source_identities = {
+                    (
+                        value.st_dev,
+                        value.st_ino,
+                        value.st_mode,
+                        value.st_uid,
+                        value.st_size,
+                        value.st_mtime_ns,
+                        value.st_ctime_ns,
+                    )
+                    for value in (source_before, source_opened, source_after, source_current)
+                }
+                completed = os.fstat(destination_descriptor)
+                visible = os.stat(name, dir_fd=destination.descriptor, follow_symlinks=False)
+                if (
+                    len(source_identities) != 1
+                    or total != expected_size
+                    or digest.hexdigest() != expected_sha256
+                    or (completed.st_dev, completed.st_ino) != destination_identity
+                    or (visible.st_dev, visible.st_ino) != destination_identity
+                    or not stat.S_ISREG(completed.st_mode)
+                    or stat.S_IMODE(completed.st_mode) != 0o600
+                    or completed.st_nlink != 1
+                    or completed.st_size != expected_size
+                    or _sha256_descriptor(destination_descriptor) != expected_sha256
+                ):
+                    raise AtlasError("pilot derivative changed during its retained transaction")
+                destination.verify()
+                self.verify()
+                aggregate_after = self.root.measure_aggregate_bytes()
+                if aggregate_after != aggregate_before + expected_size:
+                    raise AtlasError("retained aggregate changed during its bounded copy")
+                os.fsync(destination.descriptor)
+                os.fsync(self.descriptor)
+                os.fsync(self.root.descriptor)
+                return total
+            except OSError as exc:
+                if created:
+                    if destination_identity is None:
+                        self._rollback_preidentity_created_file_locked(destination, name)
+                    else:
+                        self._rollback_created_file_locked(destination, name, destination_identity)
+                if destination_descriptor is not None:
+                    os.close(destination_descriptor)
+                    destination_descriptor = None
+                if source_descriptor is not None:
+                    os.close(source_descriptor)
+                    source_descriptor = None
+                raise AtlasError("pilot derivative could not be copied safely") from exc
+            except BaseException:
+                if created:
+                    if destination_identity is None:
+                        self._rollback_preidentity_created_file_locked(destination, name)
+                    else:
+                        self._rollback_created_file_locked(destination, name, destination_identity)
+                if destination_descriptor is not None:
+                    os.close(destination_descriptor)
+                    destination_descriptor = None
+                if source_descriptor is not None:
+                    os.close(source_descriptor)
+                    source_descriptor = None
+                raise
+            finally:
+                if destination_descriptor is not None:
+                    os.close(destination_descriptor)
+                if source_descriptor is not None:
+                    os.close(source_descriptor)
+
+    def _rollback_created_file_locked(
+        self,
+        destination: RetainedWriteDestination,
+        name: str,
+        identity: tuple[int, int],
+    ) -> None:
+        """Remove only the inode created by the current still-locked transaction."""
+        try:
+            current = os.stat(name, dir_fd=destination.descriptor, follow_symlinks=False)
+            if (current.st_dev, current.st_ino) != identity:
+                raise AtlasError("retained transaction rollback found a replaced inode")
+            os.unlink(name, dir_fd=destination.descriptor)
+            os.fsync(destination.descriptor)
             self.root.measure_aggregate_bytes()
-            os.fsync(self.descriptor)
-        except BaseException:
-            if descriptor is not None:
-                os.close(descriptor)
-                descriptor = None
-            if created and identity is not None:
-                try:
-                    visible = os.stat(name, dir_fd=self.descriptor, follow_symlinks=False)
-                    if (visible.st_dev, visible.st_ino) == identity:
-                        os.unlink(name, dir_fd=self.descriptor)
-                        os.fsync(self.descriptor)
-                except OSError:
-                    pass
-            raise
-        finally:
-            if descriptor is not None:
-                os.close(descriptor)
-            fcntl.flock(self.root.descriptor, fcntl.LOCK_UN)
+        except OSError as exc:
+            raise AtlasError("retained transaction rollback failed") from exc
+
+    def _rollback_preidentity_created_file_locked(
+        self,
+        destination: RetainedWriteDestination,
+        name: str,
+    ) -> None:
+        """Remove the private empty file created after O_EXCL but before fstat."""
+        try:
+            current = os.stat(name, dir_fd=destination.descriptor, follow_symlinks=False)
+            if (
+                not stat.S_ISREG(current.st_mode)
+                or current.st_uid != os.geteuid()
+                or stat.S_IMODE(current.st_mode) & 0o077
+                or current.st_nlink != 1
+                or current.st_size != 0
+            ):
+                raise AtlasError("retained pre-identity rollback found an unsafe replacement")
+            os.unlink(name, dir_fd=destination.descriptor)
+            os.fsync(destination.descriptor)
+            self.root.measure_aggregate_bytes()
+        except OSError as exc:
+            raise AtlasError("retained pre-identity transaction rollback failed") from exc
+
+    @contextmanager
+    def serialized_mutation(self) -> Iterator[None]:
+        """Hold the sole retained-root lock for a caller-verified directory mutation."""
+        with _retained_root_transaction(self.root):
+            self.verify()
+            yield
 
 
 def _remove_retained_contents(descriptor: int, budget: _RemovalBudget, depth: int = 0) -> None:
@@ -1333,51 +1599,115 @@ def retained_output_directory(
     ensure_pilot_security_policy_current(policy)
     root.verify()
     _validate_retained_output_path(root, output)
-    try:
-        os.stat(output.name, dir_fd=root.descriptor, follow_symlinks=False)
-    except FileNotFoundError:
-        pass
-    except OSError as exc:
-        raise AtlasError("pilot retained output could not be checked safely") from exc
-    else:
-        raise AtlasError("pilot retained output must not already exist")
     descriptor: int | None = None
     lease: RetainedOutputLease | None = None
+    directory_created = False
+    created_identity: tuple[int, int] | None = None
+    placement_committed = False
     committed = False
     try:
-        os.mkdir(output.name, 0o700, dir_fd=root.descriptor)
-        os.fsync(root.descriptor)
-        descriptor = os.open(
-            output.name,
-            os.O_RDONLY
-            | getattr(os, "O_DIRECTORY", 0)
-            | getattr(os, "O_CLOEXEC", 0)
-            | getattr(os, "O_NOFOLLOW", 0),
-            dir_fd=root.descriptor,
-        )
-        os.fchmod(descriptor, 0o700)
-        opened = os.fstat(descriptor)
-        lease = RetainedOutputLease(
-            path=output,
-            descriptor=descriptor,
-            root=root,
-            name=output.name,
-            device=opened.st_dev,
-            inode=opened.st_ino,
-        )
-        lease.verify()
+        with _retained_root_transaction(root):
+            try:
+                aggregate_before = root.measure_aggregate_bytes()
+                try:
+                    os.stat(output.name, dir_fd=root.descriptor, follow_symlinks=False)
+                except FileNotFoundError:
+                    pass
+                except OSError as exc:
+                    raise AtlasError("pilot retained output could not be checked safely") from exc
+                else:
+                    raise AtlasError("pilot retained output must not already exist")
+                os.mkdir(output.name, 0o700, dir_fd=root.descriptor)
+                directory_created = True
+                created = os.stat(output.name, dir_fd=root.descriptor, follow_symlinks=False)
+                created_identity = (created.st_dev, created.st_ino)
+                os.fsync(root.descriptor)
+                descriptor = os.open(
+                    output.name,
+                    os.O_RDONLY
+                    | getattr(os, "O_DIRECTORY", 0)
+                    | getattr(os, "O_CLOEXEC", 0)
+                    | getattr(os, "O_NOFOLLOW", 0),
+                    dir_fd=root.descriptor,
+                )
+                opened = os.fstat(descriptor)
+                if (opened.st_dev, opened.st_ino) != created_identity:
+                    raise AtlasError("pilot retained output changed while opening")
+                lease = RetainedOutputLease(
+                    path=output,
+                    descriptor=descriptor,
+                    root=root,
+                    name=output.name,
+                    device=opened.st_dev,
+                    inode=opened.st_ino,
+                )
+                os.fchmod(descriptor, 0o700)
+                lease.verify()
+                if root.measure_aggregate_bytes() != aggregate_before:
+                    raise AtlasError("retained bytes appeared during output placement")
+                os.fsync(descriptor)
+                os.fsync(root.descriptor)
+                placement_committed = True
+            except BaseException as placement_error:
+                rollback_succeeded = True
+                if lease is not None:
+                    rollback_succeeded = _cleanup_retained_output(
+                        lease, int(policy["capacity"]["retained_byte_ceiling"])
+                    )
+                elif directory_created:
+                    try:
+                        current = os.stat(
+                            output.name,
+                            dir_fd=root.descriptor,
+                            follow_symlinks=False,
+                        )
+                        current_identity = (current.st_dev, current.st_ino)
+                        if created_identity is not None and current_identity != created_identity:
+                            rollback_succeeded = False
+                        else:
+                            os.rmdir(output.name, dir_fd=root.descriptor)
+                            os.fsync(root.descriptor)
+                    except OSError:
+                        rollback_succeeded = False
+                lease = None
+                created_identity = None
+                if not rollback_succeeded:
+                    raise AtlasError(
+                        "pilot retained-output placement rollback failed"
+                    ) from placement_error
+                raise
+        if lease is None:
+            raise AtlasError("pilot retained-output placement did not produce a lease")
         yield lease
-        lease.verify()
-        root.verify()
-        os.fsync(descriptor)
-        os.fsync(root.descriptor)
+        with _retained_root_transaction(root):
+            lease.verify()
+            os.fsync(descriptor)
         committed = True
     finally:
         cleaned = True
-        if not committed and lease is not None:
-            cleaned = _cleanup_retained_output(
-                lease, int(policy["capacity"]["retained_byte_ceiling"])
-            )
+        if placement_committed and not committed and lease is not None:
+            try:
+                with _retained_root_transaction(root, verify_identity=False):
+                    cleaned = _cleanup_retained_output(
+                        lease, int(policy["capacity"]["retained_byte_ceiling"])
+                    )
+            except (AtlasError, OSError, ResourceLimitError):
+                cleaned = False
+        elif placement_committed and not committed and created_identity is not None:
+            try:
+                with _retained_root_transaction(root, verify_identity=False):
+                    current = os.stat(
+                        output.name,
+                        dir_fd=root.descriptor,
+                        follow_symlinks=False,
+                    )
+                    if (current.st_dev, current.st_ino) != created_identity:
+                        cleaned = False
+                    else:
+                        os.rmdir(output.name, dir_fd=root.descriptor)
+                        os.fsync(root.descriptor)
+            except OSError:
+                cleaned = False
         if descriptor is not None:
             os.close(descriptor)
         if not committed and not cleaned and sys.exc_info()[0] is None:
@@ -1393,32 +1723,33 @@ def open_retained_output_directory(
     ensure_pilot_security_policy_current(policy)
     root.verify()
     _validate_retained_output_path(root, output)
-    try:
-        descriptor = os.open(
-            output.name,
-            os.O_RDONLY
-            | getattr(os, "O_DIRECTORY", 0)
-            | getattr(os, "O_CLOEXEC", 0)
-            | getattr(os, "O_NOFOLLOW", 0),
-            dir_fd=root.descriptor,
+    with _retained_root_transaction(root):
+        try:
+            descriptor = os.open(
+                output.name,
+                os.O_RDONLY
+                | getattr(os, "O_DIRECTORY", 0)
+                | getattr(os, "O_CLOEXEC", 0)
+                | getattr(os, "O_NOFOLLOW", 0),
+                dir_fd=root.descriptor,
+            )
+        except OSError as exc:
+            raise AtlasError("pilot retained package could not be opened safely") from exc
+        opened = os.fstat(descriptor)
+        lease = RetainedOutputLease(
+            path=output,
+            descriptor=descriptor,
+            root=root,
+            name=output.name,
+            device=opened.st_dev,
+            inode=opened.st_ino,
         )
-    except OSError as exc:
-        raise AtlasError("pilot retained package could not be opened safely") from exc
-    opened = os.fstat(descriptor)
-    lease = RetainedOutputLease(
-        path=output,
-        descriptor=descriptor,
-        root=root,
-        name=output.name,
-        device=opened.st_dev,
-        inode=opened.st_ino,
-    )
+        lease.verify()
     try:
-        lease.verify()
         yield lease
-        lease.verify()
-        os.fsync(descriptor)
-        os.fsync(root.descriptor)
+        with _retained_root_transaction(root):
+            lease.verify()
+            os.fsync(descriptor)
     finally:
         os.close(descriptor)
 

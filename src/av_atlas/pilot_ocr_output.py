@@ -44,6 +44,13 @@ _PACKAGE_FILES = frozenset(
 )
 _MAX_JSON_BYTES = 16 * 1024 * 1024
 _MAX_OBSERVATION_BYTES = 256 * 1024 * 1024
+_RETAINED_STORAGE_BINDING_FIELDS = (
+    "decision",
+    "root_identity_sha256",
+    "filesystem_type",
+    "byte_ceiling",
+    "reserve_bytes",
+)
 
 
 @dataclass(frozen=True)
@@ -315,6 +322,7 @@ def _load_binding_inputs(
     ocr_configuration_sha256: str,
     ocr_configuration_size_bytes: int,
     expected_files: frozenset[str],
+    expected_retained_storage: dict[str, Any] | None = None,
 ) -> _BindingInputs:
     _validate_package_directory(package_dir, expected=expected_files)
 
@@ -367,6 +375,16 @@ def _load_binding_inputs(
     retained_storage = prepared.get("retained_storage")
     if not isinstance(retained_storage, dict):
         raise AtlasError("prepared security receipt lacks retained-storage identity")
+    if expected_retained_storage is not None:
+        if set(expected_retained_storage) != set(_RETAINED_STORAGE_BINDING_FIELDS):
+            raise AtlasError("expected retained-storage binding has an invalid field set")
+        if any(
+            retained_storage.get(field) != expected_retained_storage[field]
+            for field in _RETAINED_STORAGE_BINDING_FIELDS
+        ):
+            raise AtlasError(
+                "prepared security receipt differs from the current retained-storage boundary"
+            )
 
     dependency_file = _bound_read(
         package_dir / DEPENDENCY_FILENAME,
@@ -768,6 +786,7 @@ def validate_pilot_ocr_output_package(
     source_rights_aggregate_sha256: str,
     ocr_configuration_sha256: str,
     ocr_configuration_size_bytes: int,
+    expected_retained_storage: dict[str, Any],
 ) -> AuthenticatedPilotOcrOutput:
     """Recompute and verify every package relationship before evaluation."""
     manifest_file = _bound_read(
@@ -788,6 +807,7 @@ def validate_pilot_ocr_output_package(
         ocr_configuration_sha256=ocr_configuration_sha256,
         ocr_configuration_size_bytes=ocr_configuration_size_bytes,
         expected_files=_PACKAGE_FILES,
+        expected_retained_storage=expected_retained_storage,
     )
     expected = _manifest_from_inputs(
         package_dir,

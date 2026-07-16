@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import hashlib
 import json
+import multiprocessing
 import os
 import stat
 from copy import deepcopy
@@ -80,7 +82,11 @@ def _inventory() -> dict[str, Any]:
     }
 
 
-def _create(tmp_path: Path) -> tuple[Path, Path, dict[str, Any]]:
+def _create(
+    tmp_path: Path,
+    *,
+    max_retained_bytes: int = 2_000_000,
+) -> tuple[Path, Path, dict[str, Any]]:
     tmp_path.mkdir(parents=True, exist_ok=True)
     root = tmp_path / "pilot-private"
     root.mkdir(mode=0o700)
@@ -109,7 +115,7 @@ def _create(tmp_path: Path) -> tuple[Path, Path, dict[str, Any]]:
         deletion_plan="logical unlink, fsync, and marker-aware recovery",
         max_source_bytes=1_000_000,
         max_temporary_bytes=2_000_000,
-        max_retained_bytes=2_000_000,
+        max_retained_bytes=max_retained_bytes,
         reserve_bytes=1_000_000,
         retained_reserve_bytes=1_000_000,
     )
@@ -124,6 +130,64 @@ def _capability() -> dict[str, bool]:
         "outside_write_denied": True,
         "mutable_runtime_subtree_denied": True,
     }
+
+
+def _concurrent_nested_retained_writer(
+    policy: dict[str, Any],
+    output_name: str,
+    nested_name: str,
+    source_path: str,
+    payload: bytes,
+    copy_source: bool,
+    barrier: Any,
+    results: Any,
+) -> None:
+    """Exercise one independently opened retained-root descriptor in a child process."""
+    from av_atlas.ocr_pilot import _PinnedPrivateDirectory, _retained_directory_identity
+
+    retained_path = Path(policy["retained_root"]["path"])
+    nested_descriptor: int | None = None
+    try:
+        with (
+            open_verified_retained_root(policy) as root,
+            open_retained_output_directory(policy, root, retained_path / output_name) as output,
+        ):
+            nested_descriptor = os.open(
+                nested_name,
+                os.O_RDONLY
+                | getattr(os, "O_DIRECTORY", 0)
+                | getattr(os, "O_CLOEXEC", 0)
+                | getattr(os, "O_NOFOLLOW", 0),
+                dir_fd=output.descriptor,
+            )
+            nested = _PinnedPrivateDirectory(
+                output,
+                nested_name,
+                nested_descriptor,
+                _retained_directory_identity(os.fstat(nested_descriptor)),
+            )
+            nested.verify()
+            barrier.wait(timeout=10)
+            try:
+                if copy_source:
+                    output.copy_bounded_file_to(
+                        nested,
+                        "frame.bin",
+                        Path(source_path),
+                        expected_sha256=hashlib.sha256(payload).hexdigest(),
+                        expected_size=len(payload),
+                    )
+                else:
+                    output.write_bounded_bytes_to(nested, "annotation.json", payload)
+                state = "committed"
+            except ResourceLimitError:
+                state = "capacity_denied"
+            results.put((state, root.measure_aggregate_bytes()))
+    except BaseException as exc:  # pragma: no cover - asserted through child result
+        results.put(("unexpected_error", repr(exc)))
+    finally:
+        if nested_descriptor is not None:
+            os.close(nested_descriptor)
 
 
 def test_private_policy_binds_spec_root_and_sanitized_receipt(tmp_path: Path) -> None:
@@ -239,17 +303,7 @@ def test_retained_output_is_descriptor_created_private_bounded_and_persistent(
     output = retained_path / "pilot-package"
     with open_verified_retained_root(policy) as root:
         with retained_output_directory(policy, root, output) as lease:
-            descriptor = os.open(
-                "artifact.json",
-                os.O_WRONLY | os.O_CREAT | os.O_EXCL,
-                0o600,
-                dir_fd=lease.descriptor,
-            )
-            try:
-                os.write(descriptor, b"{}\n")
-                os.fsync(descriptor)
-            finally:
-                os.close(descriptor)
+            lease.write_bounded_bytes("artifact.json", b"{}\n")
             assert lease.descriptor_path.is_dir()
         assert root.measure_aggregate_bytes() == 3
     assert output.is_dir()
@@ -373,6 +427,255 @@ def test_retained_bounded_write_rejects_before_creating_over_limit_payload(
         assert list(output.iterdir()) == []
         lease.write_bounded_bytes("within-limit.bin", b"x")
         assert (output / "within-limit.bin").read_bytes() == b"x"
+
+
+def test_retained_transaction_rolls_back_every_post_create_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from av_atlas import pilot_security
+
+    _, _, policy = _create(tmp_path)
+    retained_path = Path(policy["retained_root"]["path"])
+    output = retained_path / "post-create-rollback"
+    source = tmp_path / "source.bin"
+    source.write_bytes(b"bounded-copy-source")
+    original_fchmod = pilot_security.os.fchmod
+
+    with (
+        open_verified_retained_root(policy) as root,
+        retained_output_directory(policy, root, output) as lease,
+    ):
+        monkeypatch.setattr(
+            pilot_security.os,
+            "fchmod",
+            lambda _descriptor, _mode: (_ for _ in ()).throw(
+                OSError("injected post-create failure")
+            ),
+        )
+        with pytest.raises(OSError, match="injected post-create failure"):
+            lease.write_bounded_bytes("partial.bin", b"payload")
+        assert not (output / "partial.bin").exists()
+
+        with pytest.raises(AtlasError, match="could not be copied safely"):
+            lease.copy_bounded_file_to(
+                lease,
+                "partial-copy.bin",
+                source,
+                expected_sha256=hashlib.sha256(source.read_bytes()).hexdigest(),
+                expected_size=source.stat().st_size,
+            )
+        assert not (output / "partial-copy.bin").exists()
+        monkeypatch.setattr(pilot_security.os, "fchmod", original_fchmod)
+        assert root.measure_aggregate_bytes() == 0
+
+
+def test_retained_transaction_rolls_back_when_visible_name_stat_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from av_atlas import pilot_security
+
+    _, _, policy = _create(tmp_path)
+    retained_path = Path(policy["retained_root"]["path"])
+    output = retained_path / "post-open-stat-rollback"
+    source = tmp_path / "source.bin"
+    source.write_bytes(b"bounded-copy-source")
+    original_stat = pilot_security.os.stat
+    pending_failures = {
+        "post-open-stat-bytes.bin",
+        "post-open-stat-copy.bin",
+    }
+
+    def fail_first_visible_name_stat(
+        path: object, *args: object, **kwargs: object
+    ) -> os.stat_result:
+        if path in pending_failures and kwargs.get("dir_fd") is not None:
+            pending_failures.remove(path)
+            raise OSError("injected post-open visible-name failure")
+        return original_stat(path, *args, **kwargs)  # type: ignore[arg-type]
+
+    with (
+        open_verified_retained_root(policy) as root,
+        retained_output_directory(policy, root, output) as lease,
+    ):
+        monkeypatch.setattr(pilot_security.os, "stat", fail_first_visible_name_stat)
+        with pytest.raises(OSError, match="injected post-open visible-name failure"):
+            lease.write_bounded_bytes("post-open-stat-bytes.bin", b"payload")
+        assert not (output / "post-open-stat-bytes.bin").exists()
+
+        with pytest.raises(AtlasError, match="could not be copied safely"):
+            lease.copy_bounded_file_to(
+                lease,
+                "post-open-stat-copy.bin",
+                source,
+                expected_sha256=hashlib.sha256(source.read_bytes()).hexdigest(),
+                expected_size=source.stat().st_size,
+            )
+        assert not (output / "post-open-stat-copy.bin").exists()
+        assert not pending_failures
+        assert root.measure_aggregate_bytes() == 0
+
+
+def test_retained_transaction_rolls_back_when_immediate_fstat_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from av_atlas import pilot_security
+
+    _, _, policy = _create(tmp_path)
+    retained_path = Path(policy["retained_root"]["path"])
+    output = retained_path / "immediate-fstat-rollback"
+    source = tmp_path / "source.bin"
+    source.write_bytes(b"bounded-copy-source")
+    original_open = pilot_security.os.open
+    original_fstat = pilot_security.os.fstat
+    target_names = {
+        "immediate-fstat-bytes.bin",
+        "immediate-fstat-copy.bin",
+    }
+    pending_descriptors: set[int] = set()
+
+    def remember_created_descriptor(path: object, *args: object, **kwargs: object) -> int:
+        descriptor = original_open(path, *args, **kwargs)  # type: ignore[arg-type]
+        if path in target_names:
+            pending_descriptors.add(descriptor)
+        return descriptor
+
+    def fail_first_created_fstat(descriptor: int) -> os.stat_result:
+        if descriptor in pending_descriptors:
+            pending_descriptors.remove(descriptor)
+            raise OSError("injected immediate fstat failure")
+        return original_fstat(descriptor)
+
+    with (
+        open_verified_retained_root(policy) as root,
+        retained_output_directory(policy, root, output) as lease,
+    ):
+        monkeypatch.setattr(pilot_security.os, "open", remember_created_descriptor)
+        monkeypatch.setattr(pilot_security.os, "fstat", fail_first_created_fstat)
+        with pytest.raises(OSError, match="injected immediate fstat failure"):
+            lease.write_bounded_bytes("immediate-fstat-bytes.bin", b"payload")
+        assert not (output / "immediate-fstat-bytes.bin").exists()
+
+        with pytest.raises(AtlasError, match="could not be copied safely"):
+            lease.copy_bounded_file_to(
+                lease,
+                "immediate-fstat-copy.bin",
+                source,
+                expected_sha256=hashlib.sha256(source.read_bytes()).hexdigest(),
+                expected_size=source.stat().st_size,
+            )
+        assert not (output / "immediate-fstat-copy.bin").exists()
+        assert not pending_descriptors
+        assert root.measure_aggregate_bytes() == 0
+
+
+def test_retained_output_directory_placement_failure_rolls_back_before_yield(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from av_atlas import pilot_security
+
+    _, _, policy = _create(tmp_path)
+    retained_path = Path(policy["retained_root"]["path"])
+    output = retained_path / "failed-placement"
+    with open_verified_retained_root(policy) as root:
+        monkeypatch.setattr(
+            pilot_security.os,
+            "fchmod",
+            lambda _descriptor, _mode: (_ for _ in ()).throw(
+                OSError("injected directory placement failure")
+            ),
+        )
+        with (
+            pytest.raises(OSError, match="injected directory placement failure"),
+            retained_output_directory(policy, root, output),
+        ):
+            pytest.fail("failed placement must not yield")
+        assert not output.exists()
+        assert root.measure_aggregate_bytes() == 0
+
+
+def test_retained_nested_copy_and_annotation_writes_serialize_across_processes(
+    tmp_path: Path,
+) -> None:
+    if "fork" not in multiprocessing.get_all_start_methods():
+        pytest.skip("separate-descriptor retained transaction regression requires POSIX fork")
+    from av_atlas.ocr_pilot import _create_pinned_private_directory
+
+    payload = b"p" * 1024
+    source = tmp_path / "source-frame.bin"
+    source.write_bytes(payload)
+    _, _, policy = _create(tmp_path / "policy", max_retained_bytes=1500)
+    retained_path = Path(policy["retained_root"]["path"])
+    frame_output = retained_path / "frame-package"
+    annotation_output = retained_path / "annotation-package"
+    with open_verified_retained_root(policy) as root:
+        with (
+            retained_output_directory(policy, root, frame_output) as output,
+            _create_pinned_private_directory(output, output, "frames"),
+        ):
+            pass
+        with (
+            retained_output_directory(policy, root, annotation_output) as output,
+            _create_pinned_private_directory(output, output, "annotator_A"),
+        ):
+            pass
+        assert root.measure_aggregate_bytes() == 0
+
+    context = multiprocessing.get_context("fork")
+    barrier = context.Barrier(3)
+    results = context.Queue()
+    processes = [
+        context.Process(
+            target=_concurrent_nested_retained_writer,
+            args=(
+                policy,
+                "frame-package",
+                "frames",
+                str(source),
+                payload,
+                True,
+                barrier,
+                results,
+            ),
+        ),
+        context.Process(
+            target=_concurrent_nested_retained_writer,
+            args=(
+                policy,
+                "annotation-package",
+                "annotator_A",
+                str(source),
+                payload,
+                False,
+                barrier,
+                results,
+            ),
+        ),
+    ]
+    for process in processes:
+        process.start()
+    barrier.wait(timeout=10)
+    for process in processes:
+        process.join(timeout=20)
+        assert process.exitcode == 0
+
+    outcomes = [results.get(timeout=5), results.get(timeout=5)]
+    assert sorted(item[0] for item in outcomes) == ["capacity_denied", "committed"]
+    assert all(isinstance(item[1], int) and item[1] <= 1500 for item in outcomes)
+
+    candidates = [
+        frame_output / "frames/frame.bin",
+        annotation_output / "annotator_A/annotation.json",
+    ]
+    committed = [path for path in candidates if path.exists()]
+    assert len(committed) == 1
+    assert committed[0].read_bytes() == payload
+    assert stat.S_IMODE(committed[0].stat().st_mode) == 0o600
+    assert committed[0].stat().st_nlink == 1
+    assert not any("pending" in path.name for path in retained_path.rglob("*"))
+    retained_files = [path for path in retained_path.rglob("*") if path.is_file()]
+    assert retained_files == committed
+    with open_verified_retained_root(policy) as root:
+        assert root.measure_aggregate_bytes() == len(payload) <= root.byte_ceiling
 
 
 def test_retained_root_and_output_must_remain_outside_repository_and_policy_bound(

@@ -27,12 +27,12 @@ Last verified: 2026-07-16 (Europe/Berlin)
   fixed native protocol/demuxer policy, and hash/size-bind fixture sidecars before immutable
   adapter delivery. Issues 11, 12, and 14 closed with the reviewed implementation; issue 17 remains
   the security and temporary-root gate before any real-media pilot.
-- **M2B.3 — implementation and local synthetic execution verified; source review pending.** A
+- **M2B.3 — reviewed private-storage and sandboxed pilot-security capability implemented.** A
   versioned local-private storage decision, path-free public receipt, exact Bubblewrap inventory,
   typed sandboxed native runner, bounded resource policy, pilot-manifest linkage, and hostile
   filesystem/network tests are implemented. The approved local Bubblewrap executable actually ran
-  project-authored synthetic bytes through FFprobe, FFmpeg, and Tesseract. This is not final
-  milestone acceptance until CI, CodeQL, and source review pass; issue 17 remains open.
+  project-authored synthetic bytes through FFprobe, FFmpeg, and Tesseract. Final merge, issue, CI,
+  and CodeQL identities are verified externally; this is not a real-media pilot-completion claim.
 - **M2 — in progress, not complete.** ASR/alignment, diarization, acoustic,
   and semantic visual perception, a human-adjudicated pilot, direct-VLM/loose-baseline comparisons,
   and the full M2 continuation gate in `AV-Atlas_GOAL.md` have not been delivered.
@@ -1527,8 +1527,8 @@ review history and must not be used as current reproduction targets.
 
 Implementation branch `feat/m2b3-pilot-security` adds the local-private policy and mandatory
 Bubblewrap execution boundary accepted in issue 17. Package version is `0.2.3`. The engineering
-implementation and actual project-authored synthetic execution pass locally; issue 17 remains open
-and M2B.3 acceptance remains pending source review of the unmerged pull request. No real or
+implementation and actual project-authored synthetic execution passed locally; at that historical
+review head, issue 17 was open and M2B.3 acceptance awaited source review. No real or
 operator-supplied media was processed.
 
 ### Contracts, policy, and lifecycle
@@ -1706,15 +1706,15 @@ media pilot or M2C work began.
 
 ## 2026-07-16 — M2B.3 source-review boundary corrections
 
-The unmerged `feat/m2b3-pilot-security` correction keeps issue 17 and pull request 20 open while
-addressing the four required source-review boundaries. It processed only the unchanged
+The `feat/m2b3-pilot-security` correction implements the four reviewed private-storage and
+sandboxed pilot-security boundaries. It processed only the unchanged
 project-authored synthetic M2B fixture. No real media, independent human annotation, M2C work,
 model/checkpoint, GPU, cloud inference, paid API, training, license decision, tag, or release was
 introduced.
 
-The measurements, test count, and runtime-bearing hashes in this correction section are the final
-local source-review replay values. Remote CI, CodeQL, and source-review acceptance remain pending;
-these local values are not a final milestone-acceptance claim.
+The measurements, test count, and runtime-bearing hashes in this correction section are measured
+local replay values. Final merge, issue, CI, and CodeQL identities are verified externally; these
+local values are not a real-media pilot-completion claim.
 
 ### Corrected contracts
 
@@ -1756,6 +1756,16 @@ these local values are not a final milestone-acceptance claim.
   admission. Repository-local or arbitrary output,
   replacement, symlink, special file, remote filesystem, capacity failure, and partial interrupted
   output fail closed. Logical deletion is not secure erasure.
+- One retained-root transaction is the sole advisory-lock owner for cooperating AV-Atlas writers.
+  It covers root/output/ancestor verification, aggregate and free-capacity admission, direct or
+  nested byte creation and immutable file copy, source/destination content and identity checks,
+  post-write aggregate verification, fsync, and exact-created-inode rollback. Prepared frames and
+  both annotation packages use the same transaction; the former post-lock hard-link placement is
+  removed. This is cooperative serialization, not protection from a malicious same-UID process.
+- For current execution, prepared-pilot linkage and authenticated OCR-package validation recompute
+  the retained root identity digest, filesystem type, byte ceiling, reserve, and decision from the
+  live verified root and policy. Tests alter each field and recompute ordinary receipt and manifest
+  checksums; the internally consistent false claims remain invalid.
 
 The M2B.3 synthetic check requires explicit source-bound `synthetic-controlled` rights,
 evaluation-mode permission closure, and the exact current fixture bundle before FFprobe or FFmpeg
@@ -1778,20 +1788,20 @@ The current schema file SHA-256 values are:
 
 A fresh ignored private-policy replay used verified, distinct tmpfs roots with separate 64 MiB
 temporary and retained ceilings and 16 MiB reserves. The private policy file SHA-256 was
-`cc078e5a276b883b1244bc498d2f0a19aabf653a6c6e7202ab5cd61339072dd5`; its embedded checksum was
-`ac3bac4e60660235f9d1689f8e6af22b358b902767c1314afa66d051a3d02071`. Its path and root
+`9468675b9bd6a35422b6b9103d259e70837676a45b40696f7e73b7986cc197cc`; its embedded checksum was
+`47342c85b5ddd434564aa2ccc96d2a3405d679ac1d85e69a64e83d1d445d4897`. Its path and root
 identities remain untracked and undisclosed. `RLIMIT_NPROC` was set to 8,192 because Linux charges
 that limit against the host real UID before Bubblewrap enters its user namespace and the measured
 desktop UID already had more than 4,096 threads. The reviewed maximum remains 16,384; this is a
 bounded host-UID ceiling, not a precise per-sandbox process count.
 
 The unchanged 2,401,427-byte synthetic source retained SHA-256
-`6d1f79c6a63b6a8d5510bcd67a74e522096fe97b6c2bba68587f0213ccc682a8`; the 224-byte synthetic
-pilot specification retained SHA-256
-`e315d7ff3d881e37aba46166e2264570fa3fd4763c2ffaff7e0d10f727fcccac`. Approved local FFprobe,
+`6d1f79c6a63b6a8d5510bcd67a74e522096fe97b6c2bba68587f0213ccc682a8`; the fresh 204-byte synthetic
+pilot specification had SHA-256
+`e3bde15abcf766ef3b56d7cf2ade2f4366c41a0b562d4f7c40833686f760c0b0`. Approved local FFprobe,
 FFmpeg, and Tesseract all executed through Bubblewrap profile 1.1. One 5,250-byte frame produced
 three OCR observations with zero retries and zero timeouts. Measured wall time was
-2.529523903998779 seconds, child CPU time 2.065997 seconds, and peak child RSS 180,672 KiB.
+2.8674427649821155 seconds, child CPU time 2.151135 seconds, and peak child RSS 180,672 KiB.
 
 Hostile measurements were all true: namespace smoke, loopback/external network denial,
 out-of-mount sentinel denial, masked mutable-runtime sentinel denial, and denial of writes outside
@@ -1802,23 +1812,33 @@ user/host identity, environment value, or secret-like value in the public receip
 Fresh runtime-bearing artifact identities are:
 
 - sanitized receipt file / embedded receipt hash:
-  `4f309b27bee969a3386baa746b3f9b2c0a0de2efe1da7646b4642386be195d2e` /
-  `02e7b047d0ec2ff9025f92eb84c477ca250ccf919aae77666c19a948bdc69b98`;
+  `2445c882fa2936f99ce238bf0296ce3286a7c3a5fca64cd3940077eea91fa26e` /
+  `4c5cbec555c576e7764b10d4a1b1df3da32d10e67076b49c866c138c09bb02a1`;
 - synthetic report file / embedded report hash:
-  `246b9af64ef8d8bd843aab833bceabbf78ca2f273f5ef28ae847d82e7faec603` /
-  `c01fb53bd9bb456c47e4f77c5ad123ca14182ad543d399cf0d013fe32d23031f`;
+  `aa1d87402bdd61f76f2edbd1cc4c578aa40cfa7c7394f3d6bc5be32e4e379999` /
+  `70bfb2c3089a7abc828472b20f830edd3f7bf0448615b005ddcb352bb7ed413a`;
 - sandboxed dependency inventory:
   `ab20ef53a2039d191460b0b19fe306c710107735cc5370c0edee7c07b7ffdb12`; and
 - sandboxed raw OCR observations:
   `7f3c10085a9e3e80289e925b0121d4aa673eaeab495517e8f2879b1627da805e`.
 
+The receipt reported retained-root identity
+`e46782deb61f384916286a1dfb833c0793a1bdc2579969adde873357d4a87059`, filesystem `tmpfs`,
+67,108,864-byte ceiling, 16,777,216-byte reserve, `verified-tmpfs` decision, and a 6,459-byte
+aggregate. The public receipt/report contained no absolute private path, local user name, or
+secret-like value, and the transient root was empty after completion.
+
 The exact local correction gates passed: locked/offline sync; Ruff format and lint; Mypy over 28
-source files; 405 tests in 137.84 seconds with zero failures and zero skips; doctor with FFmpeg,
+source files; 417 tests in 113.69 seconds with zero failures and zero skips; doctor with FFmpeg,
 FFprobe, Tesseract, and Bubblewrap available; policy inspect/validation; and the actual synthetic
 sandbox check. The new regressions cover all OCR package substitutions, wrong/missing completion
 receipt, policy/pilot crossing, retained output placement/replacement/capacity/interruption,
+separate-process nested frame-versus-annotation admission, post-create rollback failures,
 masked-runtime access, reviewer creation/removal/tampering/expiry/redaction, schema compatibility,
-and valid unchanged paths.
+and valid unchanged paths. In the synchronized two-process regression, either 1,024-byte payload
+fit a 1,500-byte ceiling but both did not: exactly one committed, the other received capacity
+denial before creation, one private inode remained, no pending/partial inode remained, and the
+final aggregate was exactly 1,024 bytes.
 
 Immutable tag object/commit pairs remain v1
 `8cadd6c8ecda7d0b6f60421f312c199cbad163e1` /
@@ -1827,8 +1847,8 @@ Immutable tag object/commit pairs remain v1
 `5d016784c6b3d7226a9f6e0f56cca9fb3ef48822`, and v1.2
 `5427bb4639d94f0311d49f5ef8be9337fdcad167` /
 `c24ff0c9dacb1d3e42cfe8e48e31ec866ab9a882`. Accepted v1 fixture, gold, configuration, raw OCR,
-evaluation, benchmark, run-manifest, and release-manifest hashes remain unchanged. Issue 17 and PR
-20 remain open; remote CI, CodeQL, and source-review acceptance are still required. Same-UID host
+evaluation, benchmark, run-manifest, and release-manifest hashes remain unchanged. Final issue,
+pull-request, CI, and CodeQL identities are verified externally. Same-UID host
 processes, kernel/native-parser vulnerabilities, swap/backups/snapshots/remanence, crash/power-loss
 cleanup, reviewed-storage assertions, authenticated signatures, Linux portability, real human
 annotations, the authorized real-media pilot, license/patent decisions, full M2, and M2C remain

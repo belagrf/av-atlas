@@ -146,9 +146,18 @@ filesystems, inadequate current capacity, and aggregate retained bytes above the
 Retained directories and files must have exact modes `0700` and `0600` and one hard link for each
 file. Every production retained writer uses a pinned direct-child package descriptor, create-only
 files, stable retained-input reads, and bounded aggregate/capacity checks before each write. Failed
-or handled-interruption partial packages are removed; successful retained derivatives remain under the
-declared policy and operator deletion lifecycle. Logical deletion remains distinct from secure
+or handled-interruption partial packages are removed; successful retained derivatives remain under
+the declared policy and operator deletion lifecycle. Logical deletion remains distinct from secure
 erasure.
+
+All cooperating retained mutations share one advisory-lock transaction on the verified root. The
+lock spans root/output/ancestor verification, aggregate and free-capacity admission,
+descriptor-relative direct or nested creation/copy, source and destination identity/content
+verification, the post-write aggregate check, fsync, and exact-created-inode rollback. Prepared
+frames and both annotation packages use the same typed transaction as JSON, OCR, freeze, and
+evaluation outputs; there is no unlocked hard-link placement step. This prevents two cooperating
+AV-Atlas processes with separate root descriptors from both committing against the same remaining
+capacity. It does not constrain a malicious same-UID process that ignores the advisory lock.
 
 For an independently reviewed storage decision, policy 1.1 stores a nonempty reviewer pseudonym
 with its pilot scope and expiry and revalidates that identity at each bounded processing boundary.
@@ -157,6 +166,11 @@ validation. The private policy is never exported. Its path-free public counterpa
 `av-atlas-pilot-security-receipt/1.1.0`, deliberately omits the reviewer pseudonym and publishes
 only sanitized, hash-linked storage identities/classes/capacities, facts, and booleans. Receipt 1.0
 remains historical-validation compatible but cannot authorize current execution.
+
+Current prepared-pilot and OCR-package validation also compares the receipt's retained-root
+identity digest, filesystem type, byte ceiling, reserve, and decision with the live verified root
+and policy. Recomputing ordinary JSON self-hashes after falsifying one of those fields does not make
+the claim valid.
 
 Pilot mode has no native-parser waiver or direct fallback. Bubblewrap profile
 `av-atlas-bubblewrap-pilot/1.1.0` must match the policy by executable hash/size/version and must pass

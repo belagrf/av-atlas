@@ -11,7 +11,7 @@ import shutil
 import stat
 import time
 from collections.abc import Iterator
-from contextlib import ExitStack, contextmanager, suppress
+from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -62,6 +62,7 @@ from av_atlas.pilot_security import (
     retained_output_directory,
     source_rights_aggregate,
     validate_security_receipt,
+    verified_retained_storage_binding,
     verify_sandbox_policy,
 )
 from av_atlas.rights import manifest_digest as rights_manifest_digest
@@ -306,16 +307,21 @@ def _open_pinned_retained_json(
 
 @dataclass(frozen=True)
 class _PinnedPrivateDirectory:
-    parent_descriptor: int
+    parent: Any
     name: str
     descriptor: int
     identity: tuple[int, ...]
+
+    @property
+    def parent_descriptor(self) -> int:
+        return int(self.parent.descriptor)
 
     @property
     def descriptor_path(self) -> Path:
         return Path(f"/proc/self/fd/{self.descriptor}")
 
     def verify(self) -> None:
+        self.parent.verify()
         try:
             opened = os.fstat(self.descriptor)
             current = os.stat(self.name, dir_fd=self.parent_descriptor, follow_symlinks=False)
@@ -386,57 +392,124 @@ def _find_child_by_identity(parent_descriptor: int, identity: tuple[int, ...]) -
 
 @contextmanager
 def _create_pinned_private_directory(
-    parent_descriptor: int, name: str
+    retained_output: Any,
+    parent: Any,
+    name: str,
 ) -> Iterator[_PinnedPrivateDirectory]:
-    """Create one exact private child without replacement and clean it on failure."""
+    """Create one exact private child under the retained-root transaction."""
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", name):
         raise AtlasError("private annotation package name is invalid")
-    try:
-        os.stat(name, dir_fd=parent_descriptor, follow_symlinks=False)
-    except FileNotFoundError:
-        pass
-    except OSError as exc:
-        raise AtlasError("private annotation package path could not be checked") from exc
-    else:
-        raise AtlasError(f"annotation package already exists: {name}")
+    parent_descriptor = int(parent.descriptor)
     descriptor: int | None = None
     lease: _PinnedPrivateDirectory | None = None
+    directory_created = False
+    created_identity: tuple[int, ...] | None = None
+    placement_committed = False
     committed = False
     cleanup_succeeded = True
     try:
-        os.mkdir(name, 0o700, dir_fd=parent_descriptor)
-        os.fsync(parent_descriptor)
-        descriptor = os.open(
-            name,
-            os.O_RDONLY
-            | getattr(os, "O_DIRECTORY", 0)
-            | getattr(os, "O_CLOEXEC", 0)
-            | getattr(os, "O_NOFOLLOW", 0),
-            dir_fd=parent_descriptor,
-        )
-        os.fchmod(descriptor, 0o700)
-        lease = _PinnedPrivateDirectory(
-            parent_descriptor,
-            name,
-            descriptor,
-            _retained_directory_identity(os.fstat(descriptor)),
-        )
-        lease.verify()
+        with retained_output.serialized_mutation():
+            try:
+                aggregate_before = retained_output.root.measure_aggregate_bytes()
+                parent.verify()
+                try:
+                    os.stat(name, dir_fd=parent_descriptor, follow_symlinks=False)
+                except FileNotFoundError:
+                    pass
+                except OSError as exc:
+                    raise AtlasError(
+                        "private annotation package path could not be checked"
+                    ) from exc
+                else:
+                    raise AtlasError(f"annotation package already exists: {name}")
+                os.mkdir(name, 0o700, dir_fd=parent_descriptor)
+                directory_created = True
+                created = os.stat(name, dir_fd=parent_descriptor, follow_symlinks=False)
+                created_identity = _retained_directory_identity(created)
+                os.fsync(parent_descriptor)
+                descriptor = os.open(
+                    name,
+                    os.O_RDONLY
+                    | getattr(os, "O_DIRECTORY", 0)
+                    | getattr(os, "O_CLOEXEC", 0)
+                    | getattr(os, "O_NOFOLLOW", 0),
+                    dir_fd=parent_descriptor,
+                )
+                opened = os.fstat(descriptor)
+                if _retained_directory_identity(opened) != created_identity:
+                    raise AtlasError("private annotation package changed while opening")
+                lease = _PinnedPrivateDirectory(
+                    parent,
+                    name,
+                    descriptor,
+                    created_identity,
+                )
+                os.fchmod(descriptor, 0o700)
+                lease.verify()
+                if retained_output.root.measure_aggregate_bytes() != aggregate_before:
+                    raise AtlasError("retained bytes appeared during nested directory placement")
+                os.fsync(descriptor)
+                os.fsync(parent_descriptor)
+                retained_output.verify()
+                placement_committed = True
+            except BaseException as placement_error:
+                rollback_succeeded = True
+                try:
+                    if lease is not None:
+                        _remove_private_package_tree(lease.descriptor)
+                        actual_name = _find_child_by_identity(parent_descriptor, lease.identity)
+                        if actual_name is None:
+                            rollback_succeeded = False
+                        else:
+                            os.rmdir(actual_name, dir_fd=parent_descriptor)
+                            os.fsync(parent_descriptor)
+                    elif directory_created:
+                        current = os.stat(name, dir_fd=parent_descriptor, follow_symlinks=False)
+                        current_identity = _retained_directory_identity(current)
+                        if created_identity is not None and current_identity != created_identity:
+                            rollback_succeeded = False
+                        else:
+                            os.rmdir(name, dir_fd=parent_descriptor)
+                            os.fsync(parent_descriptor)
+                except (AtlasError, OSError):
+                    rollback_succeeded = False
+                lease = None
+                created_identity = None
+                if not rollback_succeeded:
+                    raise AtlasError(
+                        "private annotation package placement rollback failed"
+                    ) from placement_error
+                raise
+        if lease is None:
+            raise AtlasError("private annotation package placement did not produce a lease")
         yield lease
-        lease.verify()
-        os.fsync(descriptor)
-        os.fsync(parent_descriptor)
+        with retained_output.serialized_mutation():
+            lease.verify()
+            os.fsync(descriptor)
+            os.fsync(parent_descriptor)
         committed = True
     finally:
-        if not committed and lease is not None:
+        if placement_committed and not committed and lease is not None:
             try:
-                _remove_private_package_tree(lease.descriptor)
-                actual_name = _find_child_by_identity(parent_descriptor, lease.identity)
-                if actual_name is None:
-                    cleanup_succeeded = False
-                else:
-                    os.rmdir(actual_name, dir_fd=parent_descriptor)
-                    os.fsync(parent_descriptor)
+                with retained_output.serialized_mutation():
+                    _remove_private_package_tree(lease.descriptor)
+                    actual_name = _find_child_by_identity(parent_descriptor, lease.identity)
+                    if actual_name is None:
+                        cleanup_succeeded = False
+                    else:
+                        os.rmdir(actual_name, dir_fd=parent_descriptor)
+                        os.fsync(parent_descriptor)
+            except (AtlasError, OSError):
+                cleanup_succeeded = False
+        elif placement_committed and not committed and created_identity is not None:
+            try:
+                with retained_output.serialized_mutation():
+                    current = os.stat(name, dir_fd=parent_descriptor, follow_symlinks=False)
+                    if _retained_directory_identity(current) != created_identity:
+                        cleanup_succeeded = False
+                    else:
+                        os.rmdir(name, dir_fd=parent_descriptor)
+                        os.fsync(parent_descriptor)
             except (AtlasError, OSError):
                 cleanup_succeeded = False
         if descriptor is not None:
@@ -453,60 +526,9 @@ def _write_pinned_package_bytes(
     temporary_name: str,
     value: bytes,
 ) -> None:
-    """Use the retained-root bounded writer, then place the inode without replacement."""
-    retained_output.write_bounded_bytes(temporary_name, value)
-    descriptor: int | None = None
-    linked = False
-    identity: tuple[int, int] | None = None
-    try:
-        descriptor = os.open(
-            temporary_name,
-            os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0),
-            dir_fd=retained_output.descriptor,
-        )
-        opened = os.fstat(descriptor)
-        identity = (opened.st_dev, opened.st_ino)
-        os.link(
-            temporary_name,
-            name,
-            src_dir_fd=retained_output.descriptor,
-            dst_dir_fd=package.descriptor,
-            follow_symlinks=False,
-        )
-        linked = True
-        os.unlink(temporary_name, dir_fd=retained_output.descriptor)
-        current = os.stat(name, dir_fd=package.descriptor, follow_symlinks=False)
-        digest = hashlib.sha256()
-        while block := os.read(descriptor, 1024 * 1024):
-            digest.update(block)
-        after = os.fstat(descriptor)
-        if (
-            (current.st_dev, current.st_ino) != identity
-            or (after.st_dev, after.st_ino) != identity
-            or not stat.S_ISREG(after.st_mode)
-            or stat.S_IMODE(after.st_mode) != 0o600
-            or after.st_nlink != 1
-            or after.st_size != len(value)
-            or digest.hexdigest() != hashlib.sha256(value).hexdigest()
-        ):
-            raise AtlasError("private annotation JSON changed during its bounded write")
-        os.fsync(package.descriptor)
-        package.verify()
-        retained_output.verify()
-    except BaseException:
-        if linked and identity is not None:
-            try:
-                current = os.stat(name, dir_fd=package.descriptor, follow_symlinks=False)
-                if (current.st_dev, current.st_ino) == identity:
-                    os.unlink(name, dir_fd=package.descriptor)
-            except OSError:
-                pass
-        with suppress(OSError):
-            os.unlink(temporary_name, dir_fd=retained_output.descriptor)
-        raise
-    finally:
-        if descriptor is not None:
-            os.close(descriptor)
+    """Place one JSON file directly in a nested transactional destination."""
+    del temporary_name
+    retained_output.write_bounded_bytes_to(package, name, value)
 
 
 def _safe_pilot_artifact_path(
@@ -1024,10 +1046,10 @@ def prepare_pilot(
         ensure_pilot_security_execution_boundary(policy, root)
         retained_root.verify()
         frames_package = resources.enter_context(
-            _create_pinned_private_directory(output_lease.descriptor, "frames")
+            _create_pinned_private_directory(output_lease, output_lease, "frames")
         )
         rights_package = resources.enter_context(
-            _create_pinned_private_directory(output_lease.descriptor, "rights")
+            _create_pinned_private_directory(output_lease, output_lease, "rights")
         )
         for (
             source,
@@ -1122,10 +1144,10 @@ def prepare_pilot(
                     output_lease.verify()
                     frame_hash = sha256_file(private_frame)
                     frame_size = private_frame.stat().st_size
-                    output_lease.ensure_additional_capacity(frame_size)
-                    _copy_verified_file(
+                    output_lease.copy_bounded_file_to(
+                        frames_package,
+                        f"{frame_id}.png",
                         private_frame,
-                        frames_package.descriptor_path / f"{frame_id}.png",
                         expected_sha256=frame_hash,
                         expected_size=frame_size,
                     )
@@ -1275,7 +1297,12 @@ def make_annotation_packages(pilot_dir: Path, security_policy_path: Path | None 
                 "new annotation-package execution requires pilot manifest contract 1.2.0"
             )
         _validate_sandboxed_pilot_manifest(package_root, manifest, policy)
-        _validate_pilot_security_linkage(package_root, manifest, policy)
+        _validate_pilot_security_linkage(
+            package_root,
+            manifest,
+            policy,
+            retained_root=retained_root,
+        )
         validate_instance("ocr_pilot_manifest", manifest, "pilot manifest")
         if manifest["state"] != "prepared_unannotated" or manifest["manifest_hash"] != _digest(
             manifest
@@ -1285,12 +1312,13 @@ def make_annotation_packages(pilot_dir: Path, security_policy_path: Path | None 
         for label in ("A", "B"):
             package = resources.enter_context(
                 _create_pinned_private_directory(
-                    package_lease.descriptor,
+                    package_lease,
+                    package_lease,
                     f"annotator_{label}",
                 )
             )
             frame_package = resources.enter_context(
-                _create_pinned_private_directory(package.descriptor, "frames")
+                _create_pinned_private_directory(package_lease, package, "frames")
             )
             records = []
             for frame in frames:
@@ -1301,10 +1329,10 @@ def make_annotation_packages(pilot_dir: Path, security_policy_path: Path | None 
                     basename=f"{frame['frame_id']}.png",
                 )
                 frame_size = int(frame["size_bytes"])
-                package_lease.ensure_additional_capacity(frame_size)
-                _copy_verified_file(
+                package_lease.copy_bounded_file_to(
+                    frame_package,
+                    Path(frame["path"]).name,
                     frame_source,
-                    frame_package.descriptor_path / Path(frame["path"]).name,
                     expected_sha256=str(frame["sha256"]),
                     expected_size=frame_size,
                 )
@@ -1445,7 +1473,12 @@ def compare_annotations(
                 "new annotation-comparison execution requires pilot manifest contract 1.2.0"
             )
         _validate_sandboxed_pilot_manifest(pilot_lease.descriptor_path, manifest, policy)
-        _validate_pilot_security_linkage(pilot_lease.descriptor_path, manifest, policy)
+        _validate_pilot_security_linkage(
+            pilot_lease.descriptor_path,
+            manifest,
+            policy,
+            retained_root=retained_root,
+        )
         report = _annotation_comparison_report(
             manifest,
             [first_pin.value, second_pin.value],
@@ -1506,7 +1539,12 @@ def freeze_pilot(
         if manifest.get("schema_version") != "1.2.0":
             raise AtlasError("new pilot-freeze execution requires pilot manifest contract 1.2.0")
         _validate_sandboxed_pilot_manifest(pilot_lease.descriptor_path, manifest, policy)
-        _validate_pilot_security_linkage(pilot_lease.descriptor_path, manifest, policy)
+        _validate_pilot_security_linkage(
+            pilot_lease.descriptor_path,
+            manifest,
+            policy,
+            retained_root=retained_root,
+        )
         report = _annotation_comparison_report(
             manifest,
             [first_pin.value, second_pin.value],
@@ -1653,7 +1691,12 @@ def _evaluate_pilot_with_resources(
     reject_exposed_host_path(output, label="pilot evaluation output")
     pinned_pilot = pilot_lease.descriptor_path
     _validate_sandboxed_pilot_manifest(pinned_pilot, frozen, policy)
-    _, rights_aggregate = _validate_pilot_security_linkage(pinned_pilot, frozen, policy)
+    _, rights_aggregate = _validate_pilot_security_linkage(
+        pinned_pilot,
+        frozen,
+        policy,
+        retained_root=retained_root,
+    )
     authenticated = validate_pilot_ocr_output_package(
         ocr_lease.descriptor_path,
         frozen_manifest_path=frozen_pin.anchored_path,
@@ -1662,6 +1705,7 @@ def _evaluate_pilot_with_resources(
         source_rights_aggregate_sha256=rights_aggregate,
         ocr_configuration_sha256=sha256_file(config_path),
         ocr_configuration_size_bytes=config_path.stat().st_size,
+        expected_retained_storage=verified_retained_storage_binding(policy, retained_root),
     )
     observations = list(authenticated.observations)
     runtime = authenticated.runtime
@@ -1942,6 +1986,8 @@ def _validate_pilot_security_linkage(
     pilot_dir: Path,
     frozen: dict[str, Any],
     policy: dict[str, Any] | None = None,
+    *,
+    retained_root: VerifiedRetainedRoot | None = None,
 ) -> tuple[dict[str, Any], str]:
     if frozen.get("schema_version") not in {"1.1.0", "1.2.0"} or not isinstance(
         frozen.get("pilot_security"), dict
@@ -1980,10 +2026,18 @@ def _validate_pilot_security_linkage(
         retained = security.get("retained_storage")
         if not isinstance(retained, dict) or retained != receipt.get("retained_storage"):
             raise AtlasError("pilot retained-storage receipt differs from its manifest linkage")
-        if policy is not None and (
-            retained.get("decision") != policy["retained_storage"]["decision"]
-        ):
-            raise AtlasError("private retained-storage decision differs from the prepared pilot")
+        if policy is not None:
+            if retained_root is None:
+                raise AtlasError(
+                    "current pilot linkage validation requires the verified retained root"
+                )
+            expected_retained = verified_retained_storage_binding(policy, retained_root)
+            if any(
+                retained.get(field) != expected for field, expected in expected_retained.items()
+            ):
+                raise AtlasError(
+                    "private retained-storage boundary differs from the prepared pilot"
+                )
     if _source_set_digest(frozen["sources"]) != security["source_set_sha256"]:
         raise AtlasError("pilot source set differs from its security-bound identity")
     rights_records: list[dict[str, Any]] = []
@@ -2057,7 +2111,10 @@ def validate_pilot_security_artifacts(
             if manifest.get("schema_version") == "1.2.0":
                 _validate_sandboxed_pilot_manifest(pilot_lease.descriptor_path, manifest, policy)
             receipt, aggregate = _validate_pilot_security_linkage(
-                pilot_lease.descriptor_path, manifest, policy
+                pilot_lease.descriptor_path,
+                manifest,
+                policy,
+                retained_root=retained_root,
             )
     return {
         "schema_version": "1.0.0",
@@ -2128,7 +2185,10 @@ def run_pilot_ocr(
         pinned_pilot = pilot_lease.descriptor_path
         _validate_sandboxed_pilot_manifest(pinned_pilot, frozen, policy)
         prepared_receipt, source_rights_hash = _validate_pilot_security_linkage(
-            pinned_pilot, frozen, policy
+            pinned_pilot,
+            frozen,
+            policy,
+            retained_root=retained_root,
         )
         output_lease = resources.enter_context(
             retained_output_directory(policy, retained_root, output)
