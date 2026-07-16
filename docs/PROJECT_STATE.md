@@ -22,7 +22,7 @@ Last verified: 2026-07-16 (Europe/Berlin)
   configuration, coherent partial results, actual chunk provenance, immutable raw OCR plus secondary
   temporal tracks, complete derived-artifact validation, path privacy, and clean-checkout CI are
   complete for the synthetic controlled baseline. Real-media evaluation remains pending.
-- **M2B.2 — reviewed implementation merged; v1.2 release preparation pending review.** Supported
+- **M2B.2 — reviewed implementation merged; v1.2 release record frozen.** Supported
   media entry points authorize parser-free, acquire a verified private snapshot, enforce a shared
   fixed native protocol/demuxer policy, and hash/size-bind fixture sidecars before immutable
   adapter delivery. Issues 11, 12, and 14 closed with the reviewed implementation; issue 17 remains
@@ -1365,16 +1365,17 @@ fixture signatures, retained-frame lifecycle, non-Matroska/live input, the autho
 pilot, and project license/patent/publication decisions. No real media, M2C, model/checkpoint, GPU,
 cloud/paid API, training, tag, release, or merge occurred.
 
-## 2026-07-16 — M2B.2 controlled baseline v1.2 release preparation
+## 2026-07-16 — M2B.2 controlled baseline v1.2 release record
 
 The reviewed M2B.2 implementation merged at source commit
 `2555a297153c9b5ff059b7d8dc7e49de5d93c43b`, tree
-`f8ca95eab8c1988cee00ab774a2bf30f5cad1776`, package version `0.2.2`. This release-only branch
-changes no runtime, schema, configuration, test, lock, workflow, fixture, or accepted evidence
-bytes. It adds `docs/releases/M2B_CONTROLLED_BASELINE_V1_2.md` and `.json` and updates `README.md`,
-this state record, the controlled reproduction guide, publication readiness/release-decision
-records, data governance, security, ADR-0006 status, and the publication manifest. The release
-commit, tag, and GitHub release remain intentionally pending source review.
+`f8ca95eab8c1988cee00ab774a2bf30f5cad1776`, package version `0.2.2`. This documentation/manifests-
+only commit is the intended immutable v1.2 release record and changes no runtime, schema,
+configuration, test, lock, workflow, fixture, or accepted evidence bytes. It adds
+`docs/releases/M2B_CONTROLLED_BASELINE_V1_2.md` and `.json` and updates `README.md`, this state
+record, the controlled reproduction guide, publication readiness/release-decision records, data
+governance, security, ADR-0006 status, and the publication manifest. Final annotated-tag, GitHub-
+release, and post-merge check identities are recorded externally rather than predicted here.
 
 The frozen scope is four synthetic frames, 13 immutable raw OCR observations, and 13 secondary
 temporal tracks. Every fresh source and inspection now requires explicit source-bound rights.
@@ -1392,7 +1393,7 @@ and `file` protocol whitelist and denies manifest/multi-resource and network-cap
 native parsing. Generated keyframes use the separate forced `png_pipe` policy. The policy limits
 transitive access but is not an OS sandbox.
 
-### Exact release-preparation verification
+### Exact release-record verification
 
 Commands executed from the repository root were:
 
@@ -1481,9 +1482,9 @@ hash and zero failures/retries/timeouts.
 
 The exact implementation commit passed main CI at
 `https://github.com/belagrf/av-atlas/actions/runs/29486707488` and CodeQL at
-`https://github.com/belagrf/av-atlas/actions/runs/29486706995`. Release-PR checks remain pending
-until push. Publication-manifest and release-record detached hashes are rendered and reported only
-after every tracked record is final, avoiding circular claims.
+`https://github.com/belagrf/av-atlas/actions/runs/29486706995`. Release-PR and post-merge check
+identities are recorded externally. Publication-manifest and release-record detached hashes are
+rendered and reported only after every tracked record is final, avoiding circular claims.
 
 ### Compatibility, publication, and remaining limits
 

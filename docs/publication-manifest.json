@@ -117,8 +117,8 @@
       "path": "README.md",
       "reason_for_inclusion": "architecture, governance, research, or project contract",
       "redistribution_basis": "explicit operator authorization for public disclosure",
-      "sha256": "c12d6c9f2f0c3c333f484729114cced75ff075f89eef94c85fd150746b6584aa",
-      "size_bytes": 15998
+      "sha256": "7cd40ce372039a2947f1a2041dfa38ace30010b97e30a96eefa16fb3b2885a3a",
+      "size_bytes": 16064
     },
     {
       "applicable_license": "unresolved; no project reuse license selected",
@@ -187,8 +187,8 @@
       "path": "docs/PROJECT_STATE.md",
       "reason_for_inclusion": "architecture, governance, research, or project contract",
       "redistribution_basis": "explicit operator authorization for public disclosure",
-      "sha256": "d7eac97e060f4eeebc807aa677c53149803f4216ee3085dc77e2c72b91c04f36",
-      "size_bytes": 99893
+      "sha256": "340e8813670a653e289539d15bb71bf4fb96d13faab9b6e0e0a068bd448ff4b9",
+      "size_bytes": 99994
     },
     {
       "applicable_license": "unresolved; no project reuse license selected",
@@ -347,7 +347,7 @@
       "path": "docs/publication-manifest.json",
       "reason_for_inclusion": "machine-readable disclosure inventory",
       "redistribution_basis": "explicit operator authorization for public disclosure",
-      "sha256": "7ba38410f022e81b52081d117ad342d89fc372891765f55e7fdb1acb3634136b",
+      "sha256": "e0356783d4acd876b0014236cb4e1ffb28c94d6d8cdc2076b459126c4fca3f96",
       "size_bytes": 64335
     },
     {
@@ -407,8 +407,8 @@
       "path": "docs/releases/M2B_CONTROLLED_BASELINE_V1_2.md",
       "reason_for_inclusion": "hash-bound controlled-baseline record",
       "redistribution_basis": "explicit operator authorization for public disclosure",
-      "sha256": "088b185d34ad47084d436f4b04e696e8f5e8a1faf0314acc152edb899b7ed767",
-      "size_bytes": 11851
+      "sha256": "226460da6ce4336517f7f74188791a2eb5098714ea682244c9aaeb4ebdd9e0c1",
+      "size_bytes": 11777
     },
     {
       "applicable_license": "unresolved; no project reuse license selected",

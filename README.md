@@ -181,9 +181,10 @@ See [OCR annotation guide](docs/ocr-annotation-guide.md) for external-pilot hand
 The accepted controlled release and offline replay procedure are recorded in
 [M2B controlled baseline v1](docs/releases/M2B_CONTROLLED_BASELINE_V1.md). The separately versioned
 [M2B controlled baseline v1.1](docs/releases/M2B_CONTROLLED_BASELINE_V1_1.md) freezes the reviewed
-M2B.1 source-audit hardening without changing v1. The release-preparation record for
-[M2B controlled baseline v1.2](docs/releases/M2B_CONTROLLED_BASELINE_V1_2.md) freezes the reviewed
-M2B.2 source at package version 0.2.2, pending review before any tag or release. Two workers are the provisional recommendation
+M2B.1 source-audit hardening without changing v1. The
+[M2B controlled baseline v1.2](docs/releases/M2B_CONTROLLED_BASELINE_V1_2.md) release record freezes
+the reviewed M2B.2 source at package version 0.2.2. Final annotated-tag and GitHub-release
+identities are verified externally. Two workers are the provisional recommendation
 for a future versioned configuration; the frozen baseline remains unchanged.
 
 An authorized real-media pilot is prepared, annotated, frozen, run, and evaluated with
@@ -253,8 +254,9 @@ M2B.2 status: “M2B.2 stable authorized input, rights-gated inspection, fixture
 native-input hardening complete for the controlled synthetic baseline. Authorized real-media
 evaluation remains pending.” This describes four synthetic frames and 13 OCR observations only. It
 establishes no real-media accuracy, semantic understanding, or trained-model capability. The
-implementation is merged; the separate v1.2 release-preparation PR must receive source review
-before a new tag or release is created. Full M2 is incomplete, and M2C is unimplemented. Issues
+implementation is merged, and the v1.2 release record freezes the reviewed source at package
+version 0.2.2; final annotated-tag and GitHub-release identities are verified externally. Full M2
+is incomplete, and M2C is unimplemented. Issues
 [#11](https://github.com/belagrf/av-atlas/issues/11),
 [#12](https://github.com/belagrf/av-atlas/issues/12), and
 [#14](https://github.com/belagrf/av-atlas/issues/14) closed with reviewed M2B.2 implementation.

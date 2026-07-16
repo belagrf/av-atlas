@@ -1,11 +1,10 @@
 # AV-Atlas M2B controlled baseline v1.2
 
-Release preparation for `m2b-controlled-v1.2` freezes the reviewed M2B.2 implementation tree from
+The v1.2 release record freezes the reviewed M2B.2 implementation tree from
 commit `2555a297153c9b5ff059b7d8dc7e49de5d93c43b` (tree
-`f8ca95eab8c1988cee00ab774a2bf30f5cad1776`) and package version `0.2.2`. Under issue 18, the
-annotated tag and GitHub release may be created only after source review and merge of the release-
-preparation pull request. Their final identities are verified externally rather than predicted by
-this record.
+`f8ca95eab8c1988cee00ab774a2bf30f5cad1776`) at package version `0.2.2`. Under issue 18, tagging
+occurs only after source review and merge. Final annotated-tag and GitHub-release identities are
+verified externally rather than predicted by this record.
 
 **M2B.2 stable authorized input, rights-gated inspection, fixture-trust, and native-input hardening
 complete for the controlled synthetic baseline. Authorized real-media evaluation remains pending.**
