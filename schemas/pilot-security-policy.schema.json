@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://av-atlas.local/schemas/pilot-security-policy/1.0.0",
+  "$id": "https://av-atlas.local/schemas/pilot-security-policy/1.1.0",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -19,15 +19,22 @@
     "policy_hash"
   ],
   "properties": {
-    "schema_version": {"const": "1.0.0"},
-    "contract_version": {"const": "av-atlas-pilot-security-policy/1.0.0"},
+    "schema_version": {"enum": ["1.0.0", "1.1.0"]},
+    "contract_version": {
+      "enum": [
+        "av-atlas-pilot-security-policy/1.0.0",
+        "av-atlas-pilot-security-policy/1.1.0"
+      ]
+    },
     "pilot_id": {"type": "string", "pattern": "^PILOT_[A-Z0-9_-]+$"},
     "pilot_spec_sha256": {"$ref": "#/$defs/sha256"},
     "pilot_spec_size_bytes": {"type": "integer", "minimum": 1, "maximum": 1000000},
     "created_at": {"type": "string", "format": "date-time", "minLength": 1},
     "expires_at": {"type": "string", "format": "date-time", "minLength": 1},
     "private_root": {"$ref": "#/$defs/privateRoot"},
+    "retained_root": {"$ref": "#/$defs/privateRoot"},
     "storage": {"$ref": "#/$defs/storageDecision"},
+    "retained_storage": {"$ref": "#/$defs/storageDecision"},
     "capacity": {"$ref": "#/$defs/capacity"},
     "sandbox": {"$ref": "#/$defs/sandboxPolicy"},
     "resource_limits": {"$ref": "#/$defs/resourceLimits"},
@@ -80,6 +87,7 @@
         },
         "expected_filesystem_type": {"type": "string", "pattern": "^[A-Za-z0-9._+-]+$"},
         "independently_reviewed": {"type": "boolean"},
+        "reviewer_pseudonym": {"type": ["string", "null"], "minLength": 1},
         "review_record": {"type": ["string", "null"], "minLength": 1},
         "review_scope": {"type": ["string", "null"], "minLength": 1},
         "review_expires_at": {"type": ["string", "null"], "format": "date-time"},
@@ -113,6 +121,7 @@
           "then": {
             "properties": {
               "independently_reviewed": {"const": true},
+              "reviewer_pseudonym": {"type": "string", "minLength": 1},
               "review_record": {"type": "string", "minLength": 1},
               "review_scope": {"type": "string", "minLength": 1},
               "review_expires_at": {"type": "string", "format": "date-time"},
@@ -149,6 +158,16 @@
           "type": "integer",
           "minimum": 0,
           "maximum": 68719476736
+        },
+        "retained_byte_ceiling": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 68719476736
+        },
+        "retained_reserve_bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 68719476736
         }
       }
     },
@@ -168,7 +187,12 @@
       ],
       "properties": {
         "provider": {"const": "bubblewrap"},
-        "profile_contract_version": {"const": "av-atlas-bubblewrap-pilot/1.0.0"},
+        "profile_contract_version": {
+          "enum": [
+            "av-atlas-bubblewrap-pilot/1.0.0",
+            "av-atlas-bubblewrap-pilot/1.1.0"
+          ]
+        },
         "profile_sha256": {"$ref": "#/$defs/sha256"},
         "executable_basename": {"const": "bwrap"},
         "executable_sha256": {"$ref": "#/$defs/sha256"},
@@ -198,11 +222,60 @@
         "address_space_bytes": {"type": "integer", "minimum": 1048576, "maximum": 68719476736},
         "output_file_size_bytes": {"type": "integer", "minimum": 1024, "maximum": 1073741824},
         "open_files": {"type": "integer", "minimum": 8, "maximum": 1024},
-        "process_count": {"type": "integer", "minimum": 1, "maximum": 4096},
+        "process_count": {"type": "integer", "minimum": 1, "maximum": 16384},
         "core_dump_bytes": {"const": 0},
         "capture_bytes": {"type": "integer", "minimum": 1024, "maximum": 16777216},
         "cleanup_timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 60}
       }
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"schema_version": {"const": "1.0.0"}}},
+      "then": {
+        "properties": {
+          "contract_version": {"const": "av-atlas-pilot-security-policy/1.0.0"},
+          "sandbox": {
+            "properties": {
+              "profile_contract_version": {"const": "av-atlas-bubblewrap-pilot/1.0.0"}
+            }
+          },
+          "storage": {"not": {"required": ["reviewer_pseudonym"]}},
+          "capacity": {
+            "not": {
+              "anyOf": [
+                {"required": ["retained_byte_ceiling"]},
+                {"required": ["retained_reserve_bytes"]}
+              ]
+            }
+          }
+        },
+        "not": {
+          "anyOf": [
+            {"required": ["retained_root"]},
+            {"required": ["retained_storage"]}
+          ]
+        }
+      }
+    },
+    {
+      "if": {"properties": {"schema_version": {"const": "1.1.0"}}},
+      "then": {
+        "required": ["retained_root", "retained_storage"],
+        "properties": {
+          "contract_version": {"const": "av-atlas-pilot-security-policy/1.1.0"},
+          "sandbox": {
+            "properties": {
+              "profile_contract_version": {"const": "av-atlas-bubblewrap-pilot/1.1.0"}
+            }
+          },
+          "storage": {"required": ["reviewer_pseudonym"]},
+          "retained_storage": {"required": ["reviewer_pseudonym"]},
+          "capacity": {
+            "required": ["retained_byte_ceiling", "retained_reserve_bytes"]
+          }
+        }
+      }
+    }
+  ]
 }

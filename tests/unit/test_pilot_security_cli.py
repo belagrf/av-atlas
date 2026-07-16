@@ -12,10 +12,13 @@ from av_atlas.errors import AtlasError
 from av_atlas.native_process import BUBBLEWRAP_INSTALL_COMMAND
 
 
-def _policy(private_root: str = "/home/operator/private-pilot") -> dict[str, Any]:
+def _policy(
+    private_root: str = "/home/operator/private-pilot",
+    retained_root: str = "/home/operator/retained-pilot",
+) -> dict[str, Any]:
     return {
-        "schema_version": "1.0.0",
-        "contract_version": "av-atlas-pilot-security-policy/1.0.0",
+        "schema_version": "1.1.0",
+        "contract_version": "av-atlas-pilot-security-policy/1.1.0",
         "pilot_id": "PILOT_SYNTHETIC",
         "pilot_spec_sha256": "1" * 64,
         "pilot_spec_size_bytes": 512,
@@ -29,10 +32,32 @@ def _policy(private_root: str = "/home/operator/private-pilot") -> dict[str, Any
             "expected_mode": "0700",
             "mount_identity_sha256": "2" * 64,
         },
+        "retained_root": {
+            "path": retained_root,
+            "expected_device": 1,
+            "expected_inode": 3,
+            "expected_uid": 1000,
+            "expected_mode": "0700",
+            "mount_identity_sha256": "6" * 64,
+        },
         "storage": {
             "decision": "verified-tmpfs",
             "expected_filesystem_type": "tmpfs",
             "independently_reviewed": False,
+            "reviewer_pseudonym": None,
+            "review_record": None,
+            "review_scope": None,
+            "review_expires_at": None,
+            "compensating_controls": [],
+            "deletion_plan": None,
+            "tmpfs_swap_warning_acknowledged": True,
+            "secure_erasure_claimed": False,
+        },
+        "retained_storage": {
+            "decision": "verified-tmpfs",
+            "expected_filesystem_type": "tmpfs",
+            "independently_reviewed": False,
+            "reviewer_pseudonym": None,
             "review_record": None,
             "review_scope": None,
             "review_expires_at": None,
@@ -44,15 +69,18 @@ def _policy(private_root: str = "/home/operator/private-pilot") -> dict[str, Any
         "capacity": {
             "source_byte_ceiling": 1024,
             "temporary_byte_ceiling": 2048,
+            "retained_byte_ceiling": 4096,
             "reserve_bytes": 0,
+            "retained_reserve_bytes": 0,
         },
         "sandbox": {
             "provider": "bubblewrap",
-            "profile_contract_version": "av-atlas-bubblewrap-pilot/1.0.0",
+            "profile_contract_version": "av-atlas-bubblewrap-pilot/1.1.0",
             "profile_sha256": "3" * 64,
             "executable_basename": "bwrap",
             "executable_sha256": "4" * 64,
             "executable_size_bytes": 100,
+            "dependency_identity_sha256": "7" * 64,
             "version": "bubblewrap test",
             "capability_state": "passed",
         },
@@ -91,7 +119,7 @@ def test_policy_creation_fails_closed_when_bubblewrap_is_missing(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     monkeypatch.setattr(cli, "inspect_bubblewrap", lambda **_: _unavailable_bubblewrap())
-    monkeypatch.setattr(cli, "preflight_pilot_security_root", lambda *_: {})
+    monkeypatch.setattr(cli, "preflight_pilot_security_roots", lambda *_: ({}, {}))
 
     def reject(**kwargs: object) -> dict[str, Any]:
         inventory = kwargs["bubblewrap_inventory"]
@@ -105,6 +133,8 @@ def test_policy_creation_fails_closed_when_bubblewrap_is_missing(
             "pilot-security-create",
             "--root",
             str(tmp_path / "root"),
+            "--retained-root",
+            str(tmp_path / "retained"),
             "--pilot-id",
             "PILOT_SYNTHETIC",
             "--pilot-spec",
@@ -114,6 +144,8 @@ def test_policy_creation_fails_closed_when_bubblewrap_is_missing(
             "--expires-at",
             "2030-01-01T00:00:00Z",
             "--storage-decision",
+            "verified-tmpfs",
+            "--retained-storage-decision",
             "verified-tmpfs",
         ]
     )
@@ -127,7 +159,12 @@ def test_policy_inspection_never_prints_private_root(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     private_root = "/home/operator/secret pilot root"
-    monkeypatch.setattr(cli, "load_pilot_security_policy", lambda *_, **__: _policy(private_root))
+    retained_root = "/home/operator/secret retained root"
+    monkeypatch.setattr(
+        cli,
+        "load_pilot_security_policy",
+        lambda *_, **__: _policy(private_root, retained_root),
+    )
     assert cli.main(["pilot-security-inspect", str(tmp_path / "policy.json")]) == 0
     output = capsys.readouterr().out
     assert private_root not in output
@@ -140,6 +177,49 @@ def test_policy_inspection_never_prints_private_root(
         "path_redacted": True,
         "root_validation": "not-requested",
     }
+    assert retained_root not in output
+    assert value["retained_root"] == {
+        "expected_mode": "0700",
+        "identity_bound": True,
+        "path_redacted": True,
+        "root_validation": "not-requested",
+    }
+
+
+def test_annotation_package_command_never_prints_private_retained_path(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    private_pilot = Path("/home/operator/private-retained/pilot-package")
+    policy = tmp_path / "pilot-security-policy.local.json"
+    calls: list[tuple[Path, Path]] = []
+    monkeypatch.setattr(
+        cli,
+        "make_annotation_packages",
+        lambda pilot, security_policy: calls.append((pilot, security_policy)),
+    )
+
+    assert (
+        cli.main(
+            [
+                "pilot-annotation-packages",
+                str(private_pilot),
+                "--security-policy",
+                str(policy),
+            ]
+        )
+        == 0
+    )
+    output = capsys.readouterr().out
+    assert str(private_pilot) not in output
+    assert "/home/operator" not in output
+    assert json.loads(output) == {
+        "annotation_packages_created": 2,
+        "private_path_exported": False,
+        "state": "created",
+    }
+    assert calls == [(private_pilot, policy)]
 
 
 def test_policy_validation_rechecks_current_sandbox_after_root(
@@ -156,11 +236,16 @@ def test_policy_validation_rechecks_current_sandbox_after_root(
     )
     monkeypatch.setattr(
         cli,
+        "open_verified_retained_root",
+        lambda _policy: nullcontext(events.append("retained-root") or object()),
+    )
+    monkeypatch.setattr(
+        cli,
         "validate_current_pilot_sandbox",
         lambda _policy: events.append("sandbox") or {},
     )
     assert cli.main(["pilot-security-validate", str(tmp_path / "policy")]) == 0
-    assert events == ["root", "sandbox"]
+    assert events == ["root", "retained-root", "sandbox"]
     value = json.loads(capsys.readouterr().out)
     assert value["private_root"]["root_validation"] == "passed-with-current-sandbox"
 
@@ -171,11 +256,11 @@ def test_policy_create_forwards_capacity_review_and_resource_limits(
 ) -> None:
     captured: dict[str, Any] = {}
     monkeypatch.setattr(cli, "inspect_bubblewrap", lambda **_: {"state": "available"})
-    monkeypatch.setattr(cli, "preflight_pilot_security_root", lambda *_: {})
+    monkeypatch.setattr(cli, "preflight_pilot_security_roots", lambda *_: ({}, {}))
 
     def create(**kwargs: Any) -> dict[str, Any]:
         captured.update(kwargs)
-        return _policy(str(kwargs["root"]))
+        return _policy(str(kwargs["root"]), str(kwargs["retained_root"]))
 
     monkeypatch.setattr(cli, "create_pilot_security_policy", create)
     assert (
@@ -184,6 +269,8 @@ def test_policy_create_forwards_capacity_review_and_resource_limits(
                 "pilot-security-create",
                 "--root",
                 str(tmp_path / "root"),
+                "--retained-root",
+                str(tmp_path / "retained"),
                 "--pilot-id",
                 "PILOT_SYNTHETIC",
                 "--pilot-spec",
@@ -194,12 +281,18 @@ def test_policy_create_forwards_capacity_review_and_resource_limits(
                 "2030-01-01T00:00:00Z",
                 "--storage-decision",
                 "reviewed-remanence-acceptance",
+                "--retained-storage-decision",
+                "reviewed-remanence-acceptance",
                 "--source-byte-ceiling",
                 "1000",
                 "--temporary-byte-ceiling",
                 "2000",
                 "--reserve-bytes",
                 "3000",
+                "--retained-byte-ceiling",
+                "4000",
+                "--retained-reserve-bytes",
+                "5000",
                 "--reviewer-pseudonym",
                 "reviewer-A",
                 "--review-record",
@@ -233,6 +326,8 @@ def test_policy_create_forwards_capacity_review_and_resource_limits(
     assert captured["max_source_bytes"] == 1000
     assert captured["max_temporary_bytes"] == 2000
     assert captured["reserve_bytes"] == 3000
+    assert captured["max_retained_bytes"] == 4000
+    assert captured["retained_reserve_bytes"] == 5000
     assert captured["reviewer_pseudonym"] == "reviewer-A"
     assert captured["compensating_controls"] == ("encrypted host",)
     assert captured["resource_limits"] == {
@@ -263,7 +358,7 @@ def test_policy_create_rejects_private_root_before_bubblewrap_execution(
     monkeypatch.setattr(cli, "inspect_bubblewrap", inspect)
     monkeypatch.setattr(
         cli,
-        "preflight_pilot_security_root",
+        "preflight_pilot_security_roots",
         lambda *_: (_ for _ in ()).throw(AtlasError("synthetic unsafe root")),
     )
     result = cli.main(
@@ -271,6 +366,8 @@ def test_policy_create_rejects_private_root_before_bubblewrap_execution(
             "pilot-security-create",
             "--root",
             str(tmp_path / "unsafe"),
+            "--retained-root",
+            str(tmp_path / "retained"),
             "--pilot-id",
             "PILOT_SYNTHETIC",
             "--pilot-spec",
@@ -281,11 +378,72 @@ def test_policy_create_rejects_private_root_before_bubblewrap_execution(
             "2099-01-01T00:00:00Z",
             "--storage-decision",
             "verified-tmpfs",
+            "--retained-storage-decision",
+            "verified-tmpfs",
         ]
     )
     assert result == 2
     assert inspections == 0
     assert "synthetic unsafe root" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("exposed_argument", ["root", "retained-root"])
+def test_policy_create_public_entry_point_rejects_exposed_runtime_overlap_before_bubblewrap(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    exposed_argument: str,
+) -> None:
+    transient = tmp_path / "transient"
+    retained = tmp_path / "retained"
+    transient.mkdir(mode=0o700)
+    retained.mkdir(mode=0o700)
+    spec = tmp_path / "spec.json"
+    spec.write_text("{}\n", encoding="utf-8")
+    inspections = 0
+
+    def inspect(**_kwargs: object) -> dict[str, Any]:
+        nonlocal inspections
+        inspections += 1
+        raise AssertionError("runtime-overlapping root must stop before Bubblewrap inventory")
+
+    monkeypatch.setattr(cli, "inspect_bubblewrap", inspect)
+    root = Path("/usr/bin") if exposed_argument == "root" else transient
+    retained_root = Path("/usr/bin") if exposed_argument == "retained-root" else retained
+    result = cli.main(
+        [
+            "pilot-security-create",
+            "--root",
+            str(root),
+            "--retained-root",
+            str(retained_root),
+            "--pilot-id",
+            "PILOT_SYNTHETIC",
+            "--pilot-spec",
+            str(spec),
+            "--output",
+            str(tmp_path / "test.pilot-security-policy.local.json"),
+            "--expires-at",
+            "2099-01-01T00:00:00Z",
+            "--storage-decision",
+            "reviewed-encrypted-volume",
+            "--retained-storage-decision",
+            "reviewed-encrypted-volume",
+            "--source-byte-ceiling",
+            "1",
+            "--temporary-byte-ceiling",
+            "1",
+            "--retained-byte-ceiling",
+            "1",
+            "--reserve-bytes",
+            "0",
+            "--retained-reserve-bytes",
+            "0",
+        ]
+    )
+    assert result == 2
+    assert inspections == 0
+    assert "overlaps a sandbox-exposed host runtime subtree" in capsys.readouterr().err
 
 
 def test_synthetic_check_and_pilot_commands_forward_security_policy(
@@ -307,6 +465,11 @@ def test_synthetic_check_and_pilot_commands_forward_security_policy(
         cli,
         "run_pilot_ocr",
         lambda *args: calls.append(args) or {"state": "succeeded"},
+    )
+    monkeypatch.setattr(
+        cli,
+        "evaluate_pilot",
+        lambda *args: calls.append(args) or {"state": "evaluated"},
     )
     media = tmp_path / "fixture.mkv"
     rights = tmp_path / "fixture.rights.json"
@@ -355,10 +518,37 @@ def test_synthetic_check_and_pilot_commands_forward_security_policy(
         )
         == 0
     )
+    gold = tmp_path / "adjudicated-gold.json"
+    ocr_output = tmp_path / "ocr-output-package"
+    evaluation_output = tmp_path / "evaluation-output"
+    assert (
+        cli.main(
+            [
+                "pilot-evaluate",
+                str(tmp_path / "pilot"),
+                str(frozen),
+                str(gold),
+                str(ocr_output),
+                "--output",
+                str(evaluation_output),
+                "--security-policy",
+                str(policy),
+            ]
+        )
+        == 0
+    )
     assert calls == [
         (media, rights, spec, policy, output),
         (spec, output, policy),
         (tmp_path / "pilot", frozen, output, policy),
+        (
+            tmp_path / "pilot",
+            frozen,
+            gold,
+            ocr_output,
+            evaluation_output,
+            policy,
+        ),
     ]
 
 
@@ -369,6 +559,18 @@ def test_synthetic_check_and_pilot_commands_forward_security_policy(
         (
             ["pilot-run-ocr", "pilot", "frozen.json", "--output", "out"],
             "run_pilot_ocr",
+        ),
+        (
+            [
+                "pilot-evaluate",
+                "pilot",
+                "frozen.json",
+                "gold.json",
+                "ocr-output",
+                "--output",
+                "out",
+            ],
+            "evaluate_pilot",
         ),
     ],
 )

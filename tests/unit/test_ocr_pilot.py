@@ -9,11 +9,17 @@ import pytest
 from av_atlas.cli import main
 from av_atlas.errors import AtlasError
 from av_atlas.fixture import make_m2b_fixture
-from av_atlas.io import canonical_json, sha256_file, source_id_from_sha256
+from av_atlas.io import sha256_file, source_id_from_sha256
 from av_atlas.native_media import AUTHORIZED_MATROSKA, NativeInputPolicy
+from av_atlas.native_process import PROFILE_SHA256, PROFILE_VERSION, profile_record
 from av_atlas.ocr_pilot import (
+    _copy_verified_file,
+    _create_pinned_private_directory,
     _digest,
+    _open_pinned_retained_json,
     _runner_for_policy,
+    compare_annotations,
+    freeze_pilot,
     make_annotation_packages,
     prepare_pilot,
     run_pilot_ocr,
@@ -21,6 +27,8 @@ from av_atlas.ocr_pilot import (
 )
 from av_atlas.pilot_security import (
     create_pilot_security_policy,
+    load_pilot_security_policy,
+    open_verified_retained_root,
     validate_security_receipt,
 )
 from av_atlas.rights import create_rights_manifest
@@ -42,10 +50,13 @@ def _limits() -> dict[str, int]:
 
 
 def _inventory() -> dict[str, Any]:
+    profile = profile_record()
     return {
         "state": "available",
-        "profile_version": "av-atlas-bubblewrap-pilot/1.0.0",
-        "profile_sha256": "1" * 64,
+        "profile_version": PROFILE_VERSION,
+        "profile_sha256": PROFILE_SHA256,
+        "exposed_host_subtrees": profile["exposed_host_subtrees"],
+        "masked_host_subtrees": profile["masked_host_subtrees"],
         "executable": {
             "basename": "bwrap",
             "path_class": "system",
@@ -80,6 +91,7 @@ def _hostile_probe_result() -> dict[str, bool]:
         "home_directory_denied": True,
         "inherited_environment_denied": True,
         "hostname_sanitized": True,
+        "masked_runtime_sentinel_denied": True,
         "outside_write_positive_control": True,
     }
 
@@ -90,20 +102,26 @@ def _security_policy(
     *,
     max_source_bytes: int = 1_000_000,
     max_temporary_bytes: int = 2_000_000,
-) -> tuple[Path, Path]:
+    max_retained_bytes: int = 4_000_000,
+) -> tuple[Path, Path, Path]:
     tmp_path.mkdir(parents=True, exist_ok=True)
     root = tmp_path / "pilot-private"
     root.mkdir(mode=0o700)
     root.chmod(0o700)
+    retained_root = tmp_path / "pilot-retained"
+    retained_root.mkdir(mode=0o700)
+    retained_root.chmod(0o700)
     policy_path = tmp_path / "pilot-security-policy.local.json"
     pilot_id = str(json.loads(spec.read_text(encoding="utf-8"))["pilot_id"])
     create_pilot_security_policy(
         root=root,
+        retained_root=retained_root,
         pilot_id=pilot_id,
         pilot_spec=spec,
         output=policy_path,
         expires_at="2099-01-01T00:00:00+00:00",
         storage_decision="reviewed-remanence-acceptance",
+        retained_storage_decision="reviewed-remanence-acceptance",
         bubblewrap_inventory=_inventory(),
         resource_limits=_limits(),
         reviewer_pseudonym="REVIEWER_SECURITY",
@@ -113,16 +131,18 @@ def _security_policy(
         deletion_plan="logical unlink and bounded marker recovery",
         max_source_bytes=max_source_bytes,
         max_temporary_bytes=max_temporary_bytes,
+        max_retained_bytes=max_retained_bytes,
         reserve_bytes=1_000_000,
+        retained_reserve_bytes=1_000_000,
     )
-    return policy_path, root
+    return policy_path, root, retained_root
 
 
 def _fake_sandbox(monkeypatch: pytest.MonkeyPatch) -> object:
     runner = object()
     monkeypatch.setattr(
         "av_atlas.ocr_pilot._runner_for_policy",
-        lambda _policy, _root=None: (runner, _inventory()),
+        lambda _policy, _root=None, _retained_root=None: (runner, _inventory()),
     )
     monkeypatch.setattr(
         "av_atlas.ocr_pilot.run_hostile_sandbox_probes",
@@ -146,6 +166,36 @@ def _inventory_for_snapshot(path: Path) -> dict[str, Any]:
     }
 
 
+def _ocr_inventory() -> dict[str, Any]:
+    return {
+        "schema_version": "1.0.0",
+        "state": "available",
+        "engine": "tesseract",
+        "network_accessed": False,
+        "resolved_executable_path": "/usr/bin/tesseract",
+        "executable_sha256": "4" * 64,
+        "executable_size_bytes": 64_000,
+        "version": "tesseract 5.3.4",
+        "leptonica_version": "leptonica-1.82.0",
+        "reported_build_features": [],
+        "version_output": ["tesseract 5.3.4"],
+        "executable_package": None,
+        "tessdata_prefix": {"environment_value": None},
+        "discovered_tessdata_directories": ["/usr/share/tesseract-ocr/5/tessdata"],
+        "available_languages": ["eng"],
+        "language_data": [
+            {
+                "language": "eng",
+                "path": "/usr/share/tesseract-ocr/5/tessdata/eng.traineddata",
+                "sha256": "5" * 64,
+                "size_bytes": 4_113_088,
+                "package": None,
+            }
+        ],
+        "relevant_environment": {"TESSDATA_PREFIX": None},
+    }
+
+
 def _frozen_manifest(prepared: dict[str, Any]) -> dict[str, Any]:
     frozen = {
         **prepared,
@@ -162,6 +212,98 @@ def _frozen_manifest(prepared: dict[str, Any]) -> dict[str, Any]:
     }
     frozen["manifest_hash"] = _digest(frozen)
     return frozen
+
+
+def test_retained_json_is_stably_read_and_replacement_is_detected(tmp_path: Path) -> None:
+    spec = tmp_path / "spec.json"
+    spec.write_text('{"pilot_id":"PILOT_PINNED_JSON"}\n', encoding="utf-8")
+    policy_path, _, retained_root = _security_policy(tmp_path, spec)
+    package = retained_root / "package"
+    package.mkdir(mode=0o700)
+    retained_input = package / "input.json"
+    retained_input.write_text('{"value":"original"}\n', encoding="utf-8")
+    retained_input.chmod(0o600)
+    moved = package / "moved.json"
+    replacement = b'{"value":"replacement"}\n'
+    policy = load_pilot_security_policy(policy_path)
+
+    with (
+        open_verified_retained_root(policy) as root,
+        pytest.raises(AtlasError, match="JSON input identity changed"),
+        _open_pinned_retained_json(
+            root,
+            retained_input,
+            label="test retained JSON",
+        ) as pinned,
+    ):
+        assert pinned.value == {"value": "original"}
+        assert pinned.anchored_path == Path(f"/proc/self/fd/{pinned.descriptor}")
+        retained_input.rename(moved)
+        retained_input.write_bytes(replacement)
+        retained_input.chmod(0o600)
+
+    assert json.loads(moved.read_text(encoding="utf-8")) == {"value": "original"}
+    assert retained_input.read_bytes() == replacement
+
+
+def test_private_annotation_directory_replacement_cleans_only_original(
+    tmp_path: Path,
+) -> None:
+    spec = tmp_path / "spec.json"
+    spec.write_text('{"pilot_id":"PILOT_PINNED_PACKAGE"}\n', encoding="utf-8")
+    policy_path, _, retained_root = _security_policy(tmp_path, spec)
+    policy = load_pilot_security_policy(policy_path)
+
+    with (
+        open_verified_retained_root(policy) as root,
+        pytest.raises(AtlasError, match="package identity changed"),
+        _create_pinned_private_directory(root.descriptor, "annotator_A"),
+    ):
+        (retained_root / "annotator_A").rename(retained_root / "moved-original")
+        replacement = retained_root / "annotator_A"
+        replacement.mkdir(mode=0o700)
+        sentinel = replacement / "sentinel"
+        sentinel.write_bytes(b"replacement must survive cleanup")
+        sentinel.chmod(0o600)
+
+    assert not (retained_root / "moved-original").exists()
+    assert (retained_root / "annotator_A/sentinel").read_bytes() == (
+        b"replacement must survive cleanup"
+    )
+
+
+def test_derivative_copy_rejects_replacement_without_deleting_replacement(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from av_atlas import ocr_pilot
+
+    source = tmp_path / "source.png"
+    source.write_bytes(b"project-authored frame")
+    destination = tmp_path / "destination.png"
+    moved_original = tmp_path / "moved-original.png"
+    original_fsync = ocr_pilot.os.fsync
+    replaced = False
+
+    def replace_after_write(descriptor: int) -> None:
+        nonlocal replaced
+        original_fsync(descriptor)
+        if not replaced and destination.exists():
+            replaced = True
+            destination.rename(moved_original)
+            destination.write_bytes(b"replacement must survive")
+            destination.chmod(0o600)
+
+    monkeypatch.setattr(ocr_pilot.os, "fsync", replace_after_write)
+    with pytest.raises(AtlasError, match="destination changed"):
+        _copy_verified_file(
+            source,
+            destination,
+            expected_sha256=sha256_file(source),
+            expected_size=source.stat().st_size,
+        )
+
+    assert destination.read_bytes() == b"replacement must survive"
+    assert moved_original.read_bytes() == b"project-authored frame"
 
 
 def test_pilot_prepare_requires_policy_before_media_access(
@@ -198,6 +340,38 @@ def test_pilot_prepare_requires_policy_before_media_access(
     assert not (tmp_path / "output").exists()
 
 
+def test_pilot_prepare_rejects_exposed_spec_before_read_or_native_work(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from av_atlas import ocr_pilot
+
+    reads = 0
+    native_calls = 0
+
+    def forbidden_read(*_args: object, **_kwargs: object) -> None:
+        nonlocal reads
+        reads += 1
+        raise AssertionError("exposed pilot specification must fail before reading")
+
+    def forbidden_native(*_args: object, **_kwargs: object) -> None:
+        nonlocal native_calls
+        native_calls += 1
+        raise AssertionError("exposed pilot specification must fail before native work")
+
+    monkeypatch.setattr(ocr_pilot, "load_bound_json", forbidden_read)
+    monkeypatch.setattr(ocr_pilot, "_runner_for_policy", forbidden_native)
+    with pytest.raises(AtlasError, match="overlaps a sandbox-exposed"):
+        prepare_pilot(
+            Path("/usr/bin/av-atlas-pilot-spec.json"),
+            tmp_path / "output",
+            tmp_path / "policy.local.json",
+        )
+
+    assert reads == 0
+    assert native_calls == 0
+    assert not (tmp_path / "output").exists()
+
+
 def test_pilot_prepare_rejects_undersized_spec_before_media_access(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -216,7 +390,7 @@ def test_pilot_prepare_rejects_undersized_spec_before_media_access(
             }
         )
     )
-    policy, _ = _security_policy(tmp_path, spec)
+    policy, _, retained_root = _security_policy(tmp_path, spec)
     calls = 0
 
     def forbidden(*_args: object, **_kwargs: object) -> None:
@@ -227,12 +401,12 @@ def test_pilot_prepare_rejects_undersized_spec_before_media_access(
     monkeypatch.setattr("av_atlas.ocr_pilot.inspect_media", forbidden)
     monkeypatch.setattr("av_atlas.ocr_pilot._runner_for_policy", forbidden)
     with pytest.raises(AtlasError, match="at least three"):
-        prepare_pilot(spec, tmp_path / "output", policy)
+        prepare_pilot(spec, retained_root / "output", policy)
     assert calls == 0
-    assert not (tmp_path / "output").exists()
+    assert not (retained_root / "output").exists()
 
 
-def test_annotation_packages_are_blank_and_separate(tmp_path: Path) -> None:
+def test_legacy_pilot_execution_cannot_create_annotation_derivatives(tmp_path: Path) -> None:
     pilot = tmp_path / "pilot"
     (pilot / "frames").mkdir(parents=True)
     frames = []
@@ -271,14 +445,30 @@ def test_annotation_packages_are_blank_and_separate(tmp_path: Path) -> None:
     }
     manifest["manifest_hash"] = _digest(manifest)
     (pilot / "pilot_manifest.json").write_text(json.dumps(manifest))
-    make_annotation_packages(pilot)
-    first = json.loads((pilot / "annotator_A/annotation.json").read_text())
-    second = json.loads((pilot / "annotator_B/annotation.json").read_text())
-    validate_instance("ocr_human_annotation", first, "A")
-    assert first["frames"][0]["exact_transcription"] is None
-    assert first["independence_attestation"] is False
-    assert first["annotator_pseudonym"] != second["annotator_pseudonym"]
-    assert canonical_json(first["frames"]) == canonical_json(second["frames"])
+    validate_instance("ocr_pilot_manifest", manifest, "legacy pilot manifest")
+    with pytest.raises(AtlasError, match="explicit private security policy"):
+        make_annotation_packages(pilot)
+    comparison_output = tmp_path / "comparison"
+    with pytest.raises(AtlasError, match="explicit private security policy"):
+        compare_annotations(
+            pilot,
+            tmp_path / "unused-first.json",
+            tmp_path / "unused-second.json",
+            comparison_output,
+        )
+    freeze_output = tmp_path / "freeze"
+    with pytest.raises(AtlasError, match="explicit private security policy"):
+        freeze_pilot(
+            pilot,
+            tmp_path / "unused-first.json",
+            tmp_path / "unused-second.json",
+            tmp_path / "unused-gold.json",
+            freeze_output,
+        )
+    assert not (pilot / "annotator_A").exists()
+    assert not (pilot / "annotator_B").exists()
+    assert not comparison_output.exists()
+    assert not freeze_output.exists()
 
 
 def test_pilot_cli_reports_fail_closed_error(tmp_path: Path) -> None:
@@ -363,7 +553,7 @@ def test_pilot_denied_later_source_invokes_no_parser_or_subprocess(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     spec = _pilot_spec(tmp_path, deny_last=True)
-    policy, _ = _security_policy(tmp_path, spec)
+    policy, _, retained_root = _security_policy(tmp_path, spec)
     calls = 0
 
     def forbidden(*args: object, **kwargs: object) -> None:
@@ -375,9 +565,9 @@ def test_pilot_denied_later_source_invokes_no_parser_or_subprocess(
     monkeypatch.setattr("av_atlas.ocr_pilot._runner_for_policy", forbidden)
     monkeypatch.setattr("av_atlas.ocr_pilot._extract_frame", forbidden)
     with pytest.raises(AtlasError, match="requested operation: analysis"):
-        prepare_pilot(spec, tmp_path / "pilot", policy)
+        prepare_pilot(spec, retained_root / "pilot", policy)
     assert calls == 0
-    assert not (tmp_path / "pilot").exists()
+    assert not (retained_root / "pilot").exists()
 
 
 def test_pilot_rehashed_rights_after_all_source_preflight_invokes_no_parser(
@@ -387,7 +577,7 @@ def test_pilot_rehashed_rights_after_all_source_preflight_invokes_no_parser(
     from av_atlas.rights import manifest_digest
 
     spec = _pilot_spec(tmp_path)
-    policy, _ = _security_policy(tmp_path, spec)
+    policy, _, retained_root = _security_policy(tmp_path, spec)
     sources = json.loads(spec.read_text())["sources"]
     rights_path = Path(sources[0]["rights_manifest_path"])
     original_preflight = ocr_pilot.preflight_authorized_source
@@ -414,7 +604,7 @@ def test_pilot_rehashed_rights_after_all_source_preflight_invokes_no_parser(
     _fake_sandbox(monkeypatch)
     monkeypatch.setattr(ocr_pilot, "inspect_media", forbidden)
     monkeypatch.setattr(ocr_pilot, "_extract_frame", forbidden)
-    output = tmp_path / "pilot"
+    output = retained_root / "pilot"
     with pytest.raises(AtlasError, match="expected rights manifest hash"):
         prepare_pilot(spec, output, policy)
     assert preflight_calls == 3
@@ -426,7 +616,7 @@ def test_synthetic_pilot_preparation_parses_and_extracts_only_from_snapshots(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     spec = _pilot_spec(tmp_path)
-    policy, root = _security_policy(tmp_path, spec)
+    policy, root, retained_root = _security_policy(tmp_path, spec)
     runner = _fake_sandbox(monkeypatch)
     original_paths = {
         Path(source["media_path"]) for source in json.loads(spec.read_text())["sources"]
@@ -482,7 +672,7 @@ def test_synthetic_pilot_preparation_parses_and_extracts_only_from_snapshots(
 
     monkeypatch.setattr("av_atlas.ocr_pilot.inspect_media", inspect)
     monkeypatch.setattr("av_atlas.ocr_pilot._extract_frame", extract)
-    pilot = tmp_path / "pilot"
+    pilot = retained_root / "pilot"
     manifest = prepare_pilot(spec, pilot, policy)
     assert manifest["counts"] == {
         "sources": 3,
@@ -514,7 +704,14 @@ def test_synthetic_pilot_preparation_parses_and_extracts_only_from_snapshots(
     assert linkage["state"] == "valid"
     assert linkage["local_policy_verified"] is True
 
-    replacement_policy, _ = _security_policy(tmp_path / "replacement-policy", spec)
+    from av_atlas.pilot_security import _digest as security_digest
+
+    replacement_policy = tmp_path / "replacement-policy.local.json"
+    replacement_value = json.loads(policy.read_text(encoding="utf-8"))
+    replacement_value["expires_at"] = "2098-01-01T00:00:00+00:00"
+    replacement_value["policy_hash"] = security_digest(replacement_value, "policy_hash")
+    replacement_policy.write_text(json.dumps(replacement_value), encoding="utf-8")
+    replacement_policy.chmod(0o600)
     with pytest.raises(AtlasError, match="linked to another policy"):
         validate_pilot_security_artifacts(
             pilot,
@@ -522,11 +719,62 @@ def test_synthetic_pilot_preparation_parses_and_extracts_only_from_snapshots(
         )
 
 
+def test_current_annotation_packages_are_private_bounded_and_rollback_together(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from av_atlas import ocr_pilot
+
+    spec = _pilot_spec(tmp_path)
+    policy, _, retained_root = _security_policy(tmp_path, spec)
+    _fake_sandbox(monkeypatch)
+    monkeypatch.setattr(
+        "av_atlas.ocr_pilot.inspect_media",
+        lambda path, **_kwargs: _inventory_for_snapshot(path),
+    )
+    monkeypatch.setattr(
+        "av_atlas.ocr_pilot._extract_frame",
+        lambda _path, timestamp_ms, output, _policy, **_kwargs: output.write_bytes(
+            f"synthetic-frame-{timestamp_ms}".encode()
+        ),
+    )
+    pilot = retained_root / "pilot"
+    prepare_pilot(spec, pilot, policy)
+    original_write = ocr_pilot._write_pinned_package_bytes
+    writes = 0
+
+    def fail_second(*args: object, **kwargs: object) -> None:
+        nonlocal writes
+        writes += 1
+        if writes == 2:
+            raise AtlasError("injected bounded annotation write failure")
+        original_write(*args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(ocr_pilot, "_write_pinned_package_bytes", fail_second)
+    with pytest.raises(AtlasError, match="injected bounded annotation write failure"):
+        make_annotation_packages(pilot, policy)
+    assert not (pilot / "annotator_A").exists()
+    assert not (pilot / "annotator_B").exists()
+    assert not list(pilot.glob("annotation-*.pending.json"))
+
+    monkeypatch.setattr(ocr_pilot, "_write_pinned_package_bytes", original_write)
+    make_annotation_packages(pilot, policy)
+    for label in ("A", "B"):
+        package = pilot / f"annotator_{label}"
+        annotation = package / "annotation.json"
+        assert package.stat().st_mode & 0o777 == 0o700
+        assert (package / "frames").stat().st_mode & 0o777 == 0o700
+        assert annotation.stat().st_mode & 0o777 == 0o600
+        assert json.loads(annotation.read_text(encoding="utf-8"))["annotator_pseudonym"] == (
+            f"ANNOTATOR_{label}"
+        )
+    assert not list(pilot.glob("annotation-*.pending.json"))
+
+
 def test_valid_prepared_frozen_to_sandboxed_ocr_transition(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     spec = _pilot_spec(tmp_path)
-    policy, root = _security_policy(tmp_path, spec)
+    policy, root, retained_root = _security_policy(tmp_path, spec)
     _fake_sandbox(monkeypatch)
 
     def inspect(path: Path, **_kwargs: object) -> dict[str, Any]:
@@ -543,16 +791,17 @@ def test_valid_prepared_frozen_to_sandboxed_ocr_transition(
 
     monkeypatch.setattr("av_atlas.ocr_pilot.inspect_media", inspect)
     monkeypatch.setattr("av_atlas.ocr_pilot._extract_frame", extract)
-    pilot = tmp_path / "pilot"
+    pilot = retained_root / "pilot"
     prepared = prepare_pilot(spec, pilot, policy)
     frozen = _frozen_manifest(prepared)
     validate_instance("ocr_pilot_manifest", frozen, "frozen sandboxed pilot")
     frozen_path = pilot / "frozen.json"
     frozen_path.write_text(json.dumps(frozen), encoding="utf-8")
+    frozen_path.chmod(0o600)
     _fake_sandbox(monkeypatch)
     monkeypatch.setattr(
         "av_atlas.ocr_pilot.inspect_ocr",
-        lambda *_args, **_kwargs: {"state": "available"},
+        lambda *_args, **_kwargs: _ocr_inventory(),
     )
 
     def fake_ocr(_self: object, context: object) -> SimpleNamespace:
@@ -567,6 +816,7 @@ def test_valid_prepared_frozen_to_sandboxed_ocr_transition(
                     "retries": 0,
                     "timeouts": 0,
                     "frames_processed": 20,
+                    "failures": 0,
                 }
             ),
             encoding="utf-8",
@@ -574,7 +824,7 @@ def test_valid_prepared_frozen_to_sandboxed_ocr_transition(
         return SimpleNamespace(result=SimpleNamespace(status="success_zero"))
 
     monkeypatch.setattr("av_atlas.ocr_pilot.TesseractOcrAdapter.run", fake_ocr)
-    output = tmp_path / "ocr-output"
+    output = retained_root / "ocr-output"
     result = run_pilot_ocr(pilot, frozen_path, output, policy)
     assert result["observations"] == 0
     assert result["frames_processed"] == 60
@@ -584,6 +834,32 @@ def test_valid_prepared_frozen_to_sandboxed_ocr_transition(
     )
     assert str(root) not in rendered
     assert str(tmp_path) not in rendered
+
+    moved_frozen = pilot / "frozen-original.json"
+    mutated = False
+
+    def mutate_frozen_during_ocr(_self: object, context: object) -> SimpleNamespace:
+        nonlocal mutated
+        result = fake_ocr(_self, context)
+        if not mutated:
+            frozen_path.rename(moved_frozen)
+            replacement = {**frozen, "disagreement_count": 1, "manifest_hash": ""}
+            replacement["manifest_hash"] = _digest(replacement)
+            frozen_path.write_text(json.dumps(replacement), encoding="utf-8")
+            frozen_path.chmod(0o600)
+            mutated = True
+        return result
+
+    monkeypatch.setattr(
+        "av_atlas.ocr_pilot.TesseractOcrAdapter.run",
+        mutate_frozen_during_ocr,
+    )
+    replaced_output = retained_root / "replaced-input-ocr-output"
+    with pytest.raises(AtlasError, match="JSON input identity changed"):
+        run_pilot_ocr(pilot, frozen_path, replaced_output, policy)
+    assert not replaced_output.exists()
+    frozen_path.unlink()
+    moved_frozen.rename(frozen_path)
 
     native_calls = 0
 
@@ -599,11 +875,12 @@ def test_valid_prepared_frozen_to_sandboxed_ocr_transition(
         malformed["manifest_hash"] = _digest(malformed)
         malformed_path = pilot / f"malformed-{field}.json"
         malformed_path.write_text(json.dumps(malformed), encoding="utf-8")
+        malformed_path.chmod(0o600)
         with pytest.raises(AtlasError, match="schema validation failed"):
             run_pilot_ocr(
                 pilot,
                 malformed_path,
-                tmp_path / f"malformed-output-{field}",
+                retained_root / f"malformed-output-{field}",
                 policy,
             )
     assert native_calls == 0
@@ -622,7 +899,7 @@ def test_mid_source_policy_or_storage_review_expiry_stops_prepare_and_emits_no_r
     from av_atlas import pilot_security
 
     spec = _pilot_spec(tmp_path)
-    policy_path, root = _security_policy(tmp_path, spec)
+    policy_path, root, retained_root = _security_policy(tmp_path, spec)
     policy_value = json.loads(policy_path.read_text(encoding="utf-8"))
     policy_value["expires_at"] = (
         "2099-01-01T00:00:00+00:00" if expiry_kind == "policy" else "2200-01-01T00:00:00+00:00"
@@ -662,7 +939,7 @@ def test_mid_source_policy_or_storage_review_expiry_stops_prepare_and_emits_no_r
 
     monkeypatch.setattr("av_atlas.ocr_pilot.inspect_media", inspect)
     monkeypatch.setattr("av_atlas.ocr_pilot._extract_frame", extract)
-    output = tmp_path / "expired-output"
+    output = retained_root / "expired-output"
     with pytest.raises(AtlasError, match=message):
         prepare_pilot(spec, output, policy_path)
 
@@ -677,10 +954,14 @@ def test_policy_bound_runner_rechecks_policy_and_root_before_every_native_unit(
 ) -> None:
     from av_atlas import ocr_pilot
     from av_atlas.native_process import PROFILE_SHA256, PROFILE_VERSION
-    from av_atlas.pilot_security import load_pilot_security_policy, open_verified_pilot_root
+    from av_atlas.pilot_security import (
+        load_pilot_security_policy,
+        open_verified_pilot_root,
+        open_verified_retained_root,
+    )
 
     spec = _pilot_spec(tmp_path)
-    policy_path, root_path = _security_policy(tmp_path, spec)
+    policy_path, root_path, _ = _security_policy(tmp_path, spec)
     policy = load_pilot_security_policy(policy_path)
     inventory_record = _inventory()
     inventory_record["profile_version"] = PROFILE_VERSION
@@ -712,8 +993,11 @@ def test_policy_bound_runner_rechecks_policy_and_root_before_every_native_unit(
             return object()
 
     monkeypatch.setattr(ocr_pilot, "BubblewrapNativeRunner", GuardRecordingRunner)
-    with open_verified_pilot_root(policy) as root:
-        runner, _ = _runner_for_policy(policy, root)
+    with (
+        open_verified_pilot_root(policy) as root,
+        open_verified_retained_root(policy) as retained_root,
+    ):
+        runner, _ = _runner_for_policy(policy, root, retained_root)
         runner.run(object())  # type: ignore[arg-type]
         assert executed == 1
         policy["expires_at"] = "2000-01-01T00:00:00+00:00"
@@ -724,8 +1008,11 @@ def test_policy_bound_runner_rechecks_policy_and_root_before_every_native_unit(
     policy = load_pilot_security_policy(policy_path)
     policy["sandbox"]["profile_contract_version"] = PROFILE_VERSION
     policy["sandbox"]["profile_sha256"] = PROFILE_SHA256
-    with open_verified_pilot_root(policy) as root:
-        runner, _ = _runner_for_policy(policy, root)
+    with (
+        open_verified_pilot_root(policy) as root,
+        open_verified_retained_root(policy) as retained_root,
+    ):
+        runner, _ = _runner_for_policy(policy, root, retained_root)
         root_path.chmod(0o755)
         try:
             with pytest.raises(AtlasError, match="identity, owner, or permissions"):
@@ -741,7 +1028,7 @@ def test_mid_source_policy_expiry_stops_pilot_ocr_and_emits_no_success_receipt(
     from av_atlas import pilot_security
 
     spec = _pilot_spec(tmp_path)
-    policy, root = _security_policy(tmp_path, spec)
+    policy, root, retained_root = _security_policy(tmp_path, spec)
     _fake_sandbox(monkeypatch)
     monkeypatch.setattr(
         "av_atlas.ocr_pilot.inspect_media",
@@ -753,10 +1040,11 @@ def test_mid_source_policy_expiry_stops_pilot_ocr_and_emits_no_success_receipt(
             f"synthetic-frame-{timestamp_ms}".encode()
         ),
     )
-    pilot = tmp_path / "pilot"
+    pilot = retained_root / "pilot"
     frozen = _frozen_manifest(prepare_pilot(spec, pilot, policy))
     frozen_path = pilot / "frozen.json"
     frozen_path.write_text(json.dumps(frozen), encoding="utf-8")
+    frozen_path.chmod(0o600)
 
     expired = False
     monkeypatch.setattr(
@@ -767,7 +1055,7 @@ def test_mid_source_policy_expiry_stops_pilot_ocr_and_emits_no_success_receipt(
     _fake_sandbox(monkeypatch)
     monkeypatch.setattr(
         "av_atlas.ocr_pilot.inspect_ocr",
-        lambda *_args, **_kwargs: {"state": "available"},
+        lambda *_args, **_kwargs: _ocr_inventory(),
     )
     ocr_calls = 0
 
@@ -785,6 +1073,7 @@ def test_mid_source_policy_expiry_stops_pilot_ocr_and_emits_no_success_receipt(
                     "retries": 0,
                     "timeouts": 0,
                     "frames_processed": 20,
+                    "failures": 0,
                 }
             ),
             encoding="utf-8",
@@ -793,13 +1082,97 @@ def test_mid_source_policy_expiry_stops_pilot_ocr_and_emits_no_success_receipt(
         return SimpleNamespace(result=SimpleNamespace(status="success_zero"))
 
     monkeypatch.setattr("av_atlas.ocr_pilot.TesseractOcrAdapter.run", fake_ocr)
-    output = tmp_path / "expired-ocr-output"
+    output = retained_root / "expired-ocr-output"
     with pytest.raises(AtlasError, match="policy has expired"):
         run_pilot_ocr(pilot, frozen_path, output, policy)
 
     assert ocr_calls == 1
     assert not output.exists()
     assert not any(root.iterdir())
+    assert {item.name for item in retained_root.iterdir()} == {pilot.name}
+
+
+def test_synthetic_check_rejects_output_outside_policy_retained_root_before_sandbox(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from av_atlas.ocr_pilot import run_synthetic_pilot_security_check
+
+    media = make_m2b_fixture(tmp_path / "controlled-fixture")
+    media_hash = sha256_file(media)
+    source_id = source_id_from_sha256(media_hash)
+    rights = tmp_path / "synthetic.rights.json"
+    create_rights_manifest(
+        media,
+        rights,
+        "m2b3-retained-output-test",
+        "synthetic-controlled",
+        {"analysis", "evaluation", "derivative_artifact_retention"},
+    )
+    spec = tmp_path / "synthetic-pilot-spec.json"
+    spec.write_text(
+        json.dumps(
+            {
+                "schema_version": "1.0.0",
+                "pilot_id": "PILOT_M2B3_RETAINED_OUTPUT_TEST",
+                "source_sha256": media_hash,
+                "source_id": source_id,
+                "timestamp_ms": 1000,
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    policy, root, retained_root = _security_policy(
+        tmp_path,
+        spec,
+        max_source_bytes=64 * 1024 * 1024,
+        max_temporary_bytes=256 * 1024 * 1024,
+    )
+    sandbox_calls = 0
+
+    def forbidden_sandbox(*_args: object, **_kwargs: object) -> None:
+        nonlocal sandbox_calls
+        sandbox_calls += 1
+        raise AssertionError("out-of-policy output must fail before sandbox execution")
+
+    monkeypatch.setattr("av_atlas.ocr_pilot._runner_for_policy", forbidden_sandbox)
+    output = tmp_path / "outside-retained-root"
+    with pytest.raises(AtlasError, match="direct child"):
+        run_synthetic_pilot_security_check(media, rights, spec, policy, output)
+
+    assert sandbox_calls == 0
+    assert not output.exists()
+    assert not any(root.iterdir())
+    assert not any(retained_root.iterdir())
+
+
+def test_synthetic_check_rejects_exposed_source_before_authorization_or_native_work(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from av_atlas.ocr_pilot import run_synthetic_pilot_security_check
+
+    exposed_source = Path("/usr/bin/ffprobe")
+    if not exposed_source.exists():
+        pytest.skip("system FFprobe path is unavailable")
+    calls = 0
+
+    def forbidden(*_args: object, **_kwargs: object) -> None:
+        nonlocal calls
+        calls += 1
+        raise AssertionError("exposed source must fail before authorization or native work")
+
+    monkeypatch.setattr("av_atlas.ocr_pilot.preflight_authorized_source", forbidden)
+    monkeypatch.setattr("av_atlas.ocr_pilot._runner_for_policy", forbidden)
+    with pytest.raises(AtlasError, match="overlaps a sandbox-exposed"):
+        run_synthetic_pilot_security_check(
+            exposed_source,
+            tmp_path / "unused-rights.json",
+            tmp_path / "unused-spec.json",
+            tmp_path / "unused-policy.json",
+            tmp_path / "unused-output",
+        )
+    assert calls == 0
 
 
 def test_mid_unit_policy_expiry_stops_synthetic_check_before_receipt_or_report(
@@ -833,7 +1206,7 @@ def test_mid_unit_policy_expiry_stops_synthetic_check_before_receipt_or_report(
         + "\n",
         encoding="utf-8",
     )
-    policy, root = _security_policy(
+    policy, root, retained_root = _security_policy(
         tmp_path,
         spec,
         max_source_bytes=64 * 1024 * 1024,
@@ -878,7 +1251,7 @@ def test_mid_unit_policy_expiry_stops_synthetic_check_before_receipt_or_report(
         return SimpleNamespace(result=SimpleNamespace(status="success_zero"))
 
     monkeypatch.setattr("av_atlas.ocr_pilot.TesseractOcrAdapter.run", fake_ocr)
-    output = tmp_path / "expired-synthetic-output"
+    output = retained_root / "expired-synthetic-output"
     with pytest.raises(AtlasError, match="policy has expired"):
         from av_atlas.ocr_pilot import run_synthetic_pilot_security_check
 
@@ -896,14 +1269,14 @@ def test_pilot_prepare_cleans_private_and_public_output_on_failure_or_interrupti
     failure: BaseException,
 ) -> None:
     spec = _pilot_spec(tmp_path)
-    policy, root = _security_policy(tmp_path, spec)
+    policy, root, retained_root = _security_policy(tmp_path, spec)
     _fake_sandbox(monkeypatch)
 
     def fail(*_args: object, **_kwargs: object) -> None:
         raise failure
 
     monkeypatch.setattr("av_atlas.ocr_pilot.inspect_media", fail)
-    output = tmp_path / "pilot"
+    output = retained_root / "pilot"
     with pytest.raises(type(failure)):
         prepare_pilot(spec, output, policy)
     assert not output.exists()
@@ -916,7 +1289,7 @@ def test_pilot_policy_spec_expiry_and_root_replacement_fail_before_parser(
     from av_atlas.pilot_security import _digest as security_digest
 
     spec = _pilot_spec(tmp_path)
-    policy_path, root = _security_policy(tmp_path, spec)
+    policy_path, root, retained_root = _security_policy(tmp_path, spec)
     parser_calls = 0
 
     def forbidden(*_args: object, **_kwargs: object) -> None:
@@ -932,23 +1305,23 @@ def test_pilot_policy_spec_expiry_and_root_replacement_fail_before_parser(
     changed["selection_method"] = "changed after policy freeze"
     spec.write_text(json.dumps(changed))
     with pytest.raises(AtlasError, match="does not match the pilot specification"):
-        prepare_pilot(spec, tmp_path / "spec-mismatch", policy_path)
+        prepare_pilot(spec, retained_root / "spec-mismatch", policy_path)
     assert parser_calls == 0
 
     # Restore the exact spec and create a separately valid policy to test expiry.
     spec = _pilot_spec(tmp_path / "expiry")
-    policy_path, _ = _security_policy(tmp_path / "expiry", spec)
+    policy_path, _, expired_retained_root = _security_policy(tmp_path / "expiry", spec)
     value = json.loads(policy_path.read_text())
     value["expires_at"] = "2000-01-01T00:00:00+00:00"
     value["policy_hash"] = security_digest(value, "policy_hash")
     policy_path.write_text(json.dumps(value))
     policy_path.chmod(0o600)
     with pytest.raises(AtlasError, match="has expired"):
-        prepare_pilot(spec, tmp_path / "expired", policy_path)
+        prepare_pilot(spec, expired_retained_root / "expired", policy_path)
     assert parser_calls == 0
 
     spec = _pilot_spec(tmp_path / "replacement")
-    policy_path, root = _security_policy(tmp_path / "replacement", spec)
+    policy_path, root, replacement_retained_root = _security_policy(tmp_path / "replacement", spec)
     moved = root.with_name("pilot-private-original")
     root.rename(moved)
     root.mkdir(mode=0o700)
@@ -963,10 +1336,10 @@ def test_pilot_policy_spec_expiry_and_root_replacement_fail_before_parser(
     monkeypatch.setattr("av_atlas.ocr_pilot._runner_for_policy", forbidden_sandbox)
     monkeypatch.setattr("av_atlas.ocr_pilot.inspect_media", forbidden)
     with pytest.raises(AtlasError, match="identity"):
-        prepare_pilot(spec, tmp_path / "root-replaced", policy_path)
+        prepare_pilot(spec, replacement_retained_root / "root-replaced", policy_path)
     assert parser_calls == 0
     assert sandbox_calls == 0
-    assert not (tmp_path / "root-replaced").exists()
+    assert not (replacement_retained_root / "root-replaced").exists()
 
 
 def test_pilot_ocr_requires_policy_and_rejects_historical_execution(
@@ -990,9 +1363,21 @@ def test_pilot_ocr_requires_policy_and_rejects_historical_execution(
 
     spec = tmp_path / "spec.json"
     spec.write_text('{"pilot_id":"PILOT_HISTORICAL"}\n')
-    policy, _ = _security_policy(tmp_path, spec)
-    with pytest.raises(AtlasError, match="manifest contract 1.1.0"):
-        run_pilot_ocr(pilot, frozen_path, tmp_path / "ocr", policy)
+    policy, _, retained_root = _security_policy(tmp_path, spec)
+    historical_pilot = retained_root / "historical-pilot"
+    historical_pilot.mkdir(mode=0o700)
+    frozen["ocr_configuration_sha256"] = sha256_file(Path(__file__).parents[2] / "configs/m2b.yaml")
+    frozen["manifest_hash"] = _digest(frozen)
+    historical_frozen = historical_pilot / "frozen.json"
+    historical_frozen.write_text(json.dumps(frozen), encoding="utf-8")
+    historical_frozen.chmod(0o600)
+    with pytest.raises(AtlasError, match="manifest contract 1.1.0 or 1.2.0"):
+        run_pilot_ocr(
+            historical_pilot,
+            historical_frozen,
+            retained_root / "ocr",
+            policy,
+        )
 
 
 def test_historical_pilot_manifest_remains_schema_compatible(tmp_path: Path) -> None:

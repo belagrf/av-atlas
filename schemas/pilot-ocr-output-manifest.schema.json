@@ -1,0 +1,187 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://av-atlas.local/schemas/pilot-ocr-output-manifest/1.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "contract_version",
+    "state",
+    "pilot_id",
+    "output_binding",
+    "output_binding_sha256",
+    "completion_receipt",
+    "manifest_hash"
+  ],
+  "properties": {
+    "schema_version": {"const": "1.0.0"},
+    "contract_version": {"const": "av-atlas-pilot-ocr-output/1.0.0"},
+    "state": {"const": "complete"},
+    "pilot_id": {"type": "string", "pattern": "^PILOT_[A-Z0-9_-]+$"},
+    "output_binding": {"$ref": "#/$defs/outputBinding"},
+    "output_binding_sha256": {"$ref": "#/$defs/sha256"},
+    "completion_receipt": {"$ref": "#/$defs/completionReceipt"},
+    "manifest_hash": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "fileIdentity": {
+      "type": "object",
+      "required": ["sha256", "size_bytes"],
+      "properties": {
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "size_bytes": {"type": "integer", "minimum": 0, "maximum": 1073741824}
+      }
+    },
+    "preparedReceipt": {
+      "unevaluatedProperties": false,
+      "allOf": [
+        {"$ref": "#/$defs/fileIdentity"},
+        {
+          "type": "object",
+          "required": ["path", "embedded_receipt_hash", "stage"],
+          "properties": {
+            "path": {"const": "pilot_security_receipt.json"},
+            "embedded_receipt_hash": {"$ref": "#/$defs/sha256"},
+            "stage": {"const": "prepared"}
+          }
+        }
+      ]
+    },
+    "artifact": {
+      "unevaluatedProperties": false,
+      "allOf": [
+        {"$ref": "#/$defs/fileIdentity"},
+        {
+          "type": "object",
+          "required": ["path", "schema_version"],
+          "properties": {
+            "path": {"type": "string", "pattern": "^[a-z0-9_.-]+$"},
+            "schema_version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"}
+          }
+        }
+      ]
+    },
+    "counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "frames",
+        "observations",
+        "evidence_entries",
+        "source_frame_evidence_entries",
+        "ocr_evidence_entries"
+      ],
+      "properties": {
+        "frames": {"type": "integer", "minimum": 0},
+        "observations": {"type": "integer", "minimum": 0},
+        "evidence_entries": {"type": "integer", "minimum": 0},
+        "source_frame_evidence_entries": {"type": "integer", "minimum": 0},
+        "ocr_evidence_entries": {"type": "integer", "minimum": 0}
+      }
+    },
+    "outputBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contract_version",
+        "pilot_id",
+        "pilot_spec_sha256",
+        "pilot_spec_size_bytes",
+        "frozen_manifest",
+        "policy_sha256",
+        "prepared_receipt",
+        "source_set_sha256",
+        "source_rights_aggregate_sha256",
+        "ocr_configuration_sha256",
+        "ocr_configuration_size_bytes",
+        "retained_storage",
+        "ocr_dependency_identity_sha256",
+        "artifacts",
+        "counts",
+        "semantic_output_sha256"
+      ],
+      "properties": {
+        "contract_version": {
+          "const": "av-atlas-pilot-ocr-output-binding/1.0.0"
+        },
+        "pilot_id": {"type": "string", "pattern": "^PILOT_[A-Z0-9_-]+$"},
+        "pilot_spec_sha256": {"$ref": "#/$defs/sha256"},
+        "pilot_spec_size_bytes": {"type": "integer", "minimum": 1, "maximum": 1000000},
+        "frozen_manifest": {
+          "unevaluatedProperties": false,
+          "allOf": [
+            {"$ref": "#/$defs/fileIdentity"},
+            {
+              "type": "object",
+              "required": ["embedded_manifest_hash"],
+              "properties": {
+                "embedded_manifest_hash": {"$ref": "#/$defs/sha256"}
+              }
+            }
+          ]
+        },
+        "policy_sha256": {"$ref": "#/$defs/sha256"},
+        "prepared_receipt": {"$ref": "#/$defs/preparedReceipt"},
+        "source_set_sha256": {"$ref": "#/$defs/sha256"},
+        "source_rights_aggregate_sha256": {"$ref": "#/$defs/sha256"},
+        "ocr_configuration_sha256": {"$ref": "#/$defs/sha256"},
+        "ocr_configuration_size_bytes": {"type": "integer", "minimum": 1, "maximum": 1000000},
+        "retained_storage": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "decision",
+            "root_identity_sha256",
+            "filesystem_type",
+            "byte_ceiling",
+            "reserve_bytes"
+          ],
+          "properties": {
+            "decision": {
+              "enum": [
+                "verified-tmpfs",
+                "reviewed-encrypted-volume",
+                "reviewed-remanence-acceptance"
+              ]
+            },
+            "root_identity_sha256": {"$ref": "#/$defs/sha256"},
+            "filesystem_type": {"type": "string", "pattern": "^[A-Za-z0-9._+-]+$"},
+            "byte_ceiling": {"type": "integer", "minimum": 1, "maximum": 68719476736},
+            "reserve_bytes": {"type": "integer", "minimum": 0, "maximum": 68719476736}
+          }
+        },
+        "ocr_dependency_identity_sha256": {"$ref": "#/$defs/sha256"},
+        "artifacts": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["dependency", "observations", "evidence_index", "runtime"],
+          "properties": {
+            "dependency": {"$ref": "#/$defs/artifact"},
+            "observations": {"$ref": "#/$defs/artifact"},
+            "evidence_index": {"$ref": "#/$defs/artifact"},
+            "runtime": {"$ref": "#/$defs/artifact"}
+          }
+        },
+        "counts": {"$ref": "#/$defs/counts"},
+        "semantic_output_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "completionReceipt": {
+      "unevaluatedProperties": false,
+      "allOf": [
+        {"$ref": "#/$defs/fileIdentity"},
+        {
+          "type": "object",
+          "required": ["path", "embedded_receipt_hash", "stage", "output_binding_sha256"],
+          "properties": {
+            "path": {"const": "pilot_security_receipt.json"},
+            "embedded_receipt_hash": {"$ref": "#/$defs/sha256"},
+            "stage": {"const": "ocr-complete"},
+            "output_binding_sha256": {"$ref": "#/$defs/sha256"}
+          }
+        }
+      ]
+    }
+  }
+}

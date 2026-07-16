@@ -99,6 +99,29 @@ def _path_class(path: Path) -> str:
     )
 
 
+def ocr_dependency_identity_sha256(value: dict[str, Any]) -> str:
+    """Recompute the canonical sanitized OCR dependency identity."""
+    language_data = value.get("language_data")
+    if not isinstance(language_data, list):
+        raise AtlasError("OCR dependency language data is malformed")
+    normalized_languages: list[tuple[str, str]] = []
+    for item in language_data:
+        if (
+            not isinstance(item, dict)
+            or not isinstance(item.get("language"), str)
+            or not isinstance(item.get("sha256"), str)
+        ):
+            raise AtlasError("OCR dependency language-data identity is malformed")
+        normalized_languages.append((item["language"], item["sha256"]))
+    identity_payload = {
+        "engine": value.get("engine"),
+        "version": value.get("version"),
+        "executable_sha256": value.get("executable_sha256"),
+        "language_data": normalized_languages,
+    }
+    return hashlib.sha256(canonical_json(identity_payload).encode()).hexdigest()
+
+
 def sanitize_ocr_inventory(value: dict[str, Any]) -> dict[str, Any]:
     """Remove host-private absolute paths from ordinary exported dependency records."""
     if value.get("state") != "available":
@@ -143,17 +166,7 @@ def sanitize_ocr_inventory(value: dict[str, Any]) -> dict[str, Any]:
         )
         for key, item in sanitized.get("relevant_environment", {}).items()
     }
-    identity_payload = {
-        "engine": sanitized["engine"],
-        "version": sanitized["version"],
-        "executable_sha256": sanitized["executable_sha256"],
-        "language_data": [
-            (item["language"], item["sha256"]) for item in sanitized["language_data"]
-        ],
-    }
-    sanitized["dependency_identity_sha256"] = hashlib.sha256(
-        canonical_json(identity_payload).encode()
-    ).hexdigest()
+    sanitized["dependency_identity_sha256"] = ocr_dependency_identity_sha256(sanitized)
     sanitized["inventory_layers"] = {
         "declared_metadata": "adapter configuration and project BOM",
         "measured_current_host": True,

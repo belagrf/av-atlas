@@ -167,11 +167,81 @@ def _receipt() -> dict[str, Any]:
     }
 
 
+def _current_policy() -> dict[str, Any]:
+    value = deepcopy(_policy())
+    value["schema_version"] = "1.1.0"
+    value["contract_version"] = "av-atlas-pilot-security-policy/1.1.0"
+    value["storage"]["reviewer_pseudonym"] = None
+    value["retained_root"] = {
+        **value["private_root"],
+        "expected_inode": 43,
+        "path": "/private/pilot-retained",
+    }
+    value["retained_storage"] = {
+        "decision": "reviewed-remanence-acceptance",
+        "expected_filesystem_type": "ext4",
+        "independently_reviewed": True,
+        "reviewer_pseudonym": "REVIEWER_STORAGE",
+        "review_record": "private retained storage review",
+        "review_scope": "PILOT_SCHEMA_TEST",
+        "review_expires_at": "2026-07-17T12:00:00+00:00",
+        "compensating_controls": ["synthetic schema data only"],
+        "deletion_plan": "logical deletion",
+        "tmpfs_swap_warning_acknowledged": False,
+        "secure_erasure_claimed": False,
+    }
+    value["capacity"].update(
+        {"retained_byte_ceiling": 16_777_216, "retained_reserve_bytes": 1_048_576}
+    )
+    value["sandbox"]["profile_contract_version"] = "av-atlas-bubblewrap-pilot/1.1.0"
+    return value
+
+
+def _current_receipt(*, stage: str = "prepared") -> dict[str, Any]:
+    value = deepcopy(_receipt())
+    value["schema_version"] = "1.1.0"
+    value["contract_version"] = "av-atlas-pilot-security-receipt/1.1.0"
+    value["stage"] = stage
+    value["output_binding_sha256"] = SHA256 if stage == "ocr-complete" else None
+    value["retained_storage"] = {
+        "decision": "reviewed-remanence-acceptance",
+        "root_identity_sha256": SHA256,
+        "filesystem_type": "ext4",
+        "available_bytes": 536_870_912,
+        "aggregate_bytes": 4096,
+        "byte_ceiling": 16_777_216,
+        "reserve_bytes": 1_048_576,
+        "root_identity_verified": True,
+        "owner_verified": True,
+        "mode_verified": True,
+        "local_filesystem_verified": True,
+        "capacity_verified": True,
+        "private_path_exported": False,
+    }
+    value["sandbox"]["profile_contract_version"] = "av-atlas-bubblewrap-pilot/1.1.0"
+    value["sandbox"]["exposed_host_subtrees"] = [
+        "/usr/bin",
+        "/usr/lib",
+        "/usr/lib64",
+        "/usr/share/tesseract-ocr",
+        "/etc/alternatives",
+    ]
+    value["sandbox"]["masked_host_subtrees"] = [
+        "/usr/local",
+        "/usr/src",
+        "/usr/include",
+        "/usr/share/doc",
+        "/usr/share/man",
+    ]
+    value["capability"]["mutable_runtime_subtree_denied"] = True
+    return value
+
+
 def _manifest(version: str) -> dict[str, Any]:
     sources = [{"source_id": f"SRC_{index:012X}"} for index in range(3)]
     frames: list[dict[str, Any]] = [{} for _ in range(80)]
     privacy: dict[str, Any] = {"absolute_paths_exported": False}
-    if version == "1.1.0":
+    if version in {"1.1.0", "1.2.0"}:
         sources = [
             {
                 "source_id": f"SRC_{index:012X}",
@@ -223,7 +293,7 @@ def _manifest(version: str) -> dict[str, Any]:
         "privacy": privacy,
         "manifest_hash": SHA256,
     }
-    if version == "1.1.0":
+    if version in {"1.1.0", "1.2.0"}:
         value["pilot_security"] = {
             "policy_sha256": SHA256,
             "receipt_path": "pilot_security_receipt.json",
@@ -248,6 +318,45 @@ def _manifest(version: str) -> dict[str, Any]:
             "lifecycle": _lifecycle(),
             "privacy": _privacy(),
         }
+        if version == "1.2.0":
+            value["pilot_security"].update(
+                {
+                    "retained_storage": {
+                        "decision": "reviewed-remanence-acceptance",
+                        "root_identity_sha256": SHA256,
+                        "filesystem_type": "ext4",
+                        "available_bytes": 536_870_912,
+                        "aggregate_bytes": 131_072,
+                        "byte_ceiling": 268_435_456,
+                        "reserve_bytes": 1_048_576,
+                        "root_identity_verified": True,
+                        "owner_verified": True,
+                        "mode_verified": True,
+                        "local_filesystem_verified": True,
+                        "capacity_verified": True,
+                        "private_path_exported": False,
+                    }
+                }
+            )
+            value["pilot_security"]["sandbox"].update(
+                {
+                    "profile_contract_version": "av-atlas-bubblewrap-pilot/1.1.0",
+                    "exposed_host_subtrees": [
+                        "/usr/bin",
+                        "/usr/lib",
+                        "/usr/lib64",
+                        "/usr/share/tesseract-ocr",
+                    ],
+                    "masked_host_subtrees": [
+                        "/usr/local",
+                        "/usr/src",
+                        "/usr/include",
+                        "/usr/share/doc",
+                        "/usr/share/man",
+                    ],
+                }
+            )
+            value["pilot_security"]["capability"]["mutable_runtime_subtree_denied"] = True
     return value
 
 
@@ -264,6 +373,29 @@ def test_private_policy_and_sanitized_receipt_v1_are_strict() -> None:
     leaking_receipt["private_root"] = "/home/operator/private"
     with pytest.raises(AtlasError, match="Additional properties"):
         validate_instance("pilot_security_receipt", leaking_receipt, "leaking receipt")
+
+
+def test_current_private_policy_and_receipt_bind_retained_storage_without_reviewer_leak() -> None:
+    policy = _current_policy()
+    receipt = _current_receipt()
+    validate_instance("pilot_security_policy", policy, "current private policy")
+    validate_instance("pilot_security_receipt", receipt, "current public receipt")
+    assert policy["retained_storage"]["reviewer_pseudonym"] == "REVIEWER_STORAGE"
+    assert "reviewer_pseudonym" not in str(receipt)
+
+
+def test_current_ocr_receipt_requires_output_binding_only_at_completion() -> None:
+    validate_instance(
+        "pilot_security_receipt", _current_receipt(stage="ocr-complete"), "OCR receipt"
+    )
+    missing = _current_receipt(stage="ocr-complete")
+    missing["output_binding_sha256"] = None
+    with pytest.raises(AtlasError, match="output_binding_sha256"):
+        validate_instance("pilot_security_receipt", missing, "unbound OCR receipt")
+    unexpected = _current_receipt()
+    unexpected["output_binding_sha256"] = SHA256
+    with pytest.raises(AtlasError, match="type 'null'"):
+        validate_instance("pilot_security_receipt", unexpected, "unexpected output binding")
 
 
 def test_reviewed_storage_decisions_require_review_evidence() -> None:
@@ -299,10 +431,31 @@ def test_sandboxed_pilot_manifest_v1_1_requires_complete_security_linkage() -> N
         validate_instance("ocr_pilot_manifest", missing_receipt_link, "missing receipt link")
 
 
+def test_current_pilot_manifest_v1_2_accepts_retained_storage_and_profile_v1_1() -> None:
+    current = _manifest("1.2.0")
+    validate_instance("ocr_pilot_manifest", current, "current sandboxed pilot manifest")
+
+    # Historical 1.1 remains independently valid and is not retroactively
+    # required to carry the v1.2 retained-storage/profile additions.
+    validate_instance("ocr_pilot_manifest", _manifest("1.1.0"), "historical 1.1 manifest")
+
+    missing_retained = _manifest("1.2.0")
+    del missing_retained["pilot_security"]["retained_storage"]
+    with pytest.raises(AtlasError, match="schema validation failed"):
+        validate_instance("ocr_pilot_manifest", missing_retained, "unbound retained storage")
+
+    old_profile = _manifest("1.2.0")
+    old_profile["pilot_security"]["sandbox"]["profile_contract_version"] = (
+        "av-atlas-bubblewrap-pilot/1.0.0"
+    )
+    with pytest.raises(AtlasError, match="schema validation failed"):
+        validate_instance("ocr_pilot_manifest", old_profile, "old sandbox profile")
+
+
 def test_synthetic_pilot_security_report_is_strict_and_path_free() -> None:
     report = {
-        "schema_version": "1.0.0",
-        "contract_version": "av-atlas-m2b3-synthetic-pilot/1.0.0",
+        "schema_version": "1.1.0",
+        "contract_version": "av-atlas-m2b3-synthetic-pilot/1.1.0",
         "state": "succeeded",
         "pilot_id": "PILOT_SCHEMA_TEST",
         "source_id": "SRC_0123456789AB",
@@ -326,7 +479,10 @@ def test_synthetic_pilot_security_report_is_strict_and_path_free() -> None:
             "ocr_retries": 0,
         },
         "resource_limits": _limits(),
-        "capability": _capability(),
+        "capability": {
+            **_capability(),
+            "mutable_runtime_subtree_denied": True,
+        },
         "privacy": {
             "real_media_processed": False,
             "private_paths_exported": False,
@@ -345,6 +501,23 @@ def test_synthetic_pilot_security_report_is_strict_and_path_free() -> None:
         report,
         "synthetic security report",
     )
+    legacy = deepcopy(report)
+    legacy["schema_version"] = "1.0.0"
+    legacy["contract_version"] = "av-atlas-m2b3-synthetic-pilot/1.0.0"
+    del legacy["capability"]["mutable_runtime_subtree_denied"]
+    validate_instance(
+        "pilot_security_synthetic_report",
+        legacy,
+        "legacy synthetic security report",
+    )
+    wrong_contract = deepcopy(report)
+    wrong_contract["contract_version"] = "av-atlas-m2b3-synthetic-pilot/1.0.0"
+    with pytest.raises(AtlasError, match="schema validation failed"):
+        validate_instance(
+            "pilot_security_synthetic_report",
+            wrong_contract,
+            "mismatched synthetic security contract",
+        )
     leaking = deepcopy(report)
     leaking["private_root"] = "/home/operator/private"
     with pytest.raises(AtlasError, match="Additional properties"):

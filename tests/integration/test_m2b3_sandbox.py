@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import stat
 from pathlib import Path
 
 import pytest
@@ -61,14 +62,19 @@ def test_actual_m2b3_synthetic_pilot_runs_all_native_tools_in_sandbox(
     private_root = tmp_path / "pilot-private"
     private_root.mkdir(mode=0o700)
     private_root.chmod(0o700)
+    retained_root = tmp_path / "pilot-retained"
+    retained_root.mkdir(mode=0o700)
+    retained_root.chmod(0o700)
     policy_path = tmp_path / "pilot-security-policy.local.json"
     create_pilot_security_policy(
         root=private_root.resolve(),
+        retained_root=retained_root.resolve(),
         pilot_id="PILOT_M2B3_SYNTHETIC_TEST",
         pilot_spec=spec,
         output=policy_path,
         expires_at="2099-01-01T00:00:00+00:00",
         storage_decision="reviewed-remanence-acceptance",
+        retained_storage_decision="reviewed-remanence-acceptance",
         bubblewrap_inventory=bubblewrap,
         resource_limits=policy_resource_limits(NativeResourceLimits()),
         reviewer_pseudonym="SYNTHETIC_TEST_REVIEWER",
@@ -78,11 +84,13 @@ def test_actual_m2b3_synthetic_pilot_runs_all_native_tools_in_sandbox(
         deletion_plan="logical unlink and bounded marker-aware recovery",
         max_source_bytes=64 * 1024 * 1024,
         max_temporary_bytes=256 * 1024 * 1024,
+        max_retained_bytes=64 * 1024 * 1024,
         reserve_bytes=16 * 1024 * 1024,
+        retained_reserve_bytes=16 * 1024 * 1024,
     )
     outside = tmp_path / "outside-sentinel"
     outside.write_text("must remain outside the sandbox", encoding="utf-8")
-    output = tmp_path / "m2b3-output"
+    output = retained_root / "m2b3-output"
     report = run_synthetic_pilot_security_check(media, rights, spec, policy_path, output)
 
     validate_instance(
@@ -101,6 +109,16 @@ def test_actual_m2b3_synthetic_pilot_runs_all_native_tools_in_sandbox(
     assert report["measurements"]["ocr_observation_count"] > 0
     assert outside.read_text(encoding="utf-8") == "must remain outside the sandbox"
     assert not list(private_root.iterdir())
+    assert output.parent == retained_root
+    assert stat.S_IMODE(output.stat().st_mode) == 0o700
+    assert all(
+        stat.S_IMODE(path.stat().st_mode) == 0o600 for path in output.iterdir() if path.is_file()
+    )
+    receipt = json.loads((output / "pilot_security_receipt.json").read_text(encoding="utf-8"))
+    validate_instance("pilot_security_receipt", receipt, "actual M2B.3 security receipt")
+    assert receipt["retained_storage"]["decision"] == "reviewed-remanence-acceptance"
+    assert receipt["retained_storage"]["root_identity_verified"] is True
+    assert "reviewer" not in json.dumps(receipt).lower()
     exported = "\n".join(
         path.read_text(encoding="utf-8") for path in sorted(output.iterdir()) if path.is_file()
     )

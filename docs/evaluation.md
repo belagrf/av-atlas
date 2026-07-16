@@ -10,9 +10,11 @@ state correctness, runtime, peak RSS, storage, retries, and processed duration. 
 reports preserve configuration, source/gold hashes, environment, code-state availability, unmeasured
 targets, unsupported metrics, and sample-size limitations.
 
-The gold is project-authored synthetic structure, not an independently adjudicated real-media pilot.
-No supported-claim precision, salient-event recall, ASR/OCR/diarization/acoustic accuracy,
-confidence interval, statistical significance, direct-VLM comparison, or M2 gate has been measured.
+The M2A gold is project-authored synthetic structure, not an independently adjudicated real-media
+pilot. No real-media or generalized supported-claim precision, salient-event recall, ASR,
+diarization, acoustic-event, semantic-visual, confidence-interval, statistical-significance,
+direct-VLM, or full-M2 result has been measured. The synthetic M2B OCR engineering measurements
+described next are deliberately narrower and are not a real-media OCR accuracy claim.
 
 M2B evaluates the frozen synthetic OCR set with exact match, normalized CER/WER, frame presence,
 evidence/time integrity, duplicate rate, adapter-state correctness, difficulty-stratified results,
@@ -61,14 +63,39 @@ semantic validation rejects impossible controlled states. Accepted v1/v1.1 artif
 read-only compatible. These tests establish authorization/evidence behavior only and do not alter
 the frozen OCR fixture, gold, normalization, or quality metrics.
 
-M2B.3 adds pilot-host security measurements, not OCR model-quality metrics. The sanitized receipt
-separately records private-root identity/capacity verification, Bubblewrap dependency/profile and
-namespace-smoke identity, enforced CPU/address-space/file-size/descriptor/process/core/capture/
-wall limits, network and out-of-mount denial, path privacy, and logical cleanup. Hostile tests cover
-sentinel reads, root/device/host-backed writes outside `/work`, loopback/external network,
-inherited environment/home, resource exhaustion, timeouts, process-tree interruption, cleanup,
-policy transitions, and unsandboxed helper rejection. A sandbox-local private `/tmp` remains
-writable by design.
+M2B.3 adds pilot-host security measurements, not OCR model-quality metrics. Sanitized receipt 1.1
+separately records transient- and retained-root identity/capacity verification, aggregate retained
+bytes, Bubblewrap dependency/profile and namespace-smoke identity, enforced
+CPU/address-space/file-size/descriptor/process/core/capture/wall limits, network and out-of-mount
+denial, path privacy, and logical cleanup. Hostile tests cover sentinel reads,
+root/device/host-backed writes outside `/work`, loopback/external network, inherited
+environment/home, resource exhaustion, timeouts, process-tree interruption, cleanup, policy
+transitions, reviewer pseudonym removal/tampering/expiry, and unsandboxed helper rejection. A
+sandbox-local private `/tmp` remains writable by design.
+
+Retained-output regressions reject repository-local or arbitrary output roots, symlink and parent
+replacement, owner/mode drift, unsupported or remote filesystems, insufficient current capacity,
+aggregate-byte overflow, path leakage, and interrupted partial packages while retaining a valid
+private package under its explicit policy. Both transient and retained roots must be outside the
+tracked checkout; retained packages are direct children created through pinned descriptors, and
+production writes apply bounded pre-write capacity checks. Bubblewrap profile 1.1 tests require that the necessary
+FFprobe, FFmpeg, Tesseract, and Python probes still run with narrow runtime mounts while a sentinel
+under a masked mutable `/usr` subtree is unavailable. They also reject source, policy, transient,
+retained, or output paths that overlap an exposed host-runtime subtree.
+
+Pilot OCR evaluation accepts only versioned `av-atlas-pilot-ocr-output/1.0.0`. Tests modify, omit,
+or swap observations, evidence, runtime, dependency inventory, prepared receipt, and
+`ocr-complete` receipt; substitute output across pilots or policies; change receipt stage or frozen
+pilot identity; and verify that metrics are never computed until file hashes/sizes, embedded
+self-hashes, schemas, counts, rights/configuration/dependency bindings, and semantic output all
+match. This authenticates package integrity and linkage but is not a digital signature or an OCR
+quality improvement.
+
+The M2B.3 synthetic check requires explicit source-bound `synthetic-controlled` rights, the full
+evaluation permission closure, and the exact current fixture bundle before sandboxed FFprobe or
+FFmpeg executes. It emits current report contract `av-atlas-m2b3-synthetic-pilot/1.1.0`; legacy 1.0
+reports remain validation-compatible only. No pilot test or command uses the direct-native
+controlled-baseline compatibility path.
 
 Dependency availability or a schema-valid receipt is not sufficient to call M2B.3 complete. The
 completion gate requires an approved local Bubblewrap executable to run a project-authored
@@ -79,4 +106,5 @@ pass, the state is implementation-in-progress or execution-blocked—not M2B.3 c
 real-media OCR evaluation remains separate and still requires authorized media, two independent
 human annotations, adjudication, and a frozen evaluation split. Immutable M2B v1, v1.1, and v1.2
 artifacts retain their existing read-only validation path; the new security measurements do not
-replace or reinterpret their OCR metrics.
+replace or reinterpret their OCR metrics. No real-media pilot or generalized OCR claim is made by
+these corrected synthetic checks.

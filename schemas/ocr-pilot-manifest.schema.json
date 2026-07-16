@@ -1,9 +1,10 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://av-atlas.local/schemas/ocr-pilot-manifest/1.1.0",
+  "$id": "https://av-atlas.local/schemas/ocr-pilot-manifest/1.2.0",
   "oneOf": [
     {"$ref": "#/$defs/historicalV1"},
-    {"$ref": "#/$defs/sandboxedV1_1"}
+    {"$ref": "#/$defs/sandboxedV1_1"},
+    {"$ref": "#/$defs/sandboxedV1_2"}
   ],
   "$defs": {
     "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
@@ -144,7 +145,7 @@
         "address_space_bytes": {"type": "integer", "minimum": 1048576, "maximum": 68719476736},
         "output_file_size_bytes": {"type": "integer", "minimum": 1024, "maximum": 1073741824},
         "open_files": {"type": "integer", "minimum": 8, "maximum": 1024},
-        "process_count": {"type": "integer", "minimum": 1, "maximum": 4096},
+        "process_count": {"type": "integer", "minimum": 1, "maximum": 16384},
         "core_dump_bytes": {"const": 0},
         "capture_bytes": {"type": "integer", "minimum": 1024, "maximum": 16777216},
         "cleanup_timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 60}
@@ -201,10 +202,17 @@
           ],
           "properties": {
             "provider": {"const": "bubblewrap"},
-            "profile_contract_version": {"const": "av-atlas-bubblewrap-pilot/1.0.0"},
+            "profile_contract_version": {
+              "enum": [
+                "av-atlas-bubblewrap-pilot/1.0.0",
+                "av-atlas-bubblewrap-pilot/1.1.0"
+              ]
+            },
             "profile_sha256": {"$ref": "#/$defs/sha256"},
             "dependency_identity_sha256": {"$ref": "#/$defs/sha256"},
-            "capability_smoke_test_passed": {"const": true}
+            "capability_smoke_test_passed": {"const": true},
+            "exposed_host_subtrees": {"type": "array", "items": {"type": "string"}},
+            "masked_host_subtrees": {"type": "array", "items": {"type": "string"}}
           }
         },
         "resource_limits": {"$ref": "#/$defs/resourceLimits"},
@@ -221,7 +229,8 @@
             "namespace_smoke_test_passed": {"const": true},
             "network_denied": {"const": true},
             "external_sentinel_denied": {"const": true},
-            "outside_write_denied": {"const": true}
+            "outside_write_denied": {"const": true},
+            "mutable_runtime_subtree_denied": {"const": true}
           }
         },
         "lifecycle": {
@@ -240,6 +249,46 @@
             "logical_deletion": {"const": true},
             "secure_erasure_claimed": {"const": false},
             "bounded_stale_recovery": {"const": true}
+          }
+        },
+        "retained_storage": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "decision",
+            "root_identity_sha256",
+            "filesystem_type",
+            "available_bytes",
+            "aggregate_bytes",
+            "byte_ceiling",
+            "reserve_bytes",
+            "root_identity_verified",
+            "owner_verified",
+            "mode_verified",
+            "local_filesystem_verified",
+            "capacity_verified",
+            "private_path_exported"
+          ],
+          "properties": {
+            "decision": {
+              "enum": [
+                "verified-tmpfs",
+                "reviewed-encrypted-volume",
+                "reviewed-remanence-acceptance"
+              ]
+            },
+            "root_identity_sha256": {"$ref": "#/$defs/sha256"},
+            "filesystem_type": {"type": "string", "pattern": "^[A-Za-z0-9._+-]+$"},
+            "available_bytes": {"type": "integer", "minimum": 0},
+            "aggregate_bytes": {"type": "integer", "minimum": 0},
+            "byte_ceiling": {"type": "integer", "minimum": 1},
+            "reserve_bytes": {"type": "integer", "minimum": 0},
+            "root_identity_verified": {"const": true},
+            "owner_verified": {"const": true},
+            "mode_verified": {"const": true},
+            "local_filesystem_verified": {"const": true},
+            "capacity_verified": {"const": true},
+            "private_path_exported": {"const": false}
           }
         },
         "privacy": {
@@ -263,6 +312,25 @@
           }
         }
       }
+    },
+    "pilotSecurityCurrent": {
+      "allOf": [
+        {"$ref": "#/$defs/pilotSecurity"},
+        {
+          "required": ["retained_storage"],
+          "properties": {
+            "sandbox": {
+              "required": ["exposed_host_subtrees", "masked_host_subtrees"],
+              "properties": {
+                "profile_contract_version": {
+                  "const": "av-atlas-bubblewrap-pilot/1.1.0"
+                }
+              }
+            },
+            "capability": {"required": ["mutable_runtime_subtree_denied"]}
+          }
+        }
+      ]
     },
     "historicalV1": {
       "type": "object",
@@ -361,6 +429,57 @@
               "ocr_configuration_sha256",
               "region_matching_rule",
               "metric_definition",
+              "disagreement_count"
+            ]
+          }
+        }
+      ]
+    },
+    "sandboxedV1_2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version", "pilot_id", "state", "selection_protocol", "sources",
+        "frames", "counts", "privacy", "pilot_security", "manifest_hash"
+      ],
+      "properties": {
+        "schema_version": {"const": "1.2.0"},
+        "pilot_id": {"type": "string", "pattern": "^PILOT_[A-Z0-9_-]+$"},
+        "state": {
+          "enum": ["prepared_unannotated", "two_annotations_received", "adjudicated_frozen"]
+        },
+        "selection_protocol": {"$ref": "#/$defs/selectionProtocol"},
+        "sources": {
+          "type": "array", "minItems": 3, "items": {"$ref": "#/$defs/sandboxedSource"}
+        },
+        "frames": {
+          "type": "array", "minItems": 80, "maxItems": 80,
+          "items": {"$ref": "#/$defs/sandboxedFrame"}
+        },
+        "counts": {"$ref": "#/$defs/sandboxedCounts"},
+        "privacy": {"$ref": "#/$defs/sandboxedPrivacy"},
+        "pilot_security": {"$ref": "#/$defs/pilotSecurityCurrent"},
+        "human_annotation_sha256": {
+          "type": "array", "minItems": 2, "maxItems": 2,
+          "items": {"$ref": "#/$defs/sha256"}, "uniqueItems": true
+        },
+        "adjudicated_gold_sha256": {"$ref": "#/$defs/sha256"},
+        "disagreement_report_sha256": {"$ref": "#/$defs/sha256"},
+        "normalization_rules_sha256": {"$ref": "#/$defs/sha256"},
+        "ocr_configuration_sha256": {"$ref": "#/$defs/sha256"},
+        "region_matching_rule": {"type": "string", "minLength": 1},
+        "metric_definition": {"type": "string", "minLength": 1},
+        "disagreement_count": {"type": "integer", "minimum": 0, "maximum": 60},
+        "manifest_hash": {"$ref": "#/$defs/sha256"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"state": {"const": "adjudicated_frozen"}}},
+          "then": {
+            "required": [
+              "human_annotation_sha256", "adjudicated_gold_sha256",
+              "disagreement_report_sha256", "normalization_rules_sha256",
+              "ocr_configuration_sha256", "region_matching_rule", "metric_definition",
               "disagreement_count"
             ]
           }

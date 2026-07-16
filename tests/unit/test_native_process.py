@@ -28,6 +28,7 @@ from av_atlas.native_process import (
     inspect_bubblewrap,
     load_bubblewrap_inventory,
     profile_record,
+    reject_exposed_host_path,
     run_hostile_sandbox_probes,
 )
 
@@ -64,6 +65,20 @@ def test_inventory_is_sanitized_versioned_and_fail_closed() -> None:
     assert value["installation_command"] == BUBBLEWRAP_INSTALL_COMMAND
     assert value["network_accessed"] is False
     assert "resolved_executable_path" not in value
+    assert value["exposed_host_subtrees"] == [
+        "/usr/bin",
+        "/usr/lib",
+        "/usr/lib64",
+        "/usr/share/tesseract-ocr",
+        "/etc/alternatives",
+    ]
+    assert value["masked_host_subtrees"] == [
+        "/usr/local",
+        "/usr/src",
+        "/usr/include",
+        "/usr/share/doc",
+        "/usr/share/man",
+    ]
     assert value["executable"]["basename"] == "bwrap"
     assert value["state"] in {"available", "unavailable", "unsupported"}
     if value["state"] == "available":
@@ -81,6 +96,9 @@ def test_inventory_is_sanitized_versioned_and_fail_closed() -> None:
     assert profile_record()["root_remounted_read_only"] is True
     assert profile_record()["devices"] == ["null", "zero", "random", "urandom"]
     assert profile_record()["hostname"] == "av-atlas-pilot"
+    assert profile_record()["exposed_host_subtrees"] == value["exposed_host_subtrees"]
+    assert profile_record()["masked_host_subtrees"] == value["masked_host_subtrees"]
+    assert not any(mount["source"] == "/usr" for mount in profile_record()["system_runtime_mounts"])
     assert native_process._profile_prefix() == profile_record()["argument_prefix"]
     assert native_process._profile_suffix() == profile_record()["argument_suffix"]
     assert {
@@ -100,20 +118,77 @@ def test_inventory_missing_dependency_is_actionable(
         BubblewrapNativeRunner(load_bubblewrap_inventory())
 
 
+def test_exposed_runtime_overlap_guard_checks_lexical_and_resolved_paths(tmp_path: Path) -> None:
+    reject_exposed_host_path(tmp_path / "ordinary-private-path", label="pilot source")
+    reject_exposed_host_path(Path("/usr/local/operator-private"), label="pilot output")
+
+    for path in (
+        Path("/"),
+        Path("/usr"),
+        Path("/usr/share"),
+        Path("/etc"),
+        Path("/usr/bin/ffmpeg"),
+        Path("/usr/lib/x86_64-linux-gnu"),
+        Path("/usr/lib64"),
+        Path("/usr/share/tesseract-ocr/5/tessdata"),
+        Path("/etc/alternatives/python3"),
+    ):
+        with pytest.raises(AtlasError, match="sandbox-exposed host runtime"):
+            reject_exposed_host_path(path, label="pilot source")
+
+    alias = tmp_path / "runtime-alias"
+    alias.symlink_to("/usr/bin", target_is_directory=True)
+    with pytest.raises(AtlasError, match="sandbox-exposed host runtime"):
+        reject_exposed_host_path(alias / "ffprobe", label="pilot source")
+    with pytest.raises(AtlasError, match="sandbox-exposed host runtime"):
+        ReadOnlyBind.measure_file(Path("/usr/bin/ffprobe"), "/input/source")
+    with pytest.raises(AtlasError, match="sandbox-exposed host runtime"):
+        WritableDirectory.measure(Path("/usr/lib"))
+
+
 def test_measured_hostile_denials_environment_and_capture_cleanup(tmp_path: Path) -> None:
     runner, work = _runner(tmp_path / "work")
+    assert native_process._masked_runtime_sentinel().is_file()
     sentinel = tmp_path / "outside-sentinel"
     sentinel.write_text("must remain unavailable", encoding="utf-8")
     result = run_hostile_sandbox_probes(runner, work, sentinel)
     assert all(result.values())
     assert result["outside_write_positive_control"] is True
     assert result["outside_host_write_denied"] is True
+    assert result["masked_runtime_sentinel_denied"] is True
     assert result["hostname_sanitized"] is True
     assert not (Path("/") / "escape").exists()
     assert not (Path("/dev") / "escape").exists()
     assert not list(work.source.glob(".av-atlas-native-capture-*"))
     assert not list(tmp_path.glob(".av-atlas-outside-write-probe-*"))
     assert (work.source / "probe-allowed").read_bytes() == b"x"
+
+
+@pytest.mark.bubblewrap
+@pytest.mark.tesseract
+def test_narrow_runtime_keeps_reviewed_tools_available_and_masks_usr_local(tmp_path: Path) -> None:
+    runner, work = _runner(tmp_path / "work")
+    invocations = (
+        (NativeTool.PYTHON_PROBE, ("-c", "print('python-ok')"), "python-ok"),
+        (NativeTool.FFPROBE, ("-version",), "ffprobe version"),
+        (NativeTool.FFMPEG, ("-version",), "ffmpeg version"),
+        (NativeTool.TESSERACT, ("--list-langs",), "List of available languages"),
+    )
+    for tool, arguments, expected in invocations:
+        result = runner.run(NativeInvocation(tool, arguments, work))
+        assert expected in result.stdout
+
+    masked = runner.run(
+        NativeInvocation(
+            NativeTool.PYTHON_PROBE,
+            (
+                "-c",
+                "import os; print(int(not os.path.exists('/usr/local/bin'))) ",
+            ),
+            work,
+        )
+    )
+    assert masked.stdout.strip() == "1"
 
 
 def test_sandbox_hostname_is_fixed_and_host_identity_is_not_exposed(tmp_path: Path) -> None:

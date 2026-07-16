@@ -10,13 +10,16 @@ import resource
 import shutil
 import stat
 import time
+from collections.abc import Iterator
+from contextlib import ExitStack, contextmanager, suppress
+from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
 
 from av_atlas.adapters import AdapterContext
 from av_atlas.config import BaselineConfig
 from av_atlas.errors import AtlasError
-from av_atlas.io import canonical_json, sha256_file, write_json, write_jsonl
+from av_atlas.io import canonical_json, sha256_file, write_jsonl
 from av_atlas.media import inspect_media
 from av_atlas.native_media import NativeInputPolicy, enforce_path_policy, policy_from_inventory
 from av_atlas.native_process import (
@@ -28,24 +31,41 @@ from av_atlas.native_process import (
     ReadOnlyBind,
     WritableDirectory,
     load_bubblewrap_inventory,
+    reject_exposed_host_path,
     run_hostile_sandbox_probes,
 )
-from av_atlas.ocr import TesseractOcrAdapter, inspect_ocr
+from av_atlas.ocr import TesseractOcrAdapter, inspect_ocr, sanitize_ocr_inventory
+from av_atlas.pilot_ocr_output import (
+    DEPENDENCY_FILENAME,
+    EVIDENCE_FILENAME,
+    OBSERVATIONS_FILENAME,
+    OUTPUT_MANIFEST_FILENAME,
+    RUNTIME_FILENAME,
+    build_pilot_ocr_output_binding,
+    build_pilot_ocr_output_manifest,
+    output_binding_sha256,
+    validate_pilot_ocr_output_package,
+)
 from av_atlas.pilot_security import (
     VerifiedPilotRoot,
+    VerifiedRetainedRoot,
     ensure_pilot_security_execution_boundary,
     load_bound_json,
     load_pilot_security_policy,
     make_security_receipt,
     native_limits_from_policy,
+    open_retained_output_directory,
     open_verified_pilot_root,
+    open_verified_retained_root,
     private_pilot_workspace,
     receipt_capability,
+    retained_output_directory,
     source_rights_aggregate,
     validate_security_receipt,
     verify_sandbox_policy,
 )
-from av_atlas.rights import load_rights_manifest, validate_rights
+from av_atlas.rights import manifest_digest as rights_manifest_digest
+from av_atlas.rights import validate_rights
 from av_atlas.schemas import validate_instance
 from av_atlas.stable_input import (
     StableInputPolicy,
@@ -65,6 +85,9 @@ _PRIVATE_TEXT_PATTERN = re.compile(
     r"|(?:password|api[_-]?key|access[_-]?token|secret)\s*[:=]",
     re.IGNORECASE,
 )
+_MAX_RETAINED_JSON_BYTES = 64 * 1024 * 1024
+_MAX_PRIVATE_PACKAGE_ENTRIES = 16_384
+_MAX_PRIVATE_PACKAGE_DEPTH = 12
 
 
 def _digest(value: dict[str, Any], field: str = "manifest_hash") -> str:
@@ -73,13 +96,417 @@ def _digest(value: dict[str, Any], field: str = "manifest_hash") -> str:
 
 
 def _load_json(path: Path) -> dict[str, Any]:
-    try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise AtlasError(f"invalid JSON file {path.name}: {exc}") from exc
-    if not isinstance(value, dict):
-        raise AtlasError(f"JSON file {path.name} must contain an object")
+    value, _ = load_bound_json(path, maximum_bytes=_MAX_RETAINED_JSON_BYTES)
     return value
+
+
+def _json_bytes(value: Any) -> bytes:
+    return (json.dumps(value, indent=2, sort_keys=True) + "\n").encode("utf-8")
+
+
+def _jsonl_bytes(records: list[dict[str, Any]]) -> bytes:
+    return "".join(canonical_json(record) + "\n" for record in records).encode("utf-8")
+
+
+def _retained_identity(value: os.stat_result) -> tuple[int, ...]:
+    return (
+        value.st_dev,
+        value.st_ino,
+        value.st_mode,
+        value.st_uid,
+        value.st_nlink,
+        value.st_size,
+        value.st_mtime_ns,
+        value.st_ctime_ns,
+    )
+
+
+def _retained_directory_identity(value: os.stat_result) -> tuple[int, ...]:
+    return (value.st_dev, value.st_ino, value.st_mode, value.st_uid)
+
+
+@dataclass(frozen=True)
+class _PinnedDirectoryComponent:
+    name: str
+    descriptor: int
+    identity: tuple[int, ...]
+
+
+@dataclass(frozen=True)
+class _PinnedRetainedJson:
+    """One stably read retained JSON file held by descriptor for an operation."""
+
+    root: VerifiedRetainedRoot
+    directories: tuple[_PinnedDirectoryComponent, ...]
+    basename: str
+    descriptor: int
+    identity: tuple[int, ...]
+    value: dict[str, Any]
+    sha256: str
+    size_bytes: int
+
+    @property
+    def anchored_path(self) -> Path:
+        return Path(f"/proc/self/fd/{self.descriptor}")
+
+    def verify(self) -> None:
+        self.root.verify()
+        uid = os.geteuid() if hasattr(os, "geteuid") else None
+        parent_descriptor = self.root.descriptor
+        for component in self.directories:
+            try:
+                opened = os.fstat(component.descriptor)
+                current = os.stat(
+                    component.name,
+                    dir_fd=parent_descriptor,
+                    follow_symlinks=False,
+                )
+            except OSError as exc:
+                raise AtlasError("retained pilot input directory identity changed") from exc
+            if (
+                _retained_directory_identity(opened) != component.identity
+                or _retained_directory_identity(current) != component.identity
+                or not stat.S_ISDIR(opened.st_mode)
+                or stat.S_IMODE(opened.st_mode) != 0o700
+                or (uid is not None and opened.st_uid != uid)
+            ):
+                raise AtlasError("retained pilot input directory identity changed")
+            parent_descriptor = component.descriptor
+        try:
+            opened_file = os.fstat(self.descriptor)
+            current_file = os.stat(
+                self.basename,
+                dir_fd=parent_descriptor,
+                follow_symlinks=False,
+            )
+        except OSError as exc:
+            raise AtlasError("retained pilot JSON input identity changed") from exc
+        if (
+            _retained_identity(opened_file) != self.identity
+            or _retained_identity(current_file) != self.identity
+            or not stat.S_ISREG(opened_file.st_mode)
+            or stat.S_IMODE(opened_file.st_mode) != 0o600
+            or opened_file.st_nlink != 1
+            or (uid is not None and opened_file.st_uid != uid)
+        ):
+            raise AtlasError("retained pilot JSON input identity changed")
+
+
+@contextmanager
+def _open_pinned_retained_json(
+    root: VerifiedRetainedRoot,
+    path: Path,
+    *,
+    label: str,
+    maximum_bytes: int = _MAX_RETAINED_JSON_BYTES,
+) -> Iterator[_PinnedRetainedJson]:
+    """Open, stably read, and retain every path component beneath the policy root."""
+    reject_exposed_host_path(path, label=label)
+    root.verify()
+    if not path.is_absolute():
+        raise AtlasError(f"{label} must be an absolute retained-artifact path")
+    try:
+        resolved = path.resolve(strict=True)
+    except OSError as exc:
+        raise AtlasError(f"{label} is unavailable") from exc
+    if path != resolved or not resolved.is_relative_to(root.path):
+        raise AtlasError(f"{label} must be canonical and inside policy-bound retained storage")
+    relative = resolved.relative_to(root.path)
+    if not relative.parts or len(relative.parts) > _MAX_PRIVATE_PACKAGE_DEPTH:
+        raise AtlasError(f"{label} has an unsupported retained-artifact depth")
+    directory_descriptors: list[int] = []
+    components: list[_PinnedDirectoryComponent] = []
+    file_descriptor: int | None = None
+    parent_descriptor = root.descriptor
+    directory_flags = (
+        os.O_RDONLY
+        | getattr(os, "O_DIRECTORY", 0)
+        | getattr(os, "O_CLOEXEC", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+    )
+    file_flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    uid = os.geteuid() if hasattr(os, "geteuid") else None
+    try:
+        for name in relative.parts[:-1]:
+            descriptor = os.open(name, directory_flags, dir_fd=parent_descriptor)
+            directory_descriptors.append(descriptor)
+            opened = os.fstat(descriptor)
+            current = os.stat(name, dir_fd=parent_descriptor, follow_symlinks=False)
+            identity = _retained_directory_identity(opened)
+            if (
+                _retained_directory_identity(current) != identity
+                or not stat.S_ISDIR(opened.st_mode)
+                or stat.S_IMODE(opened.st_mode) != 0o700
+                or (uid is not None and opened.st_uid != uid)
+            ):
+                raise AtlasError(f"{label} has an unsafe retained directory component")
+            components.append(_PinnedDirectoryComponent(name, descriptor, identity))
+            parent_descriptor = descriptor
+        basename = relative.parts[-1]
+        file_descriptor = os.open(basename, file_flags, dir_fd=parent_descriptor)
+        opened_file = os.fstat(file_descriptor)
+        current_file = os.stat(basename, dir_fd=parent_descriptor, follow_symlinks=False)
+        identity = _retained_identity(opened_file)
+        if (
+            _retained_identity(current_file) != identity
+            or not stat.S_ISREG(opened_file.st_mode)
+            or stat.S_IMODE(opened_file.st_mode) != 0o600
+            or opened_file.st_nlink != 1
+            or (uid is not None and opened_file.st_uid != uid)
+        ):
+            raise AtlasError(f"{label} must be a private regular file with one link")
+        if opened_file.st_size <= 0 or opened_file.st_size > maximum_bytes:
+            raise AtlasError(f"{label} exceeds its bounded JSON input size")
+        chunks: list[bytes] = []
+        total = 0
+        while True:
+            block = os.read(file_descriptor, min(1024 * 1024, maximum_bytes - total + 1))
+            if not block:
+                break
+            chunks.append(block)
+            total += len(block)
+            if total > maximum_bytes:
+                raise AtlasError(f"{label} exceeds its bounded JSON input size")
+        after = os.fstat(file_descriptor)
+        current_after = os.stat(basename, dir_fd=parent_descriptor, follow_symlinks=False)
+        if (
+            _retained_identity(after) != identity
+            or _retained_identity(current_after) != identity
+            or total != opened_file.st_size
+        ):
+            raise AtlasError(f"{label} changed during its bounded read")
+        raw = b"".join(chunks)
+        try:
+            value = json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise AtlasError(f"{label} is not valid UTF-8 JSON") from exc
+        if not isinstance(value, dict):
+            raise AtlasError(f"{label} must contain a JSON object")
+        pinned = _PinnedRetainedJson(
+            root=root,
+            directories=tuple(components),
+            basename=basename,
+            descriptor=file_descriptor,
+            identity=identity,
+            value=value,
+            sha256=hashlib.sha256(raw).hexdigest(),
+            size_bytes=total,
+        )
+        pinned.verify()
+        yield pinned
+        pinned.verify()
+    except OSError as exc:
+        raise AtlasError(f"{label} could not be opened descriptor-relatively") from exc
+    finally:
+        if file_descriptor is not None:
+            os.close(file_descriptor)
+        for descriptor in reversed(directory_descriptors):
+            os.close(descriptor)
+
+
+@dataclass(frozen=True)
+class _PinnedPrivateDirectory:
+    parent_descriptor: int
+    name: str
+    descriptor: int
+    identity: tuple[int, ...]
+
+    @property
+    def descriptor_path(self) -> Path:
+        return Path(f"/proc/self/fd/{self.descriptor}")
+
+    def verify(self) -> None:
+        try:
+            opened = os.fstat(self.descriptor)
+            current = os.stat(self.name, dir_fd=self.parent_descriptor, follow_symlinks=False)
+        except OSError as exc:
+            raise AtlasError("private annotation package identity changed") from exc
+        uid = os.geteuid() if hasattr(os, "geteuid") else None
+        if (
+            _retained_directory_identity(opened) != self.identity
+            or _retained_directory_identity(current) != self.identity
+            or not stat.S_ISDIR(opened.st_mode)
+            or stat.S_IMODE(opened.st_mode) != 0o700
+            or (uid is not None and opened.st_uid != uid)
+        ):
+            raise AtlasError("private annotation package identity changed")
+
+
+def _remove_private_package_tree(
+    descriptor: int,
+    *,
+    depth: int = 0,
+    budget: list[int] | None = None,
+) -> int:
+    if depth > _MAX_PRIVATE_PACKAGE_DEPTH:
+        raise AtlasError("private annotation package cleanup exceeded its depth bound")
+    if budget is None:
+        budget = [0]
+    with os.scandir(descriptor) as iterator:
+        entries = sorted(iterator, key=lambda item: item.name)
+    for entry in entries:
+        budget[0] += 1
+        if budget[0] > _MAX_PRIVATE_PACKAGE_ENTRIES:
+            raise AtlasError("private annotation package cleanup exceeded its entry bound")
+        value = os.stat(entry.name, dir_fd=descriptor, follow_symlinks=False)
+        if stat.S_ISDIR(value.st_mode):
+            child = os.open(
+                entry.name,
+                os.O_RDONLY
+                | getattr(os, "O_DIRECTORY", 0)
+                | getattr(os, "O_CLOEXEC", 0)
+                | getattr(os, "O_NOFOLLOW", 0),
+                dir_fd=descriptor,
+            )
+            try:
+                _remove_private_package_tree(child, depth=depth + 1, budget=budget)
+            finally:
+                os.close(child)
+            os.rmdir(entry.name, dir_fd=descriptor)
+        elif stat.S_ISREG(value.st_mode) or stat.S_ISLNK(value.st_mode):
+            os.unlink(entry.name, dir_fd=descriptor)
+        else:
+            raise AtlasError("private annotation package contains an unsupported special file")
+    os.fsync(descriptor)
+    return budget[0]
+
+
+def _find_child_by_identity(parent_descriptor: int, identity: tuple[int, ...]) -> str | None:
+    with os.scandir(parent_descriptor) as iterator:
+        entries = sorted(iterator, key=lambda item: item.name)
+    if len(entries) > _MAX_PRIVATE_PACKAGE_ENTRIES:
+        raise AtlasError("private annotation package parent scan exceeded its bound")
+    expected = identity[:2]
+    for entry in entries:
+        value = os.stat(entry.name, dir_fd=parent_descriptor, follow_symlinks=False)
+        if (value.st_dev, value.st_ino) == expected:
+            return entry.name
+    return None
+
+
+@contextmanager
+def _create_pinned_private_directory(
+    parent_descriptor: int, name: str
+) -> Iterator[_PinnedPrivateDirectory]:
+    """Create one exact private child without replacement and clean it on failure."""
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", name):
+        raise AtlasError("private annotation package name is invalid")
+    try:
+        os.stat(name, dir_fd=parent_descriptor, follow_symlinks=False)
+    except FileNotFoundError:
+        pass
+    except OSError as exc:
+        raise AtlasError("private annotation package path could not be checked") from exc
+    else:
+        raise AtlasError(f"annotation package already exists: {name}")
+    descriptor: int | None = None
+    lease: _PinnedPrivateDirectory | None = None
+    committed = False
+    cleanup_succeeded = True
+    try:
+        os.mkdir(name, 0o700, dir_fd=parent_descriptor)
+        os.fsync(parent_descriptor)
+        descriptor = os.open(
+            name,
+            os.O_RDONLY
+            | getattr(os, "O_DIRECTORY", 0)
+            | getattr(os, "O_CLOEXEC", 0)
+            | getattr(os, "O_NOFOLLOW", 0),
+            dir_fd=parent_descriptor,
+        )
+        os.fchmod(descriptor, 0o700)
+        lease = _PinnedPrivateDirectory(
+            parent_descriptor,
+            name,
+            descriptor,
+            _retained_directory_identity(os.fstat(descriptor)),
+        )
+        lease.verify()
+        yield lease
+        lease.verify()
+        os.fsync(descriptor)
+        os.fsync(parent_descriptor)
+        committed = True
+    finally:
+        if not committed and lease is not None:
+            try:
+                _remove_private_package_tree(lease.descriptor)
+                actual_name = _find_child_by_identity(parent_descriptor, lease.identity)
+                if actual_name is None:
+                    cleanup_succeeded = False
+                else:
+                    os.rmdir(actual_name, dir_fd=parent_descriptor)
+                    os.fsync(parent_descriptor)
+            except (AtlasError, OSError):
+                cleanup_succeeded = False
+        if descriptor is not None:
+            os.close(descriptor)
+        if not committed and not cleanup_succeeded:
+            raise AtlasError("private annotation package cleanup failed")
+
+
+def _write_pinned_package_bytes(
+    retained_output: Any,
+    package: _PinnedPrivateDirectory,
+    *,
+    name: str,
+    temporary_name: str,
+    value: bytes,
+) -> None:
+    """Use the retained-root bounded writer, then place the inode without replacement."""
+    retained_output.write_bounded_bytes(temporary_name, value)
+    descriptor: int | None = None
+    linked = False
+    identity: tuple[int, int] | None = None
+    try:
+        descriptor = os.open(
+            temporary_name,
+            os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0),
+            dir_fd=retained_output.descriptor,
+        )
+        opened = os.fstat(descriptor)
+        identity = (opened.st_dev, opened.st_ino)
+        os.link(
+            temporary_name,
+            name,
+            src_dir_fd=retained_output.descriptor,
+            dst_dir_fd=package.descriptor,
+            follow_symlinks=False,
+        )
+        linked = True
+        os.unlink(temporary_name, dir_fd=retained_output.descriptor)
+        current = os.stat(name, dir_fd=package.descriptor, follow_symlinks=False)
+        digest = hashlib.sha256()
+        while block := os.read(descriptor, 1024 * 1024):
+            digest.update(block)
+        after = os.fstat(descriptor)
+        if (
+            (current.st_dev, current.st_ino) != identity
+            or (after.st_dev, after.st_ino) != identity
+            or not stat.S_ISREG(after.st_mode)
+            or stat.S_IMODE(after.st_mode) != 0o600
+            or after.st_nlink != 1
+            or after.st_size != len(value)
+            or digest.hexdigest() != hashlib.sha256(value).hexdigest()
+        ):
+            raise AtlasError("private annotation JSON changed during its bounded write")
+        os.fsync(package.descriptor)
+        package.verify()
+        retained_output.verify()
+    except BaseException:
+        if linked and identity is not None:
+            try:
+                current = os.stat(name, dir_fd=package.descriptor, follow_symlinks=False)
+                if (current.st_dev, current.st_ino) == identity:
+                    os.unlink(name, dir_fd=package.descriptor)
+            except OSError:
+                pass
+        with suppress(OSError):
+            os.unlink(temporary_name, dir_fd=retained_output.descriptor)
+        raise
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
 
 
 def _safe_pilot_artifact_path(
@@ -102,7 +529,8 @@ def _safe_pilot_artifact_path(
     ):
         raise AtlasError("pilot artifact path escapes its fixed private package directory")
     try:
-        root_stat = os.lstat(pilot_dir)
+        descriptor_root = pilot_dir.parent == Path("/proc/self/fd") and pilot_dir.name.isdigit()
+        root_stat = os.stat(pilot_dir) if descriptor_root else os.lstat(pilot_dir)
         parent_path = pilot_dir / parent
         parent_stat = os.lstat(parent_path)
         candidate = parent_path / relative.parts[1]
@@ -116,6 +544,26 @@ def _safe_pilot_artifact_path(
     ):
         raise AtlasError("pilot artifact path contains a symlink or non-regular component")
     return candidate
+
+
+def _require_retained_artifact(
+    root: VerifiedRetainedRoot,
+    path: Path,
+    *,
+    label: str,
+    allow_new_direct_child: bool = False,
+) -> None:
+    """Reject public-checkout, exposed-runtime, and out-of-policy retained paths."""
+    reject_exposed_host_path(path, label=label)
+    root.verify()
+    try:
+        if allow_new_direct_child:
+            if path.exists() or path.parent.resolve(strict=True) != root.path:
+                raise AtlasError(f"{label} must be a new direct child of retained storage")
+        elif not path.resolve(strict=True).is_relative_to(root.path):
+            raise AtlasError(f"{label} must be inside policy-bound retained storage")
+    except OSError as exc:
+        raise AtlasError(f"{label} could not be resolved safely") from exc
 
 
 def _validate_public_pilot_metadata(value: dict[str, Any], policy: dict[str, Any] | None) -> None:
@@ -143,6 +591,8 @@ def _validate_public_pilot_metadata(value: dict[str, Any], policy: dict[str, Any
     private_values = {str(Path.home())}
     if policy is not None:
         private_values.add(str(policy["private_root"]["path"]))
+        if "retained_root" in policy:
+            private_values.add(str(policy["retained_root"]["path"]))
     if any(
         _PRIVATE_TEXT_PATTERN.search(item)
         or any(private and private in item for private in private_values)
@@ -157,8 +607,11 @@ def _validate_sandboxed_pilot_manifest(
     policy: dict[str, Any] | None = None,
 ) -> None:
     """Validate schema plus source/frame/path relations for current pilot execution."""
-    if value.get("schema_version") != "1.1.0":
-        raise AtlasError("new pilot execution requires pilot manifest contract 1.1.0")
+    version = value.get("schema_version")
+    if version not in {"1.1.0", "1.2.0"}:
+        raise AtlasError("sandboxed pilot validation requires manifest contract 1.1.0 or 1.2.0")
+    if policy is not None and version != "1.2.0":
+        raise AtlasError("new pilot execution requires pilot manifest contract 1.2.0")
     validate_instance("ocr_pilot_manifest", value, "sandboxed pilot manifest")
     sources = value["sources"]
     frames = value["frames"]
@@ -196,9 +649,12 @@ def _validate_sandboxed_pilot_manifest(
 def _runner_for_policy(
     policy: dict[str, Any],
     root: VerifiedPilotRoot | None = None,
+    retained_root: VerifiedRetainedRoot | None = None,
 ) -> tuple[BubblewrapNativeRunner, dict[str, Any]]:
     if root is not None:
         ensure_pilot_security_execution_boundary(policy, root)
+    if retained_root is not None:
+        retained_root.verify()
     sandbox = policy["sandbox"]
     if (
         sandbox["provider"] != "bubblewrap"
@@ -212,18 +668,22 @@ def _runner_for_policy(
     )
     if root is not None:
         ensure_pilot_security_execution_boundary(policy, root)
+    if retained_root is not None:
+        retained_root.verify()
     public_inventory = inventory.as_record()
     verify_sandbox_policy(policy, public_inventory)
-    before_run = (
-        (lambda: ensure_pilot_security_execution_boundary(policy, root))
-        if root is not None
-        else None
-    )
+
+    def before_run() -> None:
+        if root is not None:
+            ensure_pilot_security_execution_boundary(policy, root)
+        if retained_root is not None:
+            retained_root.verify()
+
     return (
         BubblewrapNativeRunner(
             inventory,
             native_limits_from_policy(policy),
-            before_run=before_run,
+            before_run=before_run if root is not None or retained_root is not None else None,
         ),
         public_inventory,
     )
@@ -259,27 +719,21 @@ def _security_block(
         "root_identity_sha256": receipt["root_identity_sha256"],
         "filesystem_type": receipt["filesystem_type"],
         "storage_decision": receipt["storage"]["decision"],
+        "retained_storage": receipt["retained_storage"],
         "sandbox": {
             "provider": "bubblewrap",
             "profile_contract_version": sandbox["profile_contract_version"],
             "profile_sha256": sandbox["profile_sha256"],
             "dependency_identity_sha256": sandbox["dependency_identity_sha256"],
             "capability_smoke_test_passed": sandbox["capability_smoke_test_passed"],
+            "exposed_host_subtrees": sandbox["exposed_host_subtrees"],
+            "masked_host_subtrees": sandbox["masked_host_subtrees"],
         },
         "resource_limits": receipt["resource_limits"],
         "capability": receipt["capability"],
         "lifecycle": receipt["lifecycle"],
         "privacy": receipt["privacy"],
     }
-
-
-def _empty_output(path: Path) -> None:
-    if path.is_symlink() or (path.exists() and not path.is_dir()):
-        raise AtlasError("pilot output must be a regular local directory, not a symlink")
-    if path.exists():
-        raise AtlasError(f"pilot output must be a new directory: {path}")
-    path.mkdir(mode=0o700, parents=True, exist_ok=False)
-    path.chmod(0o700)
 
 
 def _copy_verified_file(
@@ -292,7 +746,19 @@ def _copy_verified_file(
     """Copy one immutable regular file without following either final path."""
     source_fd: int | None = None
     destination_fd: int | None = None
+    destination_identity: tuple[int, int] | None = None
     flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+
+    def remove_created_destination() -> None:
+        if destination_identity is None:
+            return
+        try:
+            current_destination = os.lstat(destination)
+            if (current_destination.st_dev, current_destination.st_ino) == destination_identity:
+                destination.unlink()
+        except OSError:
+            pass
+
     try:
         before = os.lstat(source)
         if not stat.S_ISREG(before.st_mode):
@@ -303,7 +769,6 @@ def _copy_verified_file(
             raise AtlasError("pilot derivative source identity changed while opening")
         if expected_size is not None and opened.st_size != expected_size:
             raise AtlasError("pilot derivative source size differs from its frozen identity")
-        destination.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         destination_fd = os.open(
             destination,
             os.O_WRONLY
@@ -314,6 +779,8 @@ def _copy_verified_file(
             0o600,
         )
         os.fchmod(destination_fd, 0o600)
+        opened_destination = os.fstat(destination_fd)
+        destination_identity = (opened_destination.st_dev, opened_destination.st_ino)
         digest = hashlib.sha256()
         total = 0
         while True:
@@ -349,12 +816,23 @@ def _copy_verified_file(
             raise AtlasError("pilot derivative source hash differs from its frozen identity")
         if expected_size is not None and total != expected_size:
             raise AtlasError("pilot derivative copy size differs from its frozen identity")
+        completed_destination = os.fstat(destination_fd)
+        visible_destination = os.lstat(destination)
+        if (
+            (completed_destination.st_dev, completed_destination.st_ino) != destination_identity
+            or (visible_destination.st_dev, visible_destination.st_ino) != destination_identity
+            or not stat.S_ISREG(completed_destination.st_mode)
+            or stat.S_IMODE(completed_destination.st_mode) != 0o600
+            or completed_destination.st_nlink != 1
+            or completed_destination.st_size != total
+        ):
+            raise AtlasError("pilot derivative destination changed during its bounded copy")
         return total
     except OSError as exc:
-        destination.unlink(missing_ok=True)
+        remove_created_destination()
         raise AtlasError("pilot derivative could not be copied safely") from exc
     except BaseException:
-        destination.unlink(missing_ok=True)
+        remove_created_destination()
         raise
     finally:
         if destination_fd is not None:
@@ -431,6 +909,7 @@ def prepare_pilot(
     security_policy_path: Path | None = None,
 ) -> dict[str, Any]:
     """Authorize, snapshot, sandbox, and extract exactly 20/60 locked frames."""
+    reject_exposed_host_path(spec_path, label="pilot specification")
     spec, spec_identity = load_bound_json(spec_path)
     expected = {
         "schema_version",
@@ -474,6 +953,10 @@ def prepare_pilot(
             )
         if not isinstance(source["selections"], list):
             raise AtlasError("pilot source selections must be an array")
+        reject_exposed_host_path(Path(source["media_path"]), label="pilot source media")
+        reject_exposed_host_path(
+            Path(source["rights_manifest_path"]), label="pilot source rights declaration"
+        )
         seen_source_timestamps: set[int] = set()
         for selection in source["selections"]:
             required = {"timestamp_ms", "split", "categories", "difficulty"}
@@ -520,142 +1003,163 @@ def prepare_pilot(
     frame_records: list[dict[str, Any]] = []
     seen_sources: set[str] = set()
     seen_frames: set[tuple[str, int]] = set()
-    output_initialized = False
+    resources = ExitStack()
     try:
-        with open_verified_pilot_root(policy) as root:
-            runner, sandbox_inventory = _runner_for_policy(policy, root)
-            with private_pilot_workspace(policy, root) as probe_workspace:
-                hostile = run_hostile_sandbox_probes(
-                    runner,
-                    WritableDirectory.measure(probe_workspace.path),
-                    spec_path,
-                )
-            capability = receipt_capability(sandbox_inventory, hostile)
+        root = resources.enter_context(open_verified_pilot_root(policy))
+        retained_root = resources.enter_context(open_verified_retained_root(policy))
+        output_lease = resources.enter_context(
+            retained_output_directory(policy, retained_root, output)
+        )
+        retained_output = output_lease.descriptor_path
+        runner, sandbox_inventory = _runner_for_policy(policy, root, retained_root)
+        output_lease.verify()
+        retained_root.verify()
+        with private_pilot_workspace(policy, root) as probe_workspace:
+            hostile = run_hostile_sandbox_probes(
+                runner,
+                WritableDirectory.measure(probe_workspace.path),
+                spec_path,
+            )
+        capability = receipt_capability(sandbox_inventory, hostile)
+        ensure_pilot_security_execution_boundary(policy, root)
+        retained_root.verify()
+        frames_package = resources.enter_context(
+            _create_pinned_private_directory(output_lease.descriptor, "frames")
+        )
+        rights_package = resources.enter_context(
+            _create_pinned_private_directory(output_lease.descriptor, "rights")
+        )
+        for (
+            source,
+            expected_hash,
+            expected_source_id,
+            expected_manifest_hash,
+        ) in preflight_sources:
             ensure_pilot_security_execution_boundary(policy, root)
-            _empty_output(output)
-            output_initialized = True
-            (output / "frames").mkdir(mode=0o700)
-            (output / "rights").mkdir(mode=0o700)
-            for (
-                source,
-                expected_hash,
-                expected_source_id,
-                expected_manifest_hash,
-            ) in preflight_sources:
-                ensure_pilot_security_execution_boundary(policy, root)
-                media = Path(source["media_path"])
-                with (
-                    acquire_authorized_input(
-                        media,
-                        Path(source["rights_manifest_path"]),
-                        "evaluation",
-                        policy=stable_policy,
-                        verified_private_root=root.stable_input_binding(),
-                        expected_source_sha256=expected_hash,
-                        expected_source_id=expected_source_id,
-                        expected_manifest_hash=expected_manifest_hash,
-                        additional_permissions=("annotation",),
-                    ) as stable,
-                    private_pilot_workspace(policy, root) as work,
+            retained_root.verify()
+            media = Path(source["media_path"])
+            with (
+                acquire_authorized_input(
+                    media,
+                    Path(source["rights_manifest_path"]),
+                    "evaluation",
+                    policy=stable_policy,
+                    verified_private_root=root.stable_input_binding(),
+                    expected_source_sha256=expected_hash,
+                    expected_source_id=expected_source_id,
+                    expected_manifest_hash=expected_manifest_hash,
+                    additional_permissions=("annotation",),
+                ) as stable,
+                private_pilot_workspace(policy, root) as work,
+            ):
+                inventory = inspect_media(
+                    stable.snapshot_path,
+                    native_runner=runner,
+                    sandbox_work_directory=work.path,
+                    expected_source_sha256=stable.source_sha256,
+                    expected_source_size=stable.size_bytes,
+                )
+                if (
+                    inventory["sha256"] != stable.source_sha256
+                    or inventory["source_id"] != stable.source_id
                 ):
-                    inventory = inspect_media(
+                    raise AtlasError("pilot snapshot inventory identity mismatch")
+                if inventory["source_id"] in seen_sources:
+                    raise AtlasError("pilot sources must be content-distinct")
+                seen_sources.add(inventory["source_id"])
+                rights = stable.authorization.rights_declaration
+                native_policy = policy_from_inventory(inventory)
+                for operation in REQUIRED_PILOT_OPERATIONS:
+                    validate_rights(
+                        rights,
+                        inventory["sha256"],
+                        inventory["source_id"],
+                        operation,
+                    )
+                rights_name = f"{inventory['source_id']}.rights.json"
+                ensure_pilot_security_execution_boundary(policy, root)
+                output_lease.verify()
+                rights_bytes = _json_bytes(rights)
+                _write_pinned_package_bytes(
+                    output_lease,
+                    rights_package,
+                    name=rights_name,
+                    temporary_name=f"{inventory['source_id']}.rights.pending.json",
+                    value=rights_bytes,
+                )
+                source_records.append(
+                    {
+                        "source_id": inventory["source_id"],
+                        "source_sha256": inventory["sha256"],
+                        "duration_ms": inventory["duration_ms"],
+                        "rights_manifest": f"rights/{rights_name}",
+                        "rights_manifest_sha256": hashlib.sha256(rights_bytes).hexdigest(),
+                        "rights_manifest_hash": rights["manifest_hash"],
+                    }
+                )
+                for selection in source["selections"]:
+                    timestamp_ms = selection["timestamp_ms"]
+                    if not 0 <= timestamp_ms < inventory["duration_ms"]:
+                        raise AtlasError("selected timestamp is outside its source")
+                    split = selection["split"]
+                    key = (inventory["source_id"], timestamp_ms)
+                    if key in seen_frames:
+                        raise AtlasError("duplicate source/timestamp selection is not permitted")
+                    seen_frames.add(key)
+                    frame_id = f"FRM_{inventory['sha256'][:12].upper()}_{timestamp_ms:010d}"
+                    relative = f"frames/{frame_id}.png"
+                    private_frame = work.path / f"{frame_id}.png"
+                    _extract_frame(
                         stable.snapshot_path,
+                        timestamp_ms,
+                        private_frame,
+                        native_policy,
                         native_runner=runner,
-                        sandbox_work_directory=work.path,
                         expected_source_sha256=stable.source_sha256,
                         expected_source_size=stable.size_bytes,
                     )
-                    if (
-                        inventory["sha256"] != stable.source_sha256
-                        or inventory["source_id"] != stable.source_id
-                    ):
-                        raise AtlasError("pilot snapshot inventory identity mismatch")
-                    if inventory["source_id"] in seen_sources:
-                        raise AtlasError("pilot sources must be content-distinct")
-                    seen_sources.add(inventory["source_id"])
-                    rights = stable.authorization.rights_declaration
-                    native_policy = policy_from_inventory(inventory)
-                    for operation in REQUIRED_PILOT_OPERATIONS:
-                        validate_rights(
-                            rights,
-                            inventory["sha256"],
-                            inventory["source_id"],
-                            operation,
-                        )
-                    rights_name = f"{inventory['source_id']}.rights.json"
                     ensure_pilot_security_execution_boundary(policy, root)
-                    write_json(output / "rights" / rights_name, rights)
-                    source_records.append(
+                    output_lease.verify()
+                    frame_hash = sha256_file(private_frame)
+                    frame_size = private_frame.stat().st_size
+                    output_lease.ensure_additional_capacity(frame_size)
+                    _copy_verified_file(
+                        private_frame,
+                        frames_package.descriptor_path / f"{frame_id}.png",
+                        expected_sha256=frame_hash,
+                        expected_size=frame_size,
+                    )
+                    frames_package.verify()
+                    frame_records.append(
                         {
+                            "frame_id": frame_id,
                             "source_id": inventory["source_id"],
-                            "source_sha256": inventory["sha256"],
-                            "duration_ms": inventory["duration_ms"],
-                            "rights_manifest": f"rights/{rights_name}",
-                            "rights_manifest_sha256": sha256_file(output / "rights" / rights_name),
-                            "rights_manifest_hash": rights["manifest_hash"],
+                            "timestamp_ms": timestamp_ms,
+                            "split": split,
+                            "categories": selection["categories"],
+                            "difficulty": selection["difficulty"],
+                            "path": relative,
+                            "sha256": frame_hash,
+                            "size_bytes": frame_size,
                         }
                     )
-                    for selection in source["selections"]:
-                        timestamp_ms = selection["timestamp_ms"]
-                        if not 0 <= timestamp_ms < inventory["duration_ms"]:
-                            raise AtlasError("selected timestamp is outside its source")
-                        split = selection["split"]
-                        key = (inventory["source_id"], timestamp_ms)
-                        if key in seen_frames:
-                            raise AtlasError(
-                                "duplicate source/timestamp selection is not permitted"
-                            )
-                        seen_frames.add(key)
-                        frame_id = f"FRM_{inventory['sha256'][:12].upper()}_{timestamp_ms:010d}"
-                        relative = f"frames/{frame_id}.png"
-                        private_frame = work.path / f"{frame_id}.png"
-                        _extract_frame(
-                            stable.snapshot_path,
-                            timestamp_ms,
-                            private_frame,
-                            native_policy,
-                            native_runner=runner,
-                            expected_source_sha256=stable.source_sha256,
-                            expected_source_size=stable.size_bytes,
-                        )
-                        ensure_pilot_security_execution_boundary(policy, root)
-                        frame_hash = sha256_file(private_frame)
-                        frame_size = private_frame.stat().st_size
-                        _copy_verified_file(
-                            private_frame,
-                            output / relative,
-                            expected_sha256=frame_hash,
-                            expected_size=frame_size,
-                        )
-                        frame_records.append(
-                            {
-                                "frame_id": frame_id,
-                                "source_id": inventory["source_id"],
-                                "timestamp_ms": timestamp_ms,
-                                "split": split,
-                                "categories": selection["categories"],
-                                "difficulty": selection["difficulty"],
-                                "path": relative,
-                                "sha256": frame_hash,
-                                "size_bytes": frame_size,
-                            }
-                        )
-            security_receipt = make_security_receipt(
-                policy=policy,
-                root=root,
-                stage="prepared",
-                source_rights_aggregate_sha256=source_rights_aggregate(source_records),
-                sandbox_inventory=sandbox_inventory,
-                capability=capability,
-                cleanup_succeeded=True,
-            )
-            ensure_pilot_security_execution_boundary(policy, root)
-            write_json(output / "pilot_security_receipt.json", security_receipt)
-    except BaseException:
-        if output_initialized:
-            shutil.rmtree(output, ignore_errors=True)
-        raise
-    try:
+        security_receipt = make_security_receipt(
+            policy=policy,
+            root=root,
+            retained_root=retained_root,
+            stage="prepared",
+            source_rights_aggregate_sha256=source_rights_aggregate(source_records),
+            sandbox_inventory=sandbox_inventory,
+            capability=capability,
+            cleanup_succeeded=True,
+        )
+        ensure_pilot_security_execution_boundary(policy, root)
+        output_lease.verify()
+        security_receipt_bytes = _json_bytes(security_receipt)
+        output_lease.write_bounded_bytes(
+            "pilot_security_receipt.json",
+            security_receipt_bytes,
+        )
         calibration = sum(frame["split"] == "calibration" for frame in frame_records)
         evaluation = sum(frame["split"] == "evaluation" for frame in frame_records)
         if (calibration, evaluation) != (20, 60):
@@ -664,7 +1168,7 @@ def prepare_pilot(
                 f"got {calibration}/{evaluation}"
             )
         value: dict[str, Any] = {
-            "schema_version": "1.1.0",
+            "schema_version": "1.2.0",
             "pilot_id": spec["pilot_id"],
             "state": "prepared_unannotated",
             "selection_protocol": {
@@ -691,91 +1195,146 @@ def prepare_pilot(
             },
             "pilot_security": _security_block(
                 security_receipt,
-                sha256_file(output / "pilot_security_receipt.json"),
+                hashlib.sha256(security_receipt_bytes).hexdigest(),
                 _source_set_digest(source_records),
             ),
             "manifest_hash": "",
         }
         value["manifest_hash"] = _digest(value)
-        _validate_sandboxed_pilot_manifest(output, value, policy)
-        with open_verified_pilot_root(policy) as final_root:
-            ensure_pilot_security_execution_boundary(policy, final_root)
-            write_json(output / "pilot_manifest.json", value)
+        _validate_sandboxed_pilot_manifest(retained_output, value, policy)
+        ensure_pilot_security_execution_boundary(policy, root)
+        output_lease.verify()
+        output_lease.write_bounded_bytes("pilot_manifest.json", _json_bytes(value))
+        frames_package.verify()
+        rights_package.verify()
+        output_lease.verify()
+        resources.close()
         return value
-    except BaseException:
-        if output_initialized:
-            shutil.rmtree(output, ignore_errors=True)
+    except BaseException as exc:
+        resources.__exit__(type(exc), exc, exc.__traceback__)
         raise
 
 
-def make_annotation_packages(pilot_dir: Path) -> None:
-    manifest = _load_json(pilot_dir / "pilot_manifest.json")
-    validate_instance("ocr_pilot_manifest", manifest, "pilot manifest")
-    if manifest["state"] != "prepared_unannotated" or manifest["manifest_hash"] != _digest(
-        manifest
-    ):
-        raise AtlasError("annotation packages require an intact prepared pilot")
-    if manifest.get("schema_version") == "1.1.0":
-        _validate_pilot_security_linkage(pilot_dir, manifest)
-        for source in manifest["sources"]:
-            rights = load_rights_manifest(pilot_dir / source["rights_manifest"])
-            validate_rights(
-                rights,
-                source["source_sha256"],
-                source["source_id"],
-                "annotation",
+def _blank_annotation_frame(frame: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "frame_id": frame["frame_id"],
+        "source_id": frame["source_id"],
+        "timestamp_ms": frame["timestamp_ms"],
+        "exact_transcription": None,
+        "normalized_transcription": None,
+        "regions": [],
+        "ignore_regions": [],
+        "language": None,
+        "legibility": None,
+        "uncertain": None,
+        "occluded": None,
+        "truncated": None,
+        "notes": None,
+    }
+
+
+def _blank_annotation_template(
+    manifest: dict[str, Any], label: str, records: list[dict[str, Any]]
+) -> dict[str, Any]:
+    template = {
+        "schema_version": "1.0.0",
+        "pilot_id": manifest["pilot_id"],
+        "annotator_pseudonym": f"ANNOTATOR_{label}",
+        "annotation_timestamp": None,
+        "independence_attestation": False,
+        "frames": records,
+    }
+    validate_instance("ocr_human_annotation", template, f"annotator {label} template")
+    return template
+
+
+def make_annotation_packages(pilot_dir: Path, security_policy_path: Path | None = None) -> None:
+    if security_policy_path is None:
+        raise AtlasError("annotation packages require an explicit private security policy")
+    policy = load_pilot_security_policy(security_policy_path)
+    resources = ExitStack()
+    input_resources = ExitStack()
+    package_root = pilot_dir
+    try:
+        package_lease = None
+        retained_root = resources.enter_context(open_verified_retained_root(policy))
+        package_lease = resources.enter_context(
+            open_retained_output_directory(policy, retained_root, pilot_dir)
+        )
+        package_root = package_lease.descriptor_path
+        pinned_manifest = input_resources.enter_context(
+            _open_pinned_retained_json(
+                retained_root,
+                pilot_dir / "pilot_manifest.json",
+                label="prepared pilot manifest",
             )
-    frames = [frame for frame in manifest["frames"] if frame["split"] == "evaluation"]
-    for label in ("A", "B"):
-        package = pilot_dir / f"annotator_{label}"
-        if package.exists():
-            raise AtlasError(f"annotation package already exists: annotator_{label}")
-        (package / "frames").mkdir(parents=True)
-        records = []
-        for frame in frames:
-            frame_source = (
-                _safe_pilot_artifact_path(
-                    pilot_dir,
+        )
+        manifest = pinned_manifest.value
+        if manifest.get("schema_version") != "1.2.0":
+            raise AtlasError(
+                "new annotation-package execution requires pilot manifest contract 1.2.0"
+            )
+        _validate_sandboxed_pilot_manifest(package_root, manifest, policy)
+        _validate_pilot_security_linkage(package_root, manifest, policy)
+        validate_instance("ocr_pilot_manifest", manifest, "pilot manifest")
+        if manifest["state"] != "prepared_unannotated" or manifest["manifest_hash"] != _digest(
+            manifest
+        ):
+            raise AtlasError("annotation packages require an intact prepared pilot")
+        frames = [frame for frame in manifest["frames"] if frame["split"] == "evaluation"]
+        for label in ("A", "B"):
+            package = resources.enter_context(
+                _create_pinned_private_directory(
+                    package_lease.descriptor,
+                    f"annotator_{label}",
+                )
+            )
+            frame_package = resources.enter_context(
+                _create_pinned_private_directory(package.descriptor, "frames")
+            )
+            records = []
+            for frame in frames:
+                frame_source = _safe_pilot_artifact_path(
+                    package_root,
                     str(frame["path"]),
                     parent="frames",
                     basename=f"{frame['frame_id']}.png",
                 )
-                if manifest.get("schema_version") == "1.1.0"
-                else pilot_dir / frame["path"]
+                frame_size = int(frame["size_bytes"])
+                package_lease.ensure_additional_capacity(frame_size)
+                _copy_verified_file(
+                    frame_source,
+                    frame_package.descriptor_path / Path(frame["path"]).name,
+                    expected_sha256=str(frame["sha256"]),
+                    expected_size=frame_size,
+                )
+                records.append(_blank_annotation_frame(frame))
+            template = _blank_annotation_template(manifest, label, records)
+            _write_pinned_package_bytes(
+                package_lease,
+                package,
+                name="annotation.json",
+                temporary_name=f"annotation-{label}.pending.json",
+                value=_json_bytes(template),
             )
-            shutil.copy2(frame_source, package / "frames" / Path(frame["path"]).name)
-            records.append(
-                {
-                    "frame_id": frame["frame_id"],
-                    "source_id": frame["source_id"],
-                    "timestamp_ms": frame["timestamp_ms"],
-                    "exact_transcription": None,
-                    "normalized_transcription": None,
-                    "regions": [],
-                    "ignore_regions": [],
-                    "language": None,
-                    "legibility": None,
-                    "uncertain": None,
-                    "occluded": None,
-                    "truncated": None,
-                    "notes": None,
-                }
-            )
-        template = {
-            "schema_version": "1.0.0",
-            "pilot_id": manifest["pilot_id"],
-            "annotator_pseudonym": f"ANNOTATOR_{label}",
-            "annotation_timestamp": None,
-            "independence_attestation": False,
-            "frames": records,
-        }
-        validate_instance("ocr_human_annotation", template, f"annotator {label} template")
-        write_json(package / "annotation.json", template)
+            frame_package.verify()
+            package.verify()
+        package_lease.verify()
+        input_resources.close()
+        resources.close()
+    except BaseException as exc:
+        try:
+            input_resources.__exit__(type(exc), exc, exc.__traceback__)
+        finally:
+            resources.__exit__(type(exc), exc, exc.__traceback__)
+        raise
 
 
-def compare_annotations(pilot_dir: Path, first: Path, second: Path, output: Path) -> dict[str, Any]:
-    manifest = _load_json(pilot_dir / "pilot_manifest.json")
-    annotations = [_load_json(first), _load_json(second)]
+def _annotation_comparison_report(
+    manifest: dict[str, Any],
+    annotations: list[dict[str, Any]],
+    annotation_hashes: list[str],
+) -> dict[str, Any]:
     for index, value in enumerate(annotations):
         validate_instance("ocr_human_annotation", value, f"annotation {index + 1}")
         if value["pilot_id"] != manifest["pilot_id"] or not value["independence_attestation"]:
@@ -833,7 +1392,7 @@ def compare_annotations(pilot_dir: Path, first: Path, second: Path, output: Path
     report = {
         "schema_version": "1.0.0",
         "pilot_id": manifest["pilot_id"],
-        "annotation_sha256": [sha256_file(first), sha256_file(second)],
+        "annotation_sha256": annotation_hashes,
         "annotators": [item["annotator_pseudonym"] for item in annotations],
         "agreement_frames": 60 - len(disagreements),
         "disagreement_frames": len(disagreements),
@@ -847,43 +1406,151 @@ def compare_annotations(pilot_dir: Path, first: Path, second: Path, output: Path
             "region_matching_threshold_iou": 0.5,
         },
     }
-    write_json(output, report)
     return report
 
 
-def freeze_pilot(
-    pilot_dir: Path, first: Path, second: Path, adjudicated: Path, output: Path
+def compare_annotations(
+    pilot_dir: Path,
+    first: Path,
+    second: Path,
+    output: Path | None,
+    security_policy_path: Path | None = None,
 ) -> dict[str, Any]:
-    report = compare_annotations(
-        pilot_dir, first, second, output.with_suffix(".disagreements.json")
-    )
-    manifest = _load_json(pilot_dir / "pilot_manifest.json")
-    gold = _load_json(adjudicated)
-    validate_instance("ocr_human_annotation", gold, "adjudicated gold")
-    if gold["pilot_id"] != manifest["pilot_id"] or gold["annotation_timestamp"] is None:
-        raise AtlasError("adjudicated gold is incomplete or belongs to another pilot")
-    if any(frame["exact_transcription"] is None for frame in gold["frames"]):
-        raise AtlasError("adjudicated gold contains incomplete frames")
-    frozen = {
-        **manifest,
-        "state": "adjudicated_frozen",
-        "human_annotation_sha256": [sha256_file(first), sha256_file(second)],
-        "adjudicated_gold_sha256": sha256_file(adjudicated),
-        "disagreement_report_sha256": sha256_file(output.with_suffix(".disagreements.json")),
-        "normalization_rules_sha256": sha256_file(Path(__file__).with_name("ocr_evaluation.py")),
-        "ocr_configuration_sha256": sha256_file(Path(__file__).parents[2] / "configs/m2b.yaml"),
-        "region_matching_rule": "IoU >= 0.5; one-to-one maximum-IoU matching",
-        "metric_definition": "AV-Atlas OCR evaluation schema 1.0.0",
-        "manifest_hash": "",
-        "disagreement_count": report["disagreement_frames"],
-    }
-    # The frozen manifest intentionally has a richer shape and is hash-protected rather than
-    # changing the immutable prepared source/frame evidence.
-    frozen["manifest_hash"] = _digest(frozen)
-    if frozen.get("schema_version") == "1.1.0":
-        _validate_sandboxed_pilot_manifest(pilot_dir, frozen)
-    write_json(output, frozen)
-    return frozen
+    if security_policy_path is None:
+        raise AtlasError("annotation comparison requires an explicit private security policy")
+    policy = load_pilot_security_policy(security_policy_path)
+    resources = ExitStack()
+    input_resources = ExitStack()
+    try:
+        retained_root = resources.enter_context(open_verified_retained_root(policy))
+        pilot_lease = resources.enter_context(
+            open_retained_output_directory(policy, retained_root, pilot_dir)
+        )
+        manifest_pin = input_resources.enter_context(
+            _open_pinned_retained_json(
+                retained_root,
+                pilot_dir / "pilot_manifest.json",
+                label="prepared pilot manifest",
+            )
+        )
+        first_pin = input_resources.enter_context(
+            _open_pinned_retained_json(retained_root, first, label="first human annotation")
+        )
+        second_pin = input_resources.enter_context(
+            _open_pinned_retained_json(retained_root, second, label="second human annotation")
+        )
+        manifest = manifest_pin.value
+        if manifest.get("schema_version") != "1.2.0":
+            raise AtlasError(
+                "new annotation-comparison execution requires pilot manifest contract 1.2.0"
+            )
+        _validate_sandboxed_pilot_manifest(pilot_lease.descriptor_path, manifest, policy)
+        _validate_pilot_security_linkage(pilot_lease.descriptor_path, manifest, policy)
+        report = _annotation_comparison_report(
+            manifest,
+            [first_pin.value, second_pin.value],
+            [first_pin.sha256, second_pin.sha256],
+        )
+        if output is not None:
+            output_lease = resources.enter_context(
+                retained_output_directory(policy, retained_root, output)
+            )
+            output_lease.write_bounded_bytes("disagreement_report.json", _json_bytes(report))
+            output_lease.verify()
+        input_resources.close()
+        resources.close()
+        return report
+    except BaseException as exc:
+        try:
+            input_resources.__exit__(type(exc), exc, exc.__traceback__)
+        finally:
+            resources.__exit__(type(exc), exc, exc.__traceback__)
+        raise
+
+
+def freeze_pilot(
+    pilot_dir: Path,
+    first: Path,
+    second: Path,
+    adjudicated: Path,
+    output: Path,
+    security_policy_path: Path | None = None,
+) -> dict[str, Any]:
+    if security_policy_path is None:
+        raise AtlasError("pilot freeze requires an explicit private security policy")
+    policy = load_pilot_security_policy(security_policy_path)
+    resources = ExitStack()
+    input_resources = ExitStack()
+    try:
+        retained_root = resources.enter_context(open_verified_retained_root(policy))
+        pilot_lease = resources.enter_context(
+            open_retained_output_directory(policy, retained_root, pilot_dir)
+        )
+        manifest_pin = input_resources.enter_context(
+            _open_pinned_retained_json(
+                retained_root,
+                pilot_dir / "pilot_manifest.json",
+                label="prepared pilot manifest",
+            )
+        )
+        first_pin = input_resources.enter_context(
+            _open_pinned_retained_json(retained_root, first, label="first human annotation")
+        )
+        second_pin = input_resources.enter_context(
+            _open_pinned_retained_json(retained_root, second, label="second human annotation")
+        )
+        gold_pin = input_resources.enter_context(
+            _open_pinned_retained_json(retained_root, adjudicated, label="adjudicated gold")
+        )
+        manifest = manifest_pin.value
+        if manifest.get("schema_version") != "1.2.0":
+            raise AtlasError("new pilot-freeze execution requires pilot manifest contract 1.2.0")
+        _validate_sandboxed_pilot_manifest(pilot_lease.descriptor_path, manifest, policy)
+        _validate_pilot_security_linkage(pilot_lease.descriptor_path, manifest, policy)
+        report = _annotation_comparison_report(
+            manifest,
+            [first_pin.value, second_pin.value],
+            [first_pin.sha256, second_pin.sha256],
+        )
+        gold = gold_pin.value
+        validate_instance("ocr_human_annotation", gold, "adjudicated gold")
+        if gold["pilot_id"] != manifest["pilot_id"] or gold["annotation_timestamp"] is None:
+            raise AtlasError("adjudicated gold is incomplete or belongs to another pilot")
+        if any(frame["exact_transcription"] is None for frame in gold["frames"]):
+            raise AtlasError("adjudicated gold contains incomplete frames")
+        disagreement_bytes = _json_bytes(report)
+        frozen = {
+            **manifest,
+            "state": "adjudicated_frozen",
+            "human_annotation_sha256": [first_pin.sha256, second_pin.sha256],
+            "adjudicated_gold_sha256": gold_pin.sha256,
+            "disagreement_report_sha256": hashlib.sha256(disagreement_bytes).hexdigest(),
+            "normalization_rules_sha256": sha256_file(
+                Path(__file__).with_name("ocr_evaluation.py")
+            ),
+            "ocr_configuration_sha256": sha256_file(Path(__file__).parents[2] / "configs/m2b.yaml"),
+            "region_matching_rule": "IoU >= 0.5; one-to-one maximum-IoU matching",
+            "metric_definition": "AV-Atlas OCR evaluation schema 1.0.0",
+            "manifest_hash": "",
+            "disagreement_count": report["disagreement_frames"],
+        }
+        frozen["manifest_hash"] = _digest(frozen)
+        _validate_sandboxed_pilot_manifest(pilot_lease.descriptor_path, frozen, policy)
+        output_lease = resources.enter_context(
+            retained_output_directory(policy, retained_root, output)
+        )
+        output_lease.write_bounded_bytes("disagreement_report.json", disagreement_bytes)
+        output_lease.write_bounded_bytes("frozen_manifest.json", _json_bytes(frozen))
+        output_lease.verify()
+        input_resources.close()
+        resources.close()
+        return frozen
+    except BaseException as exc:
+        try:
+            input_resources.__exit__(type(exc), exc, exc.__traceback__)
+        finally:
+            resources.__exit__(type(exc), exc, exc.__traceback__)
+        raise
 
 
 def _distance(left: list[str], right: list[str]) -> int:
@@ -938,45 +1605,69 @@ def _iou(left: list[float], right: list[float]) -> float:
     return intersection / union if union else 0.0
 
 
-def evaluate_pilot(
+def _evaluate_pilot_with_resources(
     pilot_dir: Path,
     frozen_path: Path,
     adjudicated_path: Path,
-    observations_path: Path,
-    runtime_path: Path,
+    ocr_output_dir: Path,
     output: Path,
+    security_policy_path: Path,
+    resources: ExitStack,
+    input_resources: ExitStack,
 ) -> dict[str, Any]:
-    """Evaluate unchanged-adapter JSONL only after a hash-locked human adjudication."""
-    frozen = _load_json(frozen_path)
+    """Evaluate only a fully authenticated, sandbox-produced pilot OCR package."""
+    policy = load_pilot_security_policy(security_policy_path)
+    retained_root = resources.enter_context(open_verified_retained_root(policy))
+    pilot_lease = resources.enter_context(
+        open_retained_output_directory(policy, retained_root, pilot_dir)
+    )
+    ocr_lease = resources.enter_context(
+        open_retained_output_directory(policy, retained_root, ocr_output_dir)
+    )
+    frozen_pin = input_resources.enter_context(
+        _open_pinned_retained_json(
+            retained_root,
+            frozen_path,
+            label="frozen pilot manifest",
+        )
+    )
+    gold_pin = input_resources.enter_context(
+        _open_pinned_retained_json(
+            retained_root,
+            adjudicated_path,
+            label="adjudicated pilot gold",
+        )
+    )
+    frozen = frozen_pin.value
     if frozen.get("state") != "adjudicated_frozen" or frozen.get("manifest_hash") != _digest(
         frozen
     ):
         raise AtlasError("pilot evaluation requires an intact adjudicated frozen manifest")
-    if sha256_file(adjudicated_path) != frozen.get("adjudicated_gold_sha256"):
+    if gold_pin.sha256 != frozen.get("adjudicated_gold_sha256"):
         raise AtlasError("adjudicated gold differs from the frozen pilot")
     if sha256_file(Path(__file__).parents[2] / "configs/m2b.yaml") != frozen.get(
         "ocr_configuration_sha256"
     ):
         raise AtlasError("OCR configuration differs from the frozen pilot")
-    if frozen.get("schema_version") == "1.1.0":
-        _validate_pilot_security_linkage(pilot_dir, frozen)
-    for source in frozen["sources"]:
-        rights = load_rights_manifest(pilot_dir / source["rights_manifest"])
-        validate_rights(rights, source["source_sha256"], source["source_id"], "evaluation")
-        validate_rights(
-            rights, source["source_sha256"], source["source_id"], "derivative_artifact_retention"
-        )
-    gold = _load_json(adjudicated_path)
+    config_path = Path(__file__).parents[2] / "configs/m2b.yaml"
+    reject_exposed_host_path(output, label="pilot evaluation output")
+    pinned_pilot = pilot_lease.descriptor_path
+    _validate_sandboxed_pilot_manifest(pinned_pilot, frozen, policy)
+    _, rights_aggregate = _validate_pilot_security_linkage(pinned_pilot, frozen, policy)
+    authenticated = validate_pilot_ocr_output_package(
+        ocr_lease.descriptor_path,
+        frozen_manifest_path=frozen_pin.anchored_path,
+        prepared_receipt_path=pinned_pilot / "pilot_security_receipt.json",
+        policy_sha256=policy["policy_hash"],
+        source_rights_aggregate_sha256=rights_aggregate,
+        ocr_configuration_sha256=sha256_file(config_path),
+        ocr_configuration_size_bytes=config_path.stat().st_size,
+    )
+    observations = list(authenticated.observations)
+    runtime = authenticated.runtime
+    evidence = authenticated.evidence_index["evidence"]
+    gold = gold_pin.value
     validate_instance("ocr_human_annotation", gold, "adjudicated gold")
-    try:
-        observations = [
-            json.loads(line)
-            for line in observations_path.read_text(encoding="utf-8").splitlines()
-            if line
-        ]
-    except (OSError, json.JSONDecodeError) as exc:
-        raise AtlasError(f"invalid pilot OCR observations: {exc}") from exc
-    runtime = _load_json(runtime_path)
     by_frame: dict[str, list[dict[str, Any]]] = {}
     for item in observations:
         frame_id = str(item.get("keyframe_id", item.get("frame_id", "")))
@@ -1148,13 +1839,14 @@ def evaluate_pilot(
         )
         for item in observations
     }
-    evidence_path = observations_path.parent / "evidence_index.json"
-    evidence = _load_json(evidence_path).get("evidence", {}) if evidence_path.is_file() else {}
     report = {
         "schema_version": "1.0.0",
         "category": "authorized_real_media_pilot",
         "pilot_id": frozen["pilot_id"],
-        "frozen_manifest_sha256": sha256_file(frozen_path),
+        "frozen_manifest_sha256": frozen_pin.sha256,
+        "ocr_output_manifest_file_sha256": authenticated.manifest_file_sha256,
+        "ocr_output_manifest_hash": authenticated.manifest["manifest_hash"],
+        "ocr_output_binding_sha256": authenticated.manifest["output_binding_sha256"],
         "source_count": len(frozen["sources"]),
         "frame_count": len(expected),
         "text_region_count": sum(len(frame["regions"]) for frame in expected.values()),
@@ -1205,8 +1897,45 @@ def evaluate_pilot(
             "Small authorized pilot only; do not generalize to all films, episodes, or livestreams."
         ],
     }
-    write_json(output, report)
+    output_lease = resources.enter_context(retained_output_directory(policy, retained_root, output))
+    output_lease.write_bounded_bytes("ocr_evaluation.json", _json_bytes(report))
+    output_lease.verify()
+    input_resources.close()
     return report
+
+
+def evaluate_pilot(
+    pilot_dir: Path,
+    frozen_path: Path,
+    adjudicated_path: Path,
+    ocr_output_dir: Path,
+    output: Path,
+    security_policy_path: Path | None = None,
+) -> dict[str, Any]:
+    """Evaluate only a fully authenticated, sandbox-produced pilot OCR package."""
+    if security_policy_path is None:
+        raise AtlasError("pilot evaluation requires an explicit private security policy")
+    resources = ExitStack()
+    input_resources = ExitStack()
+    try:
+        report = _evaluate_pilot_with_resources(
+            pilot_dir,
+            frozen_path,
+            adjudicated_path,
+            ocr_output_dir,
+            output,
+            security_policy_path,
+            resources,
+            input_resources,
+        )
+        resources.close()
+        return report
+    except BaseException as exc:
+        try:
+            input_resources.__exit__(type(exc), exc, exc.__traceback__)
+        finally:
+            resources.__exit__(type(exc), exc, exc.__traceback__)
+        raise
 
 
 def _validate_pilot_security_linkage(
@@ -1214,13 +1943,18 @@ def _validate_pilot_security_linkage(
     frozen: dict[str, Any],
     policy: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], str]:
-    if frozen.get("schema_version") != "1.1.0" or not isinstance(
+    if frozen.get("schema_version") not in {"1.1.0", "1.2.0"} or not isinstance(
         frozen.get("pilot_security"), dict
     ):
-        raise AtlasError("new pilot execution requires the sandboxed pilot manifest contract 1.1.0")
+        raise AtlasError("pilot security linkage requires manifest contract 1.1.0 or 1.2.0")
+    if policy is not None and frozen.get("schema_version") != "1.2.0":
+        raise AtlasError("new pilot execution requires the sandboxed pilot manifest contract 1.2.0")
     security = frozen["pilot_security"]
     receipt_path = pilot_dir / str(security["receipt_path"])
-    receipt = _load_json(receipt_path)
+    receipt, receipt_identity = load_bound_json(
+        receipt_path,
+        maximum_bytes=_MAX_RETAINED_JSON_BYTES,
+    )
     validate_security_receipt(
         receipt,
         policy_hash=(policy["policy_hash"] if policy is not None else security["policy_sha256"]),
@@ -1229,7 +1963,7 @@ def _validate_pilot_security_linkage(
         ),
     )
     if (
-        sha256_file(receipt_path) != security["receipt_sha256"]
+        receipt_identity["sha256"] != security["receipt_sha256"]
         or receipt["receipt_hash"] != _digest(receipt, "receipt_hash")
         or receipt["policy_sha256"] != security["policy_sha256"]
         or receipt["pilot_spec_sha256"] != security["pilot_spec_sha256"]
@@ -1242,6 +1976,14 @@ def _validate_pilot_security_linkage(
         or security["pilot_spec_size_bytes"] != policy["pilot_spec_size_bytes"]
     ):
         raise AtlasError("private pilot policy differs from the prepared pilot linkage")
+    if frozen.get("schema_version") == "1.2.0":
+        retained = security.get("retained_storage")
+        if not isinstance(retained, dict) or retained != receipt.get("retained_storage"):
+            raise AtlasError("pilot retained-storage receipt differs from its manifest linkage")
+        if policy is not None and (
+            retained.get("decision") != policy["retained_storage"]["decision"]
+        ):
+            raise AtlasError("private retained-storage decision differs from the prepared pilot")
     if _source_set_digest(frozen["sources"]) != security["source_set_sha256"]:
         raise AtlasError("pilot source set differs from its security-bound identity")
     rights_records: list[dict[str, Any]] = []
@@ -1252,12 +1994,15 @@ def _validate_pilot_security_linkage(
             parent="rights",
             basename=f"{source['source_id']}.rights.json",
         )
-        if sha256_file(rights_path) != source["rights_manifest_sha256"]:
+        rights, rights_identity = load_bound_json(rights_path, maximum_bytes=1_000_000)
+        validate_instance("rights_manifest", rights, "pilot rights manifest")
+        if rights_identity["sha256"] != source["rights_manifest_sha256"]:
             raise AtlasError("pilot rights artifact differs from its manifest identity")
-        rights = load_rights_manifest(rights_path)
-        if rights["manifest_hash"] != source.get("rights_manifest_hash"):
+        if rights["manifest_hash"] != rights_manifest_digest(rights) or rights[
+            "manifest_hash"
+        ] != source.get("rights_manifest_hash"):
             raise AtlasError("pilot rights self-hash differs from its prepared linkage")
-        for operation in ("analysis", "evaluation", "derivative_artifact_retention"):
+        for operation in REQUIRED_PILOT_OPERATIONS:
             validate_rights(
                 rights,
                 source["source_sha256"],
@@ -1290,7 +2035,7 @@ def validate_pilot_security_artifacts(
     manifest = _load_json(selected_manifest)
     if manifest.get("manifest_hash") != _digest(manifest):
         raise AtlasError("pilot manifest checksum mismatch")
-    if manifest.get("schema_version") == "1.1.0":
+    if manifest.get("schema_version") in {"1.1.0", "1.2.0"}:
         _validate_sandboxed_pilot_manifest(pilot_dir, manifest)
     elif manifest.get("state") == "prepared_unannotated":
         validate_instance("ocr_pilot_manifest", manifest, "pilot manifest")
@@ -1302,7 +2047,18 @@ def validate_pilot_security_artifacts(
         if security_policy_path is not None
         else None
     )
-    receipt, aggregate = _validate_pilot_security_linkage(pilot_dir, manifest, policy)
+    if policy is None:
+        receipt, aggregate = _validate_pilot_security_linkage(pilot_dir, manifest)
+    else:
+        with (
+            open_verified_retained_root(policy) as retained_root,
+            open_retained_output_directory(policy, retained_root, pilot_dir) as pilot_lease,
+        ):
+            if manifest.get("schema_version") == "1.2.0":
+                _validate_sandboxed_pilot_manifest(pilot_lease.descriptor_path, manifest, policy)
+            receipt, aggregate = _validate_pilot_security_linkage(
+                pilot_lease.descriptor_path, manifest, policy
+            )
     return {
         "schema_version": "1.0.0",
         "state": "valid",
@@ -1323,24 +2079,17 @@ def run_pilot_ocr(
     output: Path,
     security_policy_path: Path | None = None,
 ) -> dict[str, Any]:
-    """Run the unchanged frozen M2B adapter inside the mandatory pilot sandbox."""
-    frozen = _load_json(frozen_path)
-    if frozen.get("state") != "adjudicated_frozen" or frozen.get("manifest_hash") != _digest(
-        frozen
+    """Run OCR and finalize one authenticated, policy-retained output package."""
+    for path, label in (
+        (pilot_dir, "prepared pilot package"),
+        (frozen_path, "frozen pilot manifest"),
+        (output, "pilot OCR output"),
     ):
-        raise AtlasError("pilot OCR requires an intact adjudicated frozen manifest")
+        reject_exposed_host_path(path, label=label)
     if security_policy_path is None:
         raise AtlasError("pilot OCR requires an explicit private security policy")
-    policy = load_pilot_security_policy(
-        security_policy_path,
-        pilot_id=str(frozen.get("pilot_id", "")),
-    )
-    _validate_sandboxed_pilot_manifest(pilot_dir, frozen, policy)
-    _, source_rights_hash = _validate_pilot_security_linkage(pilot_dir, frozen, policy)
+    policy = load_pilot_security_policy(security_policy_path)
     config_path = Path(__file__).parents[2] / "configs/m2b.yaml"
-    if sha256_file(config_path) != frozen.get("ocr_configuration_sha256"):
-        raise AtlasError("OCR configuration differs from the frozen pilot")
-    config = BaselineConfig.load(config_path)
     all_records: list[dict[str, Any]] = []
     evidence: dict[str, dict[str, Any]] = {}
     totals: dict[str, Any] = {
@@ -1350,180 +2099,246 @@ def run_pilot_ocr(
         "retries": 0,
         "timeouts": 0,
         "frames_processed": 0,
+        "failures": 0,
     }
-    output_initialized = False
+    resources = ExitStack()
+    input_resources = ExitStack()
     try:
-        with open_verified_pilot_root(policy) as root:
-            runner, sandbox_inventory = _runner_for_policy(policy, root)
-            with private_pilot_workspace(policy, root) as probe_workspace:
-                hostile = run_hostile_sandbox_probes(
-                    runner,
-                    WritableDirectory.measure(probe_workspace.path),
-                    frozen_path,
-                )
-            capability = receipt_capability(sandbox_inventory, hostile)
-            with private_pilot_workspace(policy, root) as inventory_workspace:
-                ocr_dependency = inspect_ocr(
-                    config.ocr_executable,
-                    include_private_paths=True,
-                    native_runner=runner,
-                    sandbox_work_directory=inventory_workspace.path,
-                )
-            if ocr_dependency.get("state") != "available":
-                raise AtlasError("approved Tesseract dependency is unavailable in the sandbox")
+        root = resources.enter_context(open_verified_pilot_root(policy))
+        retained_root = resources.enter_context(open_verified_retained_root(policy))
+        pilot_lease = resources.enter_context(
+            open_retained_output_directory(policy, retained_root, pilot_dir)
+        )
+        retained_root.verify()
+        frozen_pin = input_resources.enter_context(
+            _open_pinned_retained_json(
+                retained_root,
+                frozen_path,
+                label="frozen pilot manifest",
+            )
+        )
+        frozen = frozen_pin.value
+        if frozen.get("state") != "adjudicated_frozen" or frozen.get("manifest_hash") != _digest(
+            frozen
+        ):
+            raise AtlasError("pilot OCR requires an intact adjudicated frozen manifest")
+        if sha256_file(config_path) != frozen.get("ocr_configuration_sha256"):
+            raise AtlasError("OCR configuration differs from the frozen pilot")
+        config = BaselineConfig.load(config_path)
+        pinned_pilot = pilot_lease.descriptor_path
+        _validate_sandboxed_pilot_manifest(pinned_pilot, frozen, policy)
+        prepared_receipt, source_rights_hash = _validate_pilot_security_linkage(
+            pinned_pilot, frozen, policy
+        )
+        output_lease = resources.enter_context(
+            retained_output_directory(policy, retained_root, output)
+        )
+        retained_output = output_lease.descriptor_path
+        runner, sandbox_inventory = _runner_for_policy(policy, root, retained_root)
+        with private_pilot_workspace(policy, root) as probe_workspace:
+            hostile = run_hostile_sandbox_probes(
+                runner,
+                WritableDirectory.measure(probe_workspace.path),
+                frozen_pin.anchored_path,
+            )
+        capability = receipt_capability(sandbox_inventory, hostile)
+        with private_pilot_workspace(policy, root) as inventory_workspace:
+            ocr_dependency = inspect_ocr(
+                config.ocr_executable,
+                include_private_paths=True,
+                native_runner=runner,
+                sandbox_work_directory=inventory_workspace.path,
+            )
+        if ocr_dependency.get("state") != "available":
+            raise AtlasError("approved Tesseract dependency is unavailable in the sandbox")
+        for source in frozen["sources"]:
             ensure_pilot_security_execution_boundary(policy, root)
-            _empty_output(output)
-            output_initialized = True
-            for source in frozen["sources"]:
-                ensure_pilot_security_execution_boundary(policy, root)
-                frames = [
-                    frame
-                    for frame in frozen["frames"]
-                    if frame["source_id"] == source["source_id"] and frame["split"] == "evaluation"
-                ]
-                with private_pilot_workspace(policy, root) as work:
-                    workspace = work.path
-                    (workspace / "keyframes").mkdir(mode=0o700)
-                    keyframes = []
-                    frame_map: dict[str, str] = {}
-                    for index, frame in enumerate(frames, 1):
-                        keyframe_id = f"KEY_{index:04d}"
-                        shot_id = f"SHOT_{index:04d}"
-                        destination = workspace / "keyframes" / f"{keyframe_id}.png"
-                        frame_source = _safe_pilot_artifact_path(
-                            pilot_dir,
-                            str(frame["path"]),
-                            parent="frames",
-                            basename=f"{frame['frame_id']}.png",
-                        )
-                        size = _copy_verified_file(
-                            frame_source,
-                            destination,
-                            expected_sha256=str(frame["sha256"]),
-                            expected_size=int(frame["size_bytes"]),
-                        )
-                        evidence_ref = f"VID:{source['source_id']}:frame:{frame['timestamp_ms']}"
-                        keyframes.append(
-                            {
-                                "schema_version": "1.0.0",
-                                "keyframe_id": keyframe_id,
-                                "shot_id": shot_id,
-                                "source_id": source["source_id"],
-                                "timestamp_ms": frame["timestamp_ms"],
-                                "frame_index": index,
-                                "path": f"keyframes/{keyframe_id}.png",
-                                "sha256": frame["sha256"],
-                                "size_bytes": size,
-                                "evidence_ref": evidence_ref,
-                            }
-                        )
-                        frame_map[keyframe_id] = frame["frame_id"]
-                        evidence[evidence_ref] = {
-                            "evidence_ref": evidence_ref,
+            output_lease.verify()
+            frames = [
+                frame
+                for frame in frozen["frames"]
+                if frame["source_id"] == source["source_id"] and frame["split"] == "evaluation"
+            ]
+            with private_pilot_workspace(policy, root) as work:
+                workspace = work.path
+                (workspace / "keyframes").mkdir(mode=0o700)
+                keyframes: list[dict[str, Any]] = []
+                frame_map: dict[str, str] = {}
+                for index, frame in enumerate(frames, 1):
+                    keyframe_id = f"KEY_{index:04d}"
+                    shot_id = f"SHOT_{index:04d}"
+                    destination = workspace / "keyframes" / f"{keyframe_id}.png"
+                    frame_source = _safe_pilot_artifact_path(
+                        pinned_pilot,
+                        str(frame["path"]),
+                        parent="frames",
+                        basename=f"{frame['frame_id']}.png",
+                    )
+                    size = _copy_verified_file(
+                        frame_source,
+                        destination,
+                        expected_sha256=str(frame["sha256"]),
+                        expected_size=int(frame["size_bytes"]),
+                    )
+                    evidence_ref = f"VID:{source['source_id']}:frame:{frame['timestamp_ms']}"
+                    keyframes.append(
+                        {
+                            "schema_version": "1.0.0",
+                            "keyframe_id": keyframe_id,
+                            "shot_id": shot_id,
                             "source_id": source["source_id"],
-                            "observation_id": frame["frame_id"],
-                            "modality": "VID",
-                            "start_ms": frame["timestamp_ms"],
-                            "end_ms": min(
-                                frame["timestamp_ms"] + 1,
-                                source["duration_ms"],
-                            ),
+                            "timestamp_ms": frame["timestamp_ms"],
+                            "frame_index": index,
+                            "path": f"keyframes/{keyframe_id}.png",
+                            "sha256": frame["sha256"],
+                            "size_bytes": size,
+                            "evidence_ref": evidence_ref,
                         }
-                    write_jsonl(workspace / "keyframes.jsonl", keyframes)
-                    inventory = {
-                        "schema_version": "1.0.0",
+                    )
+                    frame_map[keyframe_id] = frame["frame_id"]
+                    evidence[evidence_ref] = {
+                        "evidence_ref": evidence_ref,
                         "source_id": source["source_id"],
-                        "sha256": source["source_sha256"],
-                        "duration_ms": source["duration_ms"],
+                        "observation_id": frame["frame_id"],
+                        "modality": "VID",
+                        "start_ms": frame["timestamp_ms"],
+                        "end_ms": min(frame["timestamp_ms"] + 1, source["duration_ms"]),
                     }
-                    execution = TesseractOcrAdapter().run(
-                        AdapterContext(
-                            Path("sandbox-input"),
-                            inventory,
-                            workspace,
-                            config,
-                            native_execution_mode="pilot_bubblewrap",
-                            native_runner=runner,
-                            ocr_dependency_private=ocr_dependency,
-                        )
+                write_jsonl(workspace / "keyframes.jsonl", keyframes)
+                inventory = {
+                    "schema_version": "1.0.0",
+                    "source_id": source["source_id"],
+                    "sha256": source["source_sha256"],
+                    "duration_ms": source["duration_ms"],
+                }
+                execution = TesseractOcrAdapter().run(
+                    AdapterContext(
+                        Path("sandbox-input"),
+                        inventory,
+                        workspace,
+                        config,
+                        native_execution_mode="pilot_bubblewrap",
+                        native_runner=runner,
+                        ocr_dependency_private=ocr_dependency,
                     )
-                    ensure_pilot_security_execution_boundary(policy, root)
-                    if execution.result.status not in {"success", "success_zero"}:
-                        raise AtlasError(
-                            f"pilot OCR failed for {source['source_id']}: {execution.result.status}"
-                        )
-                    source_records = [
-                        json.loads(line)
-                        for line in (workspace / "ocr_observations.jsonl").read_text().splitlines()
-                        if line
-                    ]
-                    prefix = source["source_id"].removeprefix("SRC_")
-                    for record in source_records:
-                        original = record["observation_id"]
-                        record["observation_id"] = f"OCR_{prefix}_{original.removeprefix('OCR_')}"
-                        record["keyframe_id"] = frame_map[record["keyframe_id"]]
-                        record["evidence_ref"] = f"OCR:{record['observation_id']}"
-                        all_records.append(record)
-                        evidence[record["evidence_ref"]] = {
-                            "evidence_ref": record["evidence_ref"],
-                            "source_id": record["source_id"],
-                            "observation_id": record["observation_id"],
-                            "modality": "OCR",
-                            "start_ms": record["timestamp_ms"],
-                            "end_ms": min(
-                                record["timestamp_ms"] + 1,
-                                source["duration_ms"],
-                            ),
-                        }
-                    runtime = _load_json(workspace / "ocr_runtime.json")
-                    for field in (
-                        "wall_seconds",
-                        "cpu_seconds",
-                        "retries",
-                        "timeouts",
-                        "frames_processed",
-                    ):
-                        totals[field] = float(totals[field]) + float(runtime[field])
-                    totals["peak_rss_kb"] = max(
-                        int(totals["peak_rss_kb"]),
-                        int(runtime["peak_rss_kb"]),
-                    )
-            security_receipt = make_security_receipt(
-                policy=policy,
-                root=root,
-                stage="ocr-complete",
-                source_rights_aggregate_sha256=source_rights_hash,
-                sandbox_inventory=sandbox_inventory,
-                capability=capability,
-                cleanup_succeeded=True,
-            )
-        with open_verified_pilot_root(policy) as final_root:
-            ensure_pilot_security_execution_boundary(policy, final_root)
-            all_records.sort(
-                key=lambda item: (
-                    item["source_id"],
-                    item["timestamp_ms"],
-                    item["bounding_box"],
-                    item["observation_id"],
                 )
+                ensure_pilot_security_execution_boundary(policy, root)
+                if execution.result.status not in {"success", "success_zero"}:
+                    raise AtlasError(
+                        f"pilot OCR failed for {source['source_id']}: {execution.result.status}"
+                    )
+                source_records = [
+                    json.loads(line)
+                    for line in (workspace / "ocr_observations.jsonl").read_text().splitlines()
+                    if line
+                ]
+                prefix = source["source_id"].removeprefix("SRC_")
+                for record in source_records:
+                    original = record["observation_id"]
+                    record["observation_id"] = f"OCR_{prefix}_{original.removeprefix('OCR_')}"
+                    record["keyframe_id"] = frame_map[record["keyframe_id"]]
+                    record["evidence_ref"] = f"OCR:{record['observation_id']}"
+                    all_records.append(record)
+                    evidence[record["evidence_ref"]] = {
+                        "evidence_ref": record["evidence_ref"],
+                        "source_id": record["source_id"],
+                        "observation_id": record["observation_id"],
+                        "modality": "OCR",
+                        "start_ms": record["timestamp_ms"],
+                        "end_ms": min(record["timestamp_ms"] + 1, source["duration_ms"]),
+                    }
+                runtime = _load_json(workspace / "ocr_runtime.json")
+                for field in (
+                    "wall_seconds",
+                    "cpu_seconds",
+                    "retries",
+                    "timeouts",
+                    "frames_processed",
+                    "failures",
+                ):
+                    totals[field] = float(totals[field]) + float(runtime[field])
+                totals["peak_rss_kb"] = max(int(totals["peak_rss_kb"]), int(runtime["peak_rss_kb"]))
+        all_records.sort(
+            key=lambda item: (
+                item["source_id"],
+                item["timestamp_ms"],
+                item["bounding_box"],
+                item["observation_id"],
             )
-            write_jsonl(output / "ocr_observations.jsonl", all_records)
-            write_json(
-                output / "evidence_index.json",
-                {"schema_version": "1.0.0", "evidence": evidence},
-            )
-            wall = float(totals["wall_seconds"])
-            totals["frames_per_second"] = int(totals["frames_processed"]) / wall if wall else None
-            totals["observation_count"] = len(all_records)
-            totals["configuration_sha256"] = sha256_file(config_path)
-            totals["output_semantic_sha256"] = sha256_file(output / "ocr_observations.jsonl")
-            write_json(output / "ocr_runtime.json", totals)
-            ensure_pilot_security_execution_boundary(policy, final_root)
-            write_json(output / "pilot_security_receipt.json", security_receipt)
-        return {"observations": len(all_records), **totals}
-    except BaseException:
-        if output_initialized:
-            shutil.rmtree(output, ignore_errors=True)
+        )
+        output_lease.write_bounded_bytes(
+            OBSERVATIONS_FILENAME,
+            _jsonl_bytes(all_records),
+        )
+        output_lease.write_bounded_bytes(
+            EVIDENCE_FILENAME,
+            _json_bytes({"schema_version": "1.0.0", "evidence": evidence}),
+        )
+        wall = float(totals["wall_seconds"])
+        runtime_record = {
+            "schema_version": "1.0.0",
+            "workers": config.ocr_workers,
+            "frames_processed": int(totals["frames_processed"]),
+            "observation_count": len(all_records),
+            "wall_seconds": wall,
+            "cpu_seconds": float(totals["cpu_seconds"]),
+            "peak_rss_kb": int(totals["peak_rss_kb"]),
+            "frames_per_second": int(totals["frames_processed"]) / wall if wall else 0.0,
+            "failures": int(totals["failures"]),
+            "timeouts": int(totals["timeouts"]),
+            "retries": int(totals["retries"]),
+            "memory_scope": "maximum resident set of parent or one child",
+            "thread_limit_per_tesseract_process": 1,
+            "temporary_files_retained": False,
+        }
+        dependency_record = sanitize_ocr_inventory(ocr_dependency)
+        output_lease.write_bounded_bytes(RUNTIME_FILENAME, _json_bytes(runtime_record))
+        output_lease.write_bounded_bytes(DEPENDENCY_FILENAME, _json_bytes(dependency_record))
+        binding_arguments = {
+            "frozen_manifest_path": frozen_pin.anchored_path,
+            "prepared_receipt_path": pinned_pilot / "pilot_security_receipt.json",
+            "policy_sha256": policy["policy_hash"],
+            "source_rights_aggregate_sha256": source_rights_hash,
+            "ocr_configuration_sha256": sha256_file(config_path),
+            "ocr_configuration_size_bytes": config_path.stat().st_size,
+        }
+        binding = build_pilot_ocr_output_binding(retained_output, **binding_arguments)
+        security_receipt = make_security_receipt(
+            policy=policy,
+            root=root,
+            retained_root=retained_root,
+            stage="ocr-complete",
+            source_rights_aggregate_sha256=source_rights_hash,
+            sandbox_inventory=sandbox_inventory,
+            capability=capability,
+            cleanup_succeeded=True,
+            output_binding_sha256=output_binding_sha256(binding),
+        )
+        if (
+            prepared_receipt["retained_storage"]["root_identity_sha256"]
+            != security_receipt["retained_storage"]["root_identity_sha256"]
+        ):
+            raise AtlasError("OCR output retained root differs from the prepared pilot")
+        output_lease.write_bounded_bytes(
+            "pilot_security_receipt.json",
+            _json_bytes(security_receipt),
+        )
+        manifest = build_pilot_ocr_output_manifest(retained_output, **binding_arguments)
+        output_lease.write_bounded_bytes(OUTPUT_MANIFEST_FILENAME, _json_bytes(manifest))
+        output_lease.verify()
+        input_resources.close()
+        resources.close()
+        return {
+            "observations": len(all_records),
+            **runtime_record,
+            "output_manifest_hash": manifest["manifest_hash"],
+            "output_binding_sha256": manifest["output_binding_sha256"],
+        }
+    except BaseException as exc:
+        try:
+            input_resources.__exit__(type(exc), exc, exc.__traceback__)
+        finally:
+            resources.__exit__(type(exc), exc, exc.__traceback__)
         raise
 
 
@@ -1535,6 +2350,12 @@ def run_synthetic_pilot_security_check(
     output: Path,
 ) -> dict[str, Any]:
     """Execute the reviewed native stack on one project-authored synthetic fixture."""
+    for path, label in (
+        (media, "synthetic pilot source media"),
+        (rights_manifest, "synthetic pilot rights declaration"),
+        (pilot_spec, "synthetic pilot specification"),
+    ):
+        reject_exposed_host_path(path, label=label)
     spec, spec_identity = load_bound_json(pilot_spec)
     required = {
         "schema_version",
@@ -1578,200 +2399,209 @@ def run_synthetic_pilot_security_check(
     child_before = resource.getrusage(resource.RUSAGE_CHILDREN)
     records: list[dict[str, Any]] = []
     dependency: dict[str, Any] = {}
-    receipt: dict[str, Any]
     frame_size = 0
     runtime: dict[str, Any] = {}
-    output_initialized = False
-    try:
-        with open_verified_pilot_root(policy) as root:
+    with (
+        open_verified_pilot_root(policy) as root,
+        open_verified_retained_root(policy) as retained_root,
+        retained_output_directory(policy, retained_root, output) as output_lease,
+    ):
+        ensure_pilot_security_execution_boundary(policy, root)
+        retained_root.verify()
+        output_lease.verify()
+        runner, sandbox_inventory = _runner_for_policy(policy, root, retained_root)
+        with private_pilot_workspace(policy, root) as probe_workspace:
+            hostile = run_hostile_sandbox_probes(
+                runner,
+                WritableDirectory.measure(probe_workspace.path),
+                pilot_spec,
+            )
+        capability = receipt_capability(sandbox_inventory, hostile)
+        ensure_pilot_security_execution_boundary(policy, root)
+        retained_root.verify()
+        output_lease.verify()
+        with (
+            acquire_authorized_input(
+                media,
+                rights_manifest,
+                "evaluation",
+                policy=stable_policy,
+                verified_private_root=root.stable_input_binding(),
+                expected_source_sha256=measurement.source_sha256,
+                expected_source_id=measurement.source_id,
+                expected_manifest_hash=str(authorization.rights_declaration["manifest_hash"]),
+            ) as stable,
+            private_pilot_workspace(policy, root) as work,
+        ):
+            inventory = inspect_media(
+                stable.snapshot_path,
+                native_runner=runner,
+                sandbox_work_directory=work.path,
+                expected_source_sha256=stable.source_sha256,
+                expected_source_size=stable.size_bytes,
+            )
+            if timestamp_ms >= inventory["duration_ms"]:
+                raise AtlasError("synthetic pilot timestamp is outside the fixture")
+            native_policy = policy_from_inventory(inventory)
+            frame = work.path / "synthetic-keyframe.png"
+            _extract_frame(
+                stable.snapshot_path,
+                timestamp_ms,
+                frame,
+                native_policy,
+                native_runner=runner,
+                expected_source_sha256=stable.source_sha256,
+                expected_source_size=stable.size_bytes,
+            )
+            frame_hash = sha256_file(frame)
+            frame_size = frame.stat().st_size
+            keyframes = work.path / "keyframes"
+            keyframes.mkdir(mode=0o700)
+            keyframe_path = keyframes / "KEY_SYNTHETIC_0001.png"
+            _copy_verified_file(
+                frame,
+                keyframe_path,
+                expected_sha256=frame_hash,
+                expected_size=frame_size,
+            )
+            evidence_ref = f"VID:{stable.source_id}:frame:{timestamp_ms}"
+            write_jsonl(
+                work.path / "keyframes.jsonl",
+                [
+                    {
+                        "schema_version": "1.0.0",
+                        "keyframe_id": "KEY_SYNTHETIC_0001",
+                        "shot_id": "SHOT_SYNTHETIC_0001",
+                        "source_id": stable.source_id,
+                        "timestamp_ms": timestamp_ms,
+                        "frame_index": 1,
+                        "path": "keyframes/KEY_SYNTHETIC_0001.png",
+                        "sha256": frame_hash,
+                        "size_bytes": frame_size,
+                        "evidence_ref": evidence_ref,
+                    }
+                ],
+            )
+            config = BaselineConfig.load(Path(__file__).parents[2] / "configs/m2b.yaml")
+            dependency_private = inspect_ocr(
+                config.ocr_executable,
+                include_private_paths=True,
+                native_runner=runner,
+                sandbox_work_directory=work.path,
+            )
+            execution = TesseractOcrAdapter().run(
+                AdapterContext(
+                    Path("sandbox-input"),
+                    inventory,
+                    work.path,
+                    config,
+                    native_execution_mode="pilot_bubblewrap",
+                    native_runner=runner,
+                    ocr_dependency_private=dependency_private,
+                )
+            )
             ensure_pilot_security_execution_boundary(policy, root)
-            runner, sandbox_inventory = _runner_for_policy(policy, root)
-            with private_pilot_workspace(policy, root) as probe_workspace:
-                hostile = run_hostile_sandbox_probes(
-                    runner,
-                    WritableDirectory.measure(probe_workspace.path),
-                    pilot_spec,
+            retained_root.verify()
+            output_lease.verify()
+            if execution.result.status not in {"success", "success_zero"}:
+                raise AtlasError(
+                    "synthetic pilot OCR did not complete successfully inside the sandbox"
                 )
-            capability = receipt_capability(sandbox_inventory, hostile)
-            with (
-                acquire_authorized_input(
-                    media,
-                    rights_manifest,
-                    "evaluation",
-                    policy=stable_policy,
-                    verified_private_root=root.stable_input_binding(),
-                    expected_source_sha256=measurement.source_sha256,
-                    expected_source_id=measurement.source_id,
-                    expected_manifest_hash=str(authorization.rights_declaration["manifest_hash"]),
-                ) as stable,
-                private_pilot_workspace(policy, root) as work,
-            ):
-                inventory = inspect_media(
-                    stable.snapshot_path,
-                    native_runner=runner,
-                    sandbox_work_directory=work.path,
-                    expected_source_sha256=stable.source_sha256,
-                    expected_source_size=stable.size_bytes,
-                )
-                if timestamp_ms >= inventory["duration_ms"]:
-                    raise AtlasError("synthetic pilot timestamp is outside the fixture")
-                native_policy = policy_from_inventory(inventory)
-                frame = work.path / "synthetic-keyframe.png"
-                _extract_frame(
-                    stable.snapshot_path,
-                    timestamp_ms,
-                    frame,
-                    native_policy,
-                    native_runner=runner,
-                    expected_source_sha256=stable.source_sha256,
-                    expected_source_size=stable.size_bytes,
-                )
-                frame_hash = sha256_file(frame)
-                frame_size = frame.stat().st_size
-                keyframes = work.path / "keyframes"
-                keyframes.mkdir(mode=0o700)
-                keyframe_path = keyframes / "KEY_SYNTHETIC_0001.png"
-                _copy_verified_file(
-                    frame,
-                    keyframe_path,
-                    expected_sha256=frame_hash,
-                    expected_size=frame_size,
-                )
-                evidence_ref = f"VID:{stable.source_id}:frame:{timestamp_ms}"
-                write_jsonl(
-                    work.path / "keyframes.jsonl",
-                    [
-                        {
-                            "schema_version": "1.0.0",
-                            "keyframe_id": "KEY_SYNTHETIC_0001",
-                            "shot_id": "SHOT_SYNTHETIC_0001",
-                            "source_id": stable.source_id,
-                            "timestamp_ms": timestamp_ms,
-                            "frame_index": 1,
-                            "path": "keyframes/KEY_SYNTHETIC_0001.png",
-                            "sha256": frame_hash,
-                            "size_bytes": frame_size,
-                            "evidence_ref": evidence_ref,
-                        }
-                    ],
-                )
-                config = BaselineConfig.load(Path(__file__).parents[2] / "configs/m2b.yaml")
-                dependency_private = inspect_ocr(
-                    config.ocr_executable,
-                    include_private_paths=True,
-                    native_runner=runner,
-                    sandbox_work_directory=work.path,
-                )
-                execution = TesseractOcrAdapter().run(
-                    AdapterContext(
-                        Path("sandbox-input"),
-                        inventory,
-                        work.path,
-                        config,
-                        native_execution_mode="pilot_bubblewrap",
-                        native_runner=runner,
-                        ocr_dependency_private=dependency_private,
-                    )
-                )
-                ensure_pilot_security_execution_boundary(policy, root)
-                if execution.result.status not in {"success", "success_zero"}:
-                    raise AtlasError(
-                        "synthetic pilot OCR did not complete successfully inside the sandbox"
-                    )
-                records = [
-                    json.loads(line)
-                    for line in (work.path / "ocr_observations.jsonl")
-                    .read_text(encoding="utf-8")
-                    .splitlines()
-                    if line
+            records = [
+                json.loads(line)
+                for line in (work.path / "ocr_observations.jsonl")
+                .read_text(encoding="utf-8")
+                .splitlines()
+                if line
+            ]
+            dependency = _load_json(work.path / "ocr_dependency.json")
+            runtime = _load_json(work.path / "ocr_runtime.json")
+        ensure_pilot_security_execution_boundary(policy, root)
+        retained_root.verify()
+        output_lease.verify()
+        observations_bytes = _jsonl_bytes(records)
+        dependency_bytes = _json_bytes(dependency)
+        output_lease.write_bounded_bytes("ocr_observations.jsonl", observations_bytes)
+        output_lease.write_bounded_bytes("ocr_dependency.json", dependency_bytes)
+        receipt = make_security_receipt(
+            policy=policy,
+            root=root,
+            retained_root=retained_root,
+            stage="synthetic-smoke-complete",
+            source_rights_aggregate_sha256=source_rights_aggregate(
+                [
+                    {
+                        "source_id": measurement.source_id,
+                        "source_sha256": measurement.source_sha256,
+                        "rights_manifest_hash": authorization.rights_declaration["manifest_hash"],
+                    }
                 ]
-                dependency = _load_json(work.path / "ocr_dependency.json")
-                runtime = _load_json(work.path / "ocr_runtime.json")
-            receipt = make_security_receipt(
-                policy=policy,
-                root=root,
-                stage="synthetic-smoke-complete",
-                source_rights_aggregate_sha256=source_rights_aggregate(
-                    [
-                        {
-                            "source_id": measurement.source_id,
-                            "source_sha256": measurement.source_sha256,
-                            "rights_manifest_hash": authorization.rights_declaration[
-                                "manifest_hash"
-                            ],
-                        }
-                    ]
-                ),
-                sandbox_inventory=sandbox_inventory,
-                capability=capability,
-                cleanup_succeeded=True,
-            )
-        with open_verified_pilot_root(policy) as final_root:
-            ensure_pilot_security_execution_boundary(policy, final_root)
-            _empty_output(output)
-            output_initialized = True
-            write_jsonl(output / "ocr_observations.jsonl", records)
-            write_json(output / "ocr_dependency.json", dependency)
-            ensure_pilot_security_execution_boundary(policy, final_root)
-            write_json(output / "pilot_security_receipt.json", receipt)
-            child_after = resource.getrusage(resource.RUSAGE_CHILDREN)
-            cpu_seconds = (
-                child_after.ru_utime
-                + child_after.ru_stime
-                - child_before.ru_utime
-                - child_before.ru_stime
-            )
-            receipt_sha = sha256_file(output / "pilot_security_receipt.json")
-            report: dict[str, Any] = {
-                "schema_version": "1.0.0",
-                "contract_version": "av-atlas-m2b3-synthetic-pilot/1.0.0",
-                "state": "succeeded",
-                "pilot_id": spec["pilot_id"],
-                "source_id": measurement.source_id,
-                "source_sha256": measurement.source_sha256,
-                "policy_sha256": policy["policy_hash"],
-                "security_receipt_sha256": receipt_sha,
-                "tools": {
-                    "ffprobe_sandboxed": True,
-                    "ffmpeg_sandboxed": True,
-                    "tesseract_sandboxed": True,
-                },
-                "measurements": {
-                    "wall_seconds": time.perf_counter() - started,
-                    "cpu_seconds": max(0.0, cpu_seconds),
-                    "peak_rss_kb": max(0, int(child_after.ru_maxrss)),
-                    "source_size_bytes": measurement.size_bytes,
-                    "frame_size_bytes": frame_size,
-                    "ocr_observation_count": len(records),
-                    "ocr_frames_processed": int(runtime["frames_processed"]),
-                    "ocr_timeouts": int(runtime["timeouts"]),
-                    "ocr_retries": int(runtime["retries"]),
-                },
-                "resource_limits": policy["resource_limits"],
-                "capability": capability,
-                "privacy": {
-                    "real_media_processed": False,
-                    "private_paths_exported": False,
-                    "source_media_exported": False,
-                    "frame_derivative_exported": False,
-                },
-                "artifact_hashes": {
-                    "ocr_observations": sha256_file(output / "ocr_observations.jsonl"),
-                    "ocr_dependency": sha256_file(output / "ocr_dependency.json"),
-                    "security_receipt": receipt_sha,
-                },
-                "report_hash": "",
-            }
-            report["report_hash"] = _digest(report, "report_hash")
-            validate_instance(
-                "pilot_security_synthetic_report",
-                report,
-                "synthetic pilot security report",
-            )
-            ensure_pilot_security_execution_boundary(policy, final_root)
-            write_json(output / "synthetic_pilot_security_report.json", report)
+            ),
+            sandbox_inventory=sandbox_inventory,
+            capability=capability,
+            cleanup_succeeded=True,
+        )
+        receipt_bytes = _json_bytes(receipt)
+        output_lease.write_bounded_bytes("pilot_security_receipt.json", receipt_bytes)
+        child_after = resource.getrusage(resource.RUSAGE_CHILDREN)
+        cpu_seconds = (
+            child_after.ru_utime
+            + child_after.ru_stime
+            - child_before.ru_utime
+            - child_before.ru_stime
+        )
+        receipt_sha = hashlib.sha256(receipt_bytes).hexdigest()
+        report: dict[str, Any] = {
+            "schema_version": "1.1.0",
+            "contract_version": "av-atlas-m2b3-synthetic-pilot/1.1.0",
+            "state": "succeeded",
+            "pilot_id": spec["pilot_id"],
+            "source_id": measurement.source_id,
+            "source_sha256": measurement.source_sha256,
+            "policy_sha256": policy["policy_hash"],
+            "security_receipt_sha256": receipt_sha,
+            "tools": {
+                "ffprobe_sandboxed": True,
+                "ffmpeg_sandboxed": True,
+                "tesseract_sandboxed": True,
+            },
+            "measurements": {
+                "wall_seconds": time.perf_counter() - started,
+                "cpu_seconds": max(0.0, cpu_seconds),
+                "peak_rss_kb": max(0, int(child_after.ru_maxrss)),
+                "source_size_bytes": measurement.size_bytes,
+                "frame_size_bytes": frame_size,
+                "ocr_observation_count": len(records),
+                "ocr_frames_processed": int(runtime["frames_processed"]),
+                "ocr_timeouts": int(runtime["timeouts"]),
+                "ocr_retries": int(runtime["retries"]),
+            },
+            "resource_limits": policy["resource_limits"],
+            "capability": capability,
+            "privacy": {
+                "real_media_processed": False,
+                "private_paths_exported": False,
+                "source_media_exported": False,
+                "frame_derivative_exported": False,
+            },
+            "artifact_hashes": {
+                "ocr_observations": hashlib.sha256(observations_bytes).hexdigest(),
+                "ocr_dependency": hashlib.sha256(dependency_bytes).hexdigest(),
+                "security_receipt": receipt_sha,
+            },
+            "report_hash": "",
+        }
+        report["report_hash"] = _digest(report, "report_hash")
+        validate_instance(
+            "pilot_security_synthetic_report",
+            report,
+            "synthetic pilot security report",
+        )
+        ensure_pilot_security_execution_boundary(policy, root)
+        retained_root.verify()
+        output_lease.write_bounded_bytes(
+            "synthetic_pilot_security_report.json",
+            _json_bytes(report),
+        )
+        output_lease.verify()
         return report
-    except BaseException:
-        if output_initialized:
-            shutil.rmtree(output, ignore_errors=True)
-        raise

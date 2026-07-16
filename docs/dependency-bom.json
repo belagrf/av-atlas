@@ -58,13 +58,15 @@
       "redistribution_constraints": "LGPL-2+ and Ubuntu package notice/source obligations apply if the binary is redistributed; AV-Atlas does not redistribute it.",
       "commercial_use_constraints": "No project-specific prohibition identified in the installed metadata; license compliance remains required. This is not legal advice.",
       "data_use_constraints": "No media-rights grant; pilot sources still require exact rights and security-policy linkage.",
-      "runtime_requirements": "Linux amd64; user/PID/IPC/UTS/mount/network namespace support; profile av-atlas-bubblewrap-pilot/1.0.0 (sha256:b69562979857a6c33d59d7db88ce8a14a7ceaa46504539284edc86d0d0e07a0a); executable size 72160 bytes; dependency identity sha256:85905bce616b6f7327efca1c7196f4758752561a0c41bca23401c1fee4ece3f2",
+      "runtime_requirements": "Linux amd64; user/PID/IPC/UTS/mount/network namespace support; profile av-atlas-bubblewrap-pilot/1.1.0 (sha256:18ba5b8e06291138310fa45d040c5930bcbc5c705ac4c2a7018398114b0be2ad); executable size 72160 bytes; profile-bound dependency identity sha256:f75d9e08d32eaad33de98592ee0f603a19539768f3e5381b8a0b31e3c1f6c94e",
       "network_required": false,
       "weights_status": "not_applicable",
       "approval_record": "Existing local package authorized for project-authored synthetic M2B.3 sandbox verification only; AV-Atlas does not install it automatically",
       "approval_date": "2026-07-16",
       "known_risks": [
-        "Kernel namespaces and the minimum read-only system runtime remain trusted computing base",
+        "Kernel namespaces and the narrow reviewed read-only system runtime remain trusted computing base",
+        "Fixed runtime subtrees are exposed by profile and operator-controlled inputs must not overlap them",
+        "The profile SHA-256 binds declarative arguments and mounts, not the separate Python path-overlap or runner-enforcement code",
         "RLIMIT_NPROC is charged against the host real UID rather than being a precise per-sandbox process counter",
         "A capability smoke pass does not by itself satisfy the complete synthetic-pilot execution gate"
       ]

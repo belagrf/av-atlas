@@ -33,16 +33,24 @@ except ImportError:  # pragma: no cover - fail-closed non-POSIX fallback
 
 from av_atlas.errors import AtlasError, ResourceLimitError
 from av_atlas.io import canonical_json, write_json_new
+from av_atlas.native_process import (
+    PROFILE_VERSION as SANDBOX_PROFILE_VERSION,
+)
+from av_atlas.native_process import (
+    reject_exposed_host_path,
+)
 from av_atlas.schemas import validate_instance
 
-POLICY_SCHEMA_VERSION = "1.0.0"
-POLICY_CONTRACT_VERSION = "av-atlas-pilot-security-policy/1.0.0"
-RECEIPT_SCHEMA_VERSION = "1.0.0"
-RECEIPT_CONTRACT_VERSION = "av-atlas-pilot-security-receipt/1.0.0"
-SANDBOX_PROFILE_VERSION = "av-atlas-bubblewrap-pilot/1.0.0"
+POLICY_SCHEMA_VERSION = "1.1.0"
+POLICY_CONTRACT_VERSION = "av-atlas-pilot-security-policy/1.1.0"
+LEGACY_POLICY_CONTRACT_VERSION = "av-atlas-pilot-security-policy/1.0.0"
+RECEIPT_SCHEMA_VERSION = "1.1.0"
+RECEIPT_CONTRACT_VERSION = "av-atlas-pilot-security-receipt/1.1.0"
+LEGACY_RECEIPT_CONTRACT_VERSION = "av-atlas-pilot-security-receipt/1.0.0"
 MAX_POLICY_BYTES = 1_000_000
 DEFAULT_MAX_SOURCE_BYTES = 8 * 1024 * 1024 * 1024
 DEFAULT_MAX_TEMPORARY_BYTES = 8 * 1024 * 1024 * 1024
+DEFAULT_MAX_RETAINED_BYTES = 8 * 1024 * 1024 * 1024
 DEFAULT_RESERVE_BYTES = 1024 * 1024 * 1024
 MAX_STORAGE_BYTES = 64 * 1024 * 1024 * 1024
 PRIVATE_POLICY_MODE = 0o600
@@ -54,6 +62,9 @@ MAX_WORK_ENTRIES = 4096
 MAX_WORK_DEPTH = 8
 MAX_STALE_SCAN = 64
 MAX_STALE_REMOVALS = 16
+RETAINED_OUTPUT_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+MAX_RETAINED_ENTRIES = 16_384
+MAX_RETAINED_DEPTH = 12
 REMOTE_FILESYSTEMS = frozenset(
     {
         "9p",
@@ -194,12 +205,14 @@ def _mount_unescape(value: str) -> str:
     )
 
 
-def _filesystem_record(path: Path, device: int) -> dict[str, str]:
+def _filesystem_record(
+    path: Path, device: int, *, label: str = "pilot private root"
+) -> dict[str, str]:
     """Classify a Linux mount without starting a helper subprocess."""
     try:
         lines = Path("/proc/self/mountinfo").read_text(encoding="utf-8").splitlines()
     except OSError as exc:
-        raise AtlasError("pilot private-root filesystem could not be classified") from exc
+        raise AtlasError(f"{label} filesystem could not be classified") from exc
     device_id = f"{os.major(device)}:{os.minor(device)}"
     resolved = str(path)
     candidates: list[tuple[int, str, str, str]] = []
@@ -228,12 +241,12 @@ def _filesystem_record(path: Path, device: int) -> dict[str, str]:
         ).hexdigest()
         candidates.append((len(mountpoint), filesystem_type, identity, device_id))
     if not candidates:
-        raise AtlasError("pilot private-root mount is unknown and therefore unsupported")
+        raise AtlasError(f"{label} mount is unknown and therefore unsupported")
     _, filesystem_type, identity, measured_device = max(candidates)
     if filesystem_type in REMOTE_FILESYSTEMS:
-        raise AtlasError("pilot private root must not use a network or remote filesystem")
+        raise AtlasError(f"{label} must not use a network or remote filesystem")
     if filesystem_type not in LOCAL_FILESYSTEMS:
-        raise AtlasError(f"pilot private-root filesystem is unsupported: {filesystem_type}")
+        raise AtlasError(f"{label} filesystem is unsupported: {filesystem_type}")
     return {
         "filesystem_type": filesystem_type,
         "mount_identity_sha256": identity,
@@ -241,25 +254,26 @@ def _filesystem_record(path: Path, device: int) -> dict[str, str]:
     }
 
 
-def _root_measurement(path: Path) -> dict[str, Any]:
+def _root_measurement(path: Path, *, label: str = "pilot private root") -> dict[str, Any]:
+    reject_exposed_host_path(path, label=label)
     try:
         resolved = path.resolve(strict=True)
     except OSError as exc:
-        raise AtlasError("pilot private root is unavailable") from exc
+        raise AtlasError(f"{label} is unavailable") from exc
     if not path.is_absolute() or path != resolved:
-        raise AtlasError("pilot private root must be an absolute, canonical, non-symlink path")
+        raise AtlasError(f"{label} must be an absolute, canonical, non-symlink path")
     repository_root = Path(__file__).parents[2].resolve()
     if resolved.is_relative_to(repository_root):
-        raise AtlasError("pilot private root must be outside the tracked repository checkout")
+        raise AtlasError(f"{label} must be outside the tracked repository checkout")
     before = os.lstat(path)
     if not stat.S_ISDIR(before.st_mode):
-        raise AtlasError("pilot private root must be a pre-created directory")
+        raise AtlasError(f"{label} must be a pre-created directory")
     uid = os.geteuid() if hasattr(os, "geteuid") else None
     if uid is not None and before.st_uid != uid:
-        raise AtlasError("pilot private root must be owned by the current operating-system user")
+        raise AtlasError(f"{label} must be owned by the current operating-system user")
     if stat.S_IMODE(before.st_mode) != PRIVATE_ROOT_MODE:
-        raise AtlasError("pilot private root must have exact mode 0700")
-    filesystem = _filesystem_record(path, before.st_dev)
+        raise AtlasError(f"{label} must have exact mode 0700")
+    filesystem = _filesystem_record(path, before.st_dev, label=label)
     capacity = os.statvfs(path)
     available_bytes = capacity.f_bavail * capacity.f_frsize
     return {
@@ -272,12 +286,24 @@ def _root_measurement(path: Path) -> dict[str, Any]:
     }
 
 
-def _validate_storage_limits(source_bytes: int, temporary_bytes: int, reserve_bytes: int) -> None:
-    values = (source_bytes, temporary_bytes, reserve_bytes)
+def _validate_storage_limits(
+    source_bytes: int,
+    temporary_bytes: int,
+    reserve_bytes: int,
+    retained_bytes: int = DEFAULT_MAX_RETAINED_BYTES,
+    retained_reserve_bytes: int = DEFAULT_RESERVE_BYTES,
+) -> None:
+    values = (
+        source_bytes,
+        temporary_bytes,
+        reserve_bytes,
+        retained_bytes,
+        retained_reserve_bytes,
+    )
     if any(not isinstance(value, int) or isinstance(value, bool) or value < 0 for value in values):
         raise AtlasError("pilot storage limits must be nonnegative integers")
-    if source_bytes == 0 or temporary_bytes == 0:
-        raise AtlasError("pilot source and temporary byte ceilings must be positive")
+    if source_bytes == 0 or temporary_bytes == 0 or retained_bytes == 0:
+        raise AtlasError("pilot source, temporary, and retained byte ceilings must be positive")
     if max(values) > MAX_STORAGE_BYTES:
         raise AtlasError("pilot storage limits may not exceed 64 GiB each")
 
@@ -295,6 +321,7 @@ def _review_record(
     reviewed = storage_decision != "verified-tmpfs"
     if reviewed and (
         not reviewer_pseudonym
+        or not reviewer_pseudonym.strip()
         or not review_record
         or not review_expires_at
         or _parse_timestamp(review_expires_at, "storage review expiry") <= _utc_now()
@@ -308,6 +335,7 @@ def _review_record(
         raise AtlasError("remanence acceptance requires compensating controls and a deletion plan")
     return {
         "independently_reviewed": reviewed,
+        "reviewer_pseudonym": reviewer_pseudonym if reviewed else None,
         "review_record": review_record if reviewed else None,
         "review_scope": pilot_id if reviewed else None,
         "review_expires_at": review_expires_at if reviewed else None,
@@ -350,14 +378,76 @@ def preflight_pilot_security_root(
     return root_value
 
 
+def preflight_pilot_security_roots(
+    transient_root: Path,
+    retained_root: Path,
+    transient_storage_decision: str,
+    retained_storage_decision: str,
+    max_source_bytes: int,
+    max_temporary_bytes: int,
+    max_retained_bytes: int,
+    reserve_bytes: int,
+    retained_reserve_bytes: int,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Validate the distinct transient and retained roots before dependency execution."""
+    _validate_storage_limits(
+        max_source_bytes,
+        max_temporary_bytes,
+        reserve_bytes,
+        max_retained_bytes,
+        retained_reserve_bytes,
+    )
+    transient = preflight_pilot_security_root(
+        transient_root,
+        transient_storage_decision,
+        max_source_bytes,
+        max_temporary_bytes,
+        reserve_bytes,
+    )
+    if retained_storage_decision not in {
+        "verified-tmpfs",
+        "reviewed-encrypted-volume",
+        "reviewed-remanence-acceptance",
+    }:
+        raise AtlasError("unsupported retained pilot storage decision")
+    retained = _root_measurement(retained_root, label="pilot retained root")
+    if retained_storage_decision == "verified-tmpfs" and retained["filesystem_type"] != "tmpfs":
+        raise AtlasError("verified-tmpfs retained storage requires a root measured on tmpfs")
+    if (transient["device"], transient["inode"]) == (
+        retained["device"],
+        retained["inode"],
+    ):
+        raise AtlasError("pilot transient and retained roots must be distinct directories")
+    if retained_root.is_relative_to(transient_root) or transient_root.is_relative_to(retained_root):
+        raise AtlasError("pilot transient and retained roots must not overlap")
+    retained_required = max_retained_bytes + retained_reserve_bytes
+    if retained["available_bytes"] < retained_required:
+        raise ResourceLimitError("pilot retained root lacks the policy-required free capacity")
+    if transient["mount_identity_sha256"] == retained["mount_identity_sha256"]:
+        shared_required = (
+            max_source_bytes
+            + max_temporary_bytes
+            + reserve_bytes
+            + max_retained_bytes
+            + retained_reserve_bytes
+        )
+        if min(transient["available_bytes"], retained["available_bytes"]) < shared_required:
+            raise ResourceLimitError(
+                "shared pilot storage lacks combined transient and retained capacity"
+            )
+    return transient, retained
+
+
 def create_pilot_security_policy(
     *,
     root: Path,
+    retained_root: Path,
     pilot_id: str,
     pilot_spec: Path,
     output: Path,
     expires_at: str,
     storage_decision: str,
+    retained_storage_decision: str,
     bubblewrap_inventory: dict[str, Any],
     resource_limits: dict[str, int],
     reviewer_pseudonym: str | None = None,
@@ -367,23 +457,52 @@ def create_pilot_security_policy(
     deletion_plan: str | None = None,
     max_source_bytes: int = DEFAULT_MAX_SOURCE_BYTES,
     max_temporary_bytes: int = DEFAULT_MAX_TEMPORARY_BYTES,
+    max_retained_bytes: int = DEFAULT_MAX_RETAINED_BYTES,
     reserve_bytes: int = DEFAULT_RESERVE_BYTES,
+    retained_reserve_bytes: int = DEFAULT_RESERVE_BYTES,
 ) -> dict[str, Any]:
     """Create one no-overwrite, mode-0600 local policy bound to a pilot spec."""
+    reject_exposed_host_path(pilot_spec, label="pilot specification")
+    reject_exposed_host_path(output, label="private pilot policy output")
     validate_private_policy_output_path(output)
     if _parse_timestamp(expires_at, "pilot security policy expiry") <= _utc_now():
         raise AtlasError("pilot security policy expiry must be in the future")
-    root_value = preflight_pilot_security_root(
+    root_value, retained_root_value = preflight_pilot_security_roots(
         root,
+        retained_root,
         storage_decision,
+        retained_storage_decision,
         max_source_bytes,
         max_temporary_bytes,
+        max_retained_bytes,
         reserve_bytes,
+        retained_reserve_bytes,
     )
+    try:
+        with os.scandir(retained_root) as entries:
+            if next(entries, None) is not None:
+                raise AtlasError("pilot retained root must be empty when its policy is created")
+    except OSError as exc:
+        raise AtlasError("pilot retained root could not be inspected safely") from exc
+    for private_root in (root, retained_root):
+        try:
+            if output.resolve(strict=False).is_relative_to(private_root):
+                raise AtlasError("private pilot policy must be stored outside its storage roots")
+        except OSError as exc:
+            raise AtlasError("private pilot policy output could not be resolved safely") from exc
     spec = stable_file_identity(pilot_spec)
     review = _review_record(
         pilot_id=pilot_id,
         storage_decision=storage_decision,
+        reviewer_pseudonym=reviewer_pseudonym,
+        review_record=review_record,
+        review_expires_at=review_expires_at,
+        compensating_controls=compensating_controls,
+        deletion_plan=deletion_plan,
+    )
+    retained_review = _review_record(
+        pilot_id=pilot_id,
+        storage_decision=retained_storage_decision,
         reviewer_pseudonym=reviewer_pseudonym,
         review_record=review_record,
         review_expires_at=review_expires_at,
@@ -420,6 +539,14 @@ def create_pilot_security_policy(
             "expected_mode": "0700",
             "mount_identity_sha256": root_value["mount_identity_sha256"],
         },
+        "retained_root": {
+            "path": str(retained_root),
+            "expected_device": retained_root_value["device"],
+            "expected_inode": retained_root_value["inode"],
+            "expected_uid": retained_root_value["owner_uid"],
+            "expected_mode": "0700",
+            "mount_identity_sha256": retained_root_value["mount_identity_sha256"],
+        },
         "storage": {
             "decision": storage_decision,
             "expected_filesystem_type": root_value["filesystem_type"],
@@ -427,10 +554,19 @@ def create_pilot_security_policy(
             "tmpfs_swap_warning_acknowledged": storage_decision == "verified-tmpfs",
             "secure_erasure_claimed": False,
         },
+        "retained_storage": {
+            "decision": retained_storage_decision,
+            "expected_filesystem_type": retained_root_value["filesystem_type"],
+            **retained_review,
+            "tmpfs_swap_warning_acknowledged": retained_storage_decision == "verified-tmpfs",
+            "secure_erasure_claimed": False,
+        },
         "capacity": {
             "source_byte_ceiling": max_source_bytes,
             "temporary_byte_ceiling": max_temporary_bytes,
+            "retained_byte_ceiling": max_retained_bytes,
             "reserve_bytes": reserve_bytes,
+            "retained_reserve_bytes": retained_reserve_bytes,
         },
         "sandbox": {
             "provider": "bubblewrap",
@@ -463,6 +599,9 @@ def load_pilot_security_policy(
     pilot_spec: Path | None = None,
     pilot_spec_identity: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    reject_exposed_host_path(path, label="private pilot policy")
+    if pilot_spec is not None:
+        reject_exposed_host_path(pilot_spec, label="pilot specification")
     try:
         raw = _stable_read(path, maximum_bytes=MAX_POLICY_BYTES, required_mode=PRIVATE_POLICY_MODE)
         value = json.loads(raw)
@@ -492,24 +631,45 @@ def load_pilot_security_policy(
     return value
 
 
+def require_current_pilot_security_policy(value: dict[str, Any]) -> None:
+    """Reject legacy private policies for new pilot execution while retaining read validation."""
+    if (
+        value.get("schema_version") != POLICY_SCHEMA_VERSION
+        or value.get("contract_version") != POLICY_CONTRACT_VERSION
+    ):
+        raise AtlasError(
+            "legacy pilot security policies are read-only and cannot authorize execution"
+        )
+
+
 def ensure_pilot_security_policy_current(value: dict[str, Any]) -> None:
     """Recheck expiry and review scope at bounded native-processing unit boundaries."""
     if _parse_timestamp(value.get("expires_at"), "pilot security policy expiry") <= _utc_now():
         raise AtlasError("private pilot security policy has expired")
-    storage = value["storage"]
-    if (
-        storage["independently_reviewed"]
-        and _parse_timestamp(storage["review_expires_at"], "storage review expiry") <= _utc_now()
-    ):
-        raise AtlasError("pilot storage review has expired")
-    if storage["independently_reviewed"] and storage["review_scope"] != value["pilot_id"]:
-        raise AtlasError("pilot storage review scope does not match the policy pilot")
+    storage_records = [("storage", value["storage"])]
+    if value.get("contract_version") == POLICY_CONTRACT_VERSION:
+        storage_records.append(("retained storage", value["retained_storage"]))
+    for label, storage in storage_records:
+        if storage["independently_reviewed"]:
+            if value.get("contract_version") == POLICY_CONTRACT_VERSION and (
+                not isinstance(storage.get("reviewer_pseudonym"), str)
+                or not storage["reviewer_pseudonym"].strip()
+            ):
+                raise AtlasError(f"pilot {label} review lacks its reviewer pseudonym")
+            if (
+                _parse_timestamp(storage["review_expires_at"], f"{label} review expiry")
+                <= _utc_now()
+            ):
+                raise AtlasError(f"pilot {label} review has expired")
+            if storage["review_scope"] != value["pilot_id"]:
+                raise AtlasError(f"pilot {label} review scope does not match the policy pilot")
 
 
 def ensure_pilot_security_execution_boundary(
     policy: dict[str, Any], root: VerifiedPilotRoot
 ) -> None:
     """Recheck time-bounded authority and the retained private-root identity."""
+    require_current_pilot_security_policy(policy)
     ensure_pilot_security_policy_current(policy)
     root.verify()
 
@@ -576,6 +736,131 @@ class VerifiedPilotRoot:
         if require_capacity and available < self.required_free_bytes:
             raise ResourceLimitError("pilot private root no longer has required free capacity")
         self.available_bytes = available
+
+
+@dataclass
+class VerifiedRetainedRoot:
+    """An exact private retained-artifact root held through an open descriptor."""
+
+    path: Path
+    descriptor: int
+    device: int
+    inode: int
+    owner_uid: int
+    filesystem_type: str
+    mount_identity_sha256: str
+    available_bytes: int
+    byte_ceiling: int
+    reserve_bytes: int
+    shared_capacity_ceiling: int | None = None
+    shared_reserve_bytes: int = 0
+
+    @property
+    def identity_sha256(self) -> str:
+        return hashlib.sha256(
+            canonical_json(
+                {
+                    "device": self.device,
+                    "inode": self.inode,
+                    "filesystem_type": self.filesystem_type,
+                    "mount_identity_sha256": self.mount_identity_sha256,
+                }
+            ).encode()
+        ).hexdigest()
+
+    def measure_aggregate_bytes(self) -> int:
+        budget = _RetainedTreeBudget(entries=0, bytes_seen=0)
+        _measure_retained_tree(self.descriptor, budget)
+        if budget.bytes_seen > self.byte_ceiling:
+            raise ResourceLimitError("pilot retained artifacts exceed their aggregate byte ceiling")
+        return budget.bytes_seen
+
+    def verify(self, *, require_capacity: bool = True) -> int:
+        try:
+            opened = os.fstat(self.descriptor)
+            current = os.lstat(self.path)
+        except OSError as exc:
+            raise AtlasError("pilot retained root became unavailable") from exc
+        uid = os.geteuid() if hasattr(os, "geteuid") else None
+        identity = (opened.st_dev, opened.st_ino)
+        if (
+            identity != (self.device, self.inode)
+            or identity != (current.st_dev, current.st_ino)
+            or not stat.S_ISDIR(opened.st_mode)
+            or stat.S_IMODE(opened.st_mode) != PRIVATE_ROOT_MODE
+            or stat.S_IMODE(current.st_mode) != PRIVATE_ROOT_MODE
+            or (uid is not None and (opened.st_uid != uid or current.st_uid != uid))
+        ):
+            raise AtlasError("pilot retained root identity, owner, or permissions changed")
+        filesystem = _filesystem_record(self.path, opened.st_dev, label="pilot retained root")
+        if (
+            filesystem["filesystem_type"] != self.filesystem_type
+            or filesystem["mount_identity_sha256"] != self.mount_identity_sha256
+        ):
+            raise AtlasError("pilot retained-root filesystem identity changed")
+        aggregate = self.measure_aggregate_bytes()
+        capacity = os.fstatvfs(self.descriptor)
+        available = capacity.f_bavail * capacity.f_frsize
+        if require_capacity:
+            required = max(0, self.byte_ceiling - aggregate) + self.reserve_bytes
+            if self.shared_capacity_ceiling is not None:
+                required = max(
+                    required,
+                    max(0, self.shared_capacity_ceiling - aggregate) + self.shared_reserve_bytes,
+                )
+            if available < required:
+                raise ResourceLimitError("pilot retained root no longer has required free capacity")
+        self.available_bytes = available
+        return aggregate
+
+
+@dataclass
+class _RetainedTreeBudget:
+    entries: int
+    bytes_seen: int
+
+
+def _measure_retained_tree(descriptor: int, budget: _RetainedTreeBudget, depth: int = 0) -> None:
+    if depth > MAX_RETAINED_DEPTH:
+        raise ResourceLimitError("pilot retained-artifact scan exceeded its depth bound")
+    uid = os.geteuid() if hasattr(os, "geteuid") else None
+    with os.scandir(descriptor) as iterator:
+        entries = sorted(iterator, key=lambda item: item.name)
+    for entry in entries:
+        budget.entries += 1
+        if budget.entries > MAX_RETAINED_ENTRIES:
+            raise ResourceLimitError("pilot retained-artifact scan exceeded its entry bound")
+        value = os.stat(entry.name, dir_fd=descriptor, follow_symlinks=False)
+        if uid is not None and value.st_uid != uid:
+            raise AtlasError("pilot retained artifact has the wrong owner")
+        if stat.S_ISDIR(value.st_mode):
+            if stat.S_IMODE(value.st_mode) != 0o700:
+                raise AtlasError("pilot retained artifact directory must have exact mode 0700")
+            child = os.open(
+                entry.name,
+                os.O_RDONLY
+                | getattr(os, "O_DIRECTORY", 0)
+                | getattr(os, "O_CLOEXEC", 0)
+                | getattr(os, "O_NOFOLLOW", 0),
+                dir_fd=descriptor,
+            )
+            try:
+                opened = os.fstat(child)
+                if (opened.st_dev, opened.st_ino) != (value.st_dev, value.st_ino):
+                    raise AtlasError("pilot retained artifact changed while opening")
+                _measure_retained_tree(child, budget, depth + 1)
+            finally:
+                os.close(child)
+        elif stat.S_ISREG(value.st_mode):
+            if stat.S_IMODE(value.st_mode) != 0o600 or value.st_nlink != 1:
+                raise AtlasError(
+                    "pilot retained artifact files must have mode 0600 and one hard link"
+                )
+            budget.bytes_seen += value.st_size
+            if budget.bytes_seen > MAX_STORAGE_BYTES:
+                raise ResourceLimitError("pilot retained-artifact scan exceeded its safety bound")
+        else:
+            raise AtlasError("pilot retained storage contains a symlink or special file")
 
 
 @dataclass(frozen=True)
@@ -839,8 +1124,308 @@ def private_pilot_workspace(
             )
 
 
+@dataclass(frozen=True)
+class RetainedOutputLease:
+    """One no-replace retained output pinned beneath the policy-bound root."""
+
+    path: Path
+    descriptor: int
+    root: VerifiedRetainedRoot
+    name: str
+    device: int
+    inode: int
+
+    @property
+    def descriptor_path(self) -> Path:
+        """Return an internal descriptor path immune to same-name replacement."""
+        return Path(f"/proc/self/fd/{self.descriptor}")
+
+    def verify(self) -> None:
+        self.root.verify()
+        try:
+            opened = os.fstat(self.descriptor)
+            retained_child = os.stat(self.name, dir_fd=self.root.descriptor, follow_symlinks=False)
+            visible = os.lstat(self.path)
+        except OSError as exc:
+            raise AtlasError("pilot retained output identity changed") from exc
+        uid = os.geteuid() if hasattr(os, "geteuid") else None
+        expected = (self.device, self.inode)
+        if (
+            not stat.S_ISDIR(opened.st_mode)
+            or stat.S_IMODE(opened.st_mode) != 0o700
+            or stat.S_IMODE(retained_child.st_mode) != 0o700
+            or stat.S_IMODE(visible.st_mode) != 0o700
+            or (opened.st_dev, opened.st_ino) != expected
+            or (retained_child.st_dev, retained_child.st_ino) != expected
+            or (visible.st_dev, visible.st_ino) != expected
+            or (
+                uid is not None
+                and any(item.st_uid != uid for item in (opened, retained_child, visible))
+            )
+        ):
+            raise AtlasError("pilot retained output identity, owner, or permissions changed")
+
+    def ensure_additional_capacity(self, byte_count: int) -> None:
+        """Fail before a bounded retained write could exceed the policy aggregate."""
+        if not isinstance(byte_count, int) or isinstance(byte_count, bool) or byte_count < 0:
+            raise AtlasError("retained write size must be a nonnegative integer")
+        self.verify()
+        aggregate = self.root.measure_aggregate_bytes()
+        if byte_count > self.root.byte_ceiling - aggregate:
+            raise ResourceLimitError("pilot retained write would exceed its aggregate byte ceiling")
+        capacity = os.fstatvfs(self.root.descriptor)
+        available = capacity.f_bavail * capacity.f_frsize
+        if available < byte_count + self.root.reserve_bytes:
+            raise ResourceLimitError("pilot retained write lacks policy-required free capacity")
+
+    def write_bounded_bytes(self, name: str, value: bytes) -> None:
+        """Create one private file after an exact aggregate-size preflight.
+
+        The policy-bound retained root is private, but the advisory root lock also
+        serializes cooperating AV-Atlas writers so the preflight and write form one
+        bounded operation. Uncooperative host mutation is detected by the identity
+        and aggregate checks and fails closed.
+        """
+        if not isinstance(name, str) or not RETAINED_OUTPUT_PATTERN.fullmatch(name):
+            raise AtlasError("retained artifact name is invalid")
+        if not isinstance(value, bytes):
+            raise AtlasError("retained artifact payload must be bytes")
+        if fcntl is None:
+            raise AtlasError("retained aggregate locking is unavailable on this platform")
+        descriptor: int | None = None
+        identity: tuple[int, int] | None = None
+        created = False
+        fcntl.flock(self.root.descriptor, fcntl.LOCK_EX)
+        try:
+            self.ensure_additional_capacity(len(value))
+            flags = (
+                os.O_WRONLY
+                | os.O_CREAT
+                | os.O_EXCL
+                | getattr(os, "O_CLOEXEC", 0)
+                | getattr(os, "O_NOFOLLOW", 0)
+            )
+            descriptor = os.open(name, flags, 0o600, dir_fd=self.descriptor)
+            created = True
+            os.fchmod(descriptor, 0o600)
+            opened = os.fstat(descriptor)
+            identity = (opened.st_dev, opened.st_ino)
+            _write_all(descriptor, value)
+            os.fsync(descriptor)
+            written = os.fstat(descriptor)
+            if (
+                not stat.S_ISREG(written.st_mode)
+                or stat.S_IMODE(written.st_mode) != 0o600
+                or written.st_nlink != 1
+                or written.st_size != len(value)
+            ):
+                raise AtlasError("retained artifact changed during its bounded write")
+            self.verify()
+            self.root.measure_aggregate_bytes()
+            os.fsync(self.descriptor)
+        except BaseException:
+            if descriptor is not None:
+                os.close(descriptor)
+                descriptor = None
+            if created and identity is not None:
+                try:
+                    visible = os.stat(name, dir_fd=self.descriptor, follow_symlinks=False)
+                    if (visible.st_dev, visible.st_ino) == identity:
+                        os.unlink(name, dir_fd=self.descriptor)
+                        os.fsync(self.descriptor)
+                except OSError:
+                    pass
+            raise
+        finally:
+            if descriptor is not None:
+                os.close(descriptor)
+            fcntl.flock(self.root.descriptor, fcntl.LOCK_UN)
+
+
+def _remove_retained_contents(descriptor: int, budget: _RemovalBudget, depth: int = 0) -> None:
+    if depth > MAX_RETAINED_DEPTH:
+        raise ResourceLimitError("pilot retained-output cleanup exceeded its depth bound")
+    with os.scandir(descriptor) as iterator:
+        entries = sorted(iterator, key=lambda item: item.name)
+    for entry in entries:
+        budget.entries += 1
+        if budget.entries > MAX_RETAINED_ENTRIES:
+            raise ResourceLimitError("pilot retained-output cleanup exceeded its entry bound")
+        value = os.stat(entry.name, dir_fd=descriptor, follow_symlinks=False)
+        if stat.S_ISDIR(value.st_mode):
+            child = os.open(
+                entry.name,
+                os.O_RDONLY
+                | getattr(os, "O_DIRECTORY", 0)
+                | getattr(os, "O_CLOEXEC", 0)
+                | getattr(os, "O_NOFOLLOW", 0),
+                dir_fd=descriptor,
+            )
+            try:
+                _remove_retained_contents(child, budget, depth + 1)
+                os.fsync(child)
+            finally:
+                os.close(child)
+            os.rmdir(entry.name, dir_fd=descriptor)
+        elif stat.S_ISREG(value.st_mode) or stat.S_ISLNK(value.st_mode):
+            if stat.S_ISREG(value.st_mode):
+                budget.bytes_seen += value.st_size
+                if budget.bytes_seen > budget.maximum_bytes:
+                    raise ResourceLimitError(
+                        "pilot retained-output cleanup exceeded its byte bound"
+                    )
+            os.unlink(entry.name, dir_fd=descriptor)
+        else:
+            raise AtlasError("pilot retained output contains an unsupported special file")
+        os.fsync(descriptor)
+
+
+def _find_retained_child_name(root_descriptor: int, device: int, inode: int) -> str | None:
+    with os.scandir(root_descriptor) as iterator:
+        entries = sorted(iterator, key=lambda item: item.name)
+    if len(entries) > MAX_RETAINED_ENTRIES:
+        raise ResourceLimitError("pilot retained-root recovery exceeded its entry bound")
+    for entry in entries:
+        value = os.stat(entry.name, dir_fd=root_descriptor, follow_symlinks=False)
+        if (value.st_dev, value.st_ino) == (device, inode):
+            return entry.name
+    return None
+
+
+def _cleanup_retained_output(lease: RetainedOutputLease, maximum_bytes: int) -> bool:
+    try:
+        opened_root = os.fstat(lease.root.descriptor)
+        if (opened_root.st_dev, opened_root.st_ino) != (
+            lease.root.device,
+            lease.root.inode,
+        ):
+            return False
+        _remove_retained_contents(
+            lease.descriptor,
+            _RemovalBudget(entries=0, bytes_seen=0, maximum_bytes=maximum_bytes),
+        )
+        actual_name = _find_retained_child_name(lease.root.descriptor, lease.device, lease.inode)
+        if actual_name is None:
+            return False
+        os.rmdir(actual_name, dir_fd=lease.root.descriptor)
+        os.fsync(lease.root.descriptor)
+        return True
+    except (AtlasError, OSError, ResourceLimitError, TypeError, ValueError, OverflowError):
+        return False
+
+
+def _validate_retained_output_path(root: VerifiedRetainedRoot, output: Path) -> None:
+    if not output.is_absolute() or not RETAINED_OUTPUT_PATTERN.fullmatch(output.name):
+        raise AtlasError("pilot retained output must be an absolute direct-child path")
+    try:
+        if output.parent != root.path or output.parent.resolve(strict=True) != root.path:
+            raise AtlasError("pilot retained output must be a direct child of its policy root")
+    except OSError as exc:
+        raise AtlasError("pilot retained output parent is unavailable") from exc
+
+
+@contextmanager
+def retained_output_directory(
+    policy: dict[str, Any], root: VerifiedRetainedRoot, output: Path
+) -> Iterator[RetainedOutputLease]:
+    """Create one policy-bound retained directory without path replacement."""
+    require_current_pilot_security_policy(policy)
+    ensure_pilot_security_policy_current(policy)
+    root.verify()
+    _validate_retained_output_path(root, output)
+    try:
+        os.stat(output.name, dir_fd=root.descriptor, follow_symlinks=False)
+    except FileNotFoundError:
+        pass
+    except OSError as exc:
+        raise AtlasError("pilot retained output could not be checked safely") from exc
+    else:
+        raise AtlasError("pilot retained output must not already exist")
+    descriptor: int | None = None
+    lease: RetainedOutputLease | None = None
+    committed = False
+    try:
+        os.mkdir(output.name, 0o700, dir_fd=root.descriptor)
+        os.fsync(root.descriptor)
+        descriptor = os.open(
+            output.name,
+            os.O_RDONLY
+            | getattr(os, "O_DIRECTORY", 0)
+            | getattr(os, "O_CLOEXEC", 0)
+            | getattr(os, "O_NOFOLLOW", 0),
+            dir_fd=root.descriptor,
+        )
+        os.fchmod(descriptor, 0o700)
+        opened = os.fstat(descriptor)
+        lease = RetainedOutputLease(
+            path=output,
+            descriptor=descriptor,
+            root=root,
+            name=output.name,
+            device=opened.st_dev,
+            inode=opened.st_ino,
+        )
+        lease.verify()
+        yield lease
+        lease.verify()
+        root.verify()
+        os.fsync(descriptor)
+        os.fsync(root.descriptor)
+        committed = True
+    finally:
+        cleaned = True
+        if not committed and lease is not None:
+            cleaned = _cleanup_retained_output(
+                lease, int(policy["capacity"]["retained_byte_ceiling"])
+            )
+        if descriptor is not None:
+            os.close(descriptor)
+        if not committed and not cleaned and sys.exc_info()[0] is None:
+            raise AtlasError("pilot retained-output cleanup failed")
+
+
+@contextmanager
+def open_retained_output_directory(
+    policy: dict[str, Any], root: VerifiedRetainedRoot, output: Path
+) -> Iterator[RetainedOutputLease]:
+    """Pin one existing policy-bound retained package for a complete operation."""
+    require_current_pilot_security_policy(policy)
+    ensure_pilot_security_policy_current(policy)
+    root.verify()
+    _validate_retained_output_path(root, output)
+    try:
+        descriptor = os.open(
+            output.name,
+            os.O_RDONLY
+            | getattr(os, "O_DIRECTORY", 0)
+            | getattr(os, "O_CLOEXEC", 0)
+            | getattr(os, "O_NOFOLLOW", 0),
+            dir_fd=root.descriptor,
+        )
+    except OSError as exc:
+        raise AtlasError("pilot retained package could not be opened safely") from exc
+    opened = os.fstat(descriptor)
+    lease = RetainedOutputLease(
+        path=output,
+        descriptor=descriptor,
+        root=root,
+        name=output.name,
+        device=opened.st_dev,
+        inode=opened.st_ino,
+    )
+    try:
+        lease.verify()
+        yield lease
+        lease.verify()
+        os.fsync(descriptor)
+        os.fsync(root.descriptor)
+    finally:
+        os.close(descriptor)
+
+
 @contextmanager
 def open_verified_pilot_root(policy: dict[str, Any]) -> Iterator[VerifiedPilotRoot]:
+    require_current_pilot_security_policy(policy)
     root_record = policy["private_root"]
     path = Path(root_record["path"])
     measured = _root_measurement(path)
@@ -857,6 +1442,13 @@ def open_verified_pilot_root(policy: dict[str, Any]) -> Iterator[VerifiedPilotRo
         int(policy["capacity"][field])
         for field in ("source_byte_ceiling", "temporary_byte_ceiling", "reserve_bytes")
     )
+    if (
+        policy["private_root"]["mount_identity_sha256"]
+        == policy["retained_root"]["mount_identity_sha256"]
+    ):
+        required += int(policy["capacity"]["retained_byte_ceiling"]) + int(
+            policy["capacity"]["retained_reserve_bytes"]
+        )
     if measured["available_bytes"] < required:
         raise ResourceLimitError("pilot private root lacks the policy-required free capacity")
     flags = (
@@ -879,6 +1471,74 @@ def open_verified_pilot_root(policy: dict[str, Any]) -> Iterator[VerifiedPilotRo
         mount_identity_sha256=measured["mount_identity_sha256"],
         available_bytes=measured["available_bytes"],
         required_free_bytes=required,
+    )
+    try:
+        handle.verify()
+        yield handle
+        handle.verify()
+    finally:
+        os.close(descriptor)
+
+
+@contextmanager
+def open_verified_retained_root(
+    policy: dict[str, Any],
+) -> Iterator[VerifiedRetainedRoot]:
+    """Open and retain the exact policy-bound private retained-artifact root."""
+    require_current_pilot_security_policy(policy)
+    ensure_pilot_security_policy_current(policy)
+    root_record = policy["retained_root"]
+    path = Path(root_record["path"])
+    measured = _root_measurement(path, label="pilot retained root")
+    if (
+        measured["device"] != root_record["expected_device"]
+        or measured["inode"] != root_record["expected_inode"]
+        or measured["owner_uid"] != root_record["expected_uid"]
+        or measured["mode"] != root_record["expected_mode"]
+        or measured["filesystem_type"] != policy["retained_storage"]["expected_filesystem_type"]
+        or measured["mount_identity_sha256"] != root_record["mount_identity_sha256"]
+    ):
+        raise AtlasError("pilot retained root no longer matches its policy-bound identity")
+    flags = (
+        os.O_RDONLY
+        | getattr(os, "O_DIRECTORY", 0)
+        | getattr(os, "O_CLOEXEC", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+    )
+    try:
+        descriptor = os.open(path, flags)
+    except OSError as exc:
+        raise AtlasError("pilot retained root could not be opened without following links") from exc
+    shared_ceiling: int | None = None
+    shared_reserve = 0
+    if (
+        policy["private_root"]["mount_identity_sha256"]
+        == policy["retained_root"]["mount_identity_sha256"]
+    ):
+        shared_ceiling = sum(
+            int(policy["capacity"][field])
+            for field in (
+                "source_byte_ceiling",
+                "temporary_byte_ceiling",
+                "retained_byte_ceiling",
+            )
+        )
+        shared_reserve = int(policy["capacity"]["reserve_bytes"]) + int(
+            policy["capacity"]["retained_reserve_bytes"]
+        )
+    handle = VerifiedRetainedRoot(
+        path=path,
+        descriptor=descriptor,
+        device=measured["device"],
+        inode=measured["inode"],
+        owner_uid=measured["owner_uid"],
+        filesystem_type=measured["filesystem_type"],
+        mount_identity_sha256=measured["mount_identity_sha256"],
+        available_bytes=measured["available_bytes"],
+        byte_ceiling=int(policy["capacity"]["retained_byte_ceiling"]),
+        reserve_bytes=int(policy["capacity"]["retained_reserve_bytes"]),
+        shared_capacity_ceiling=shared_ceiling,
+        shared_reserve_bytes=shared_reserve,
     )
     try:
         handle.verify()
@@ -974,6 +1634,7 @@ def receipt_capability(
         "inherited_environment_denied",
         "hostname_sanitized",
         "outside_write_positive_control",
+        "masked_runtime_sentinel_denied",
     }
     if set(hostile_probes) != required_probes or not all(hostile_probes.values()):
         raise AtlasError("mandatory hostile sandbox probe did not prove every isolation property")
@@ -983,6 +1644,7 @@ def receipt_capability(
             hostile_probes["loopback_network_denied"] and hostile_probes["external_network_denied"]
         ),
         "external_sentinel_denied": hostile_probes["outside_sentinel_denied"],
+        "mutable_runtime_subtree_denied": hostile_probes["masked_runtime_sentinel_denied"],
         "outside_write_denied": bool(
             hostile_probes["outside_write_positive_control"]
             and hostile_probes["outside_host_write_denied"]
@@ -996,14 +1658,24 @@ def make_security_receipt(
     *,
     policy: dict[str, Any],
     root: VerifiedPilotRoot,
+    retained_root: VerifiedRetainedRoot,
     stage: str,
     source_rights_aggregate_sha256: str,
     sandbox_inventory: dict[str, Any],
     capability: dict[str, bool],
     cleanup_succeeded: bool,
+    output_binding_sha256: str | None = None,
 ) -> dict[str, Any]:
     """Create a path-free receipt; the private policy itself is never exported."""
     ensure_pilot_security_execution_boundary(policy, root)
+    retained_aggregate_bytes = retained_root.verify()
+    if stage == "ocr-complete":
+        if not isinstance(output_binding_sha256, str) or not re.fullmatch(
+            r"[a-f0-9]{64}", output_binding_sha256
+        ):
+            raise AtlasError("OCR-complete receipt requires its exact output binding")
+    elif output_binding_sha256 is not None:
+        raise AtlasError("output binding is only supported for an OCR-complete receipt")
     executable = sandbox_inventory["executable"]
     package = sandbox_inventory.get("package")
     if not isinstance(package, dict):
@@ -1021,6 +1693,17 @@ def make_security_receipt(
         if package.get("license_verification") == "read installed package copyright metadata"
         else "unverified"
     )
+    exposed_host_subtrees = sandbox_inventory.get("exposed_host_subtrees")
+    masked_host_subtrees = sandbox_inventory.get("masked_host_subtrees")
+    if (
+        not isinstance(exposed_host_subtrees, list)
+        or not exposed_host_subtrees
+        or not all(isinstance(item, str) for item in exposed_host_subtrees)
+        or not isinstance(masked_host_subtrees, list)
+        or not masked_host_subtrees
+        or not all(isinstance(item, str) for item in masked_host_subtrees)
+    ):
+        raise AtlasError("Bubblewrap inventory lacks its sanitized runtime mount policy")
     value: dict[str, Any] = {
         "schema_version": RECEIPT_SCHEMA_VERSION,
         "contract_version": RECEIPT_CONTRACT_VERSION,
@@ -1031,6 +1714,7 @@ def make_security_receipt(
         "pilot_spec_sha256": policy["pilot_spec_sha256"],
         "pilot_spec_size_bytes": policy["pilot_spec_size_bytes"],
         "source_rights_aggregate_sha256": source_rights_aggregate_sha256,
+        "output_binding_sha256": output_binding_sha256,
         "root_identity_sha256": root.identity_sha256,
         "filesystem_type": root.filesystem_type,
         "storage": {
@@ -1043,6 +1727,21 @@ def make_security_receipt(
             "mode_verified": True,
             "local_filesystem_verified": True,
             "capacity_verified": root.available_bytes >= root.required_free_bytes,
+        },
+        "retained_storage": {
+            "decision": policy["retained_storage"]["decision"],
+            "root_identity_sha256": retained_root.identity_sha256,
+            "filesystem_type": retained_root.filesystem_type,
+            "available_bytes": retained_root.available_bytes,
+            "aggregate_bytes": retained_aggregate_bytes,
+            "byte_ceiling": retained_root.byte_ceiling,
+            "reserve_bytes": retained_root.reserve_bytes,
+            "root_identity_verified": True,
+            "owner_verified": True,
+            "mode_verified": True,
+            "local_filesystem_verified": True,
+            "capacity_verified": True,
+            "private_path_exported": False,
         },
         "sandbox": {
             "provider": "bubblewrap",
@@ -1073,6 +1772,8 @@ def make_security_receipt(
             "input_read_only": True,
             "output_only_writable": True,
             "private_tmp": True,
+            "exposed_host_subtrees": list(exposed_host_subtrees),
+            "masked_host_subtrees": list(masked_host_subtrees),
         },
         "resource_limits": policy["resource_limits"],
         "capability": capability,

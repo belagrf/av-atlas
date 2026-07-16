@@ -55,13 +55,13 @@ uv lock --check
 uv sync --extra dev --locked --offline
   Resolved 19 packages; checked 18 packages; local package 0.2.3
 uv run ruff format --check .
-  60 files already formatted
+  63 files already formatted
 uv run ruff check .
   All checks passed!
 uv run mypy src
-  Success: no issues found in 27 source files
+  Success: no issues found in 28 source files
 uv run pytest -q
-  337 passed in 95.92 s; zero failed; zero skipped
+  405 passed in 137.84 s; zero failed; zero skipped
 uv run av-atlas doctor
   passed; required FFmpeg/ffprobe, approved local OCR inventory, and available
   Bubblewrap pilot-sandbox capability reported
@@ -749,9 +749,9 @@ reproduction documentation; ADR-0005; configuration, adapter-results, event, OCR
 track, and BOM schemas; adapter/config/contract/rights/pipeline/OCR/evaluation/subtitle/shot/
 validation/CLI source; and contract/unit/integration regressions for each finding. Generated runs
 remain ignored. The checkpoint inventory remains empty. Remaining risks include unauthenticated
-rights checksums, native FFmpeg/Tesseract parser exposure without an OS sandbox, no retained-frame
-lifecycle, synthetic-only OCR quality, and an unexecuted authorized double-annotated pilot. Full M2
-and M2C remain unimplemented.
+rights checksums, native FFmpeg/Tesseract parser exposure without an OS sandbox, no non-pilot
+retained-frame lifecycle, synthetic-only OCR quality, and an unexecuted authorized double-annotated
+pilot. Full M2 and M2C remain unimplemented.
 
 ## 2026-07-14 — M2B.1 review follow-up: initial preflight and OCR-track relations
 
@@ -957,7 +957,7 @@ The v1.1 machine-readable release record SHA-256 is
 uses a normalized self-entry and its detached final file hash is reported after final rendering to
 avoid circular self-reference. The package version remains 0.2.1. No project or data license was
 selected; patent/publication review, native-parser sandboxing, stable input, standalone inspection,
-retained-frame lifecycle, and the double-annotated pilot remain unresolved. No real media was
+non-pilot retained-frame lifecycle, and the double-annotated pilot remain unresolved. No real media was
 processed, no model or foundation model was trained, full M2 remains incomplete, and M2C was not
 implemented.
 
@@ -1117,8 +1117,9 @@ Changed tracked paths are `.gitignore`, `README.md`, `configs/m2b2.yaml`,
 
 Remaining limitations are the lack of an OS/native-parser sandbox, protection from a hostile
 same-UID process, support for growing/live input and non-POSIX directory-descriptor platforms,
-retained-frame lifecycle, authenticated rights signatures, trusted fixture-marker authorship,
-authorized double-annotated real-media evaluation, and project-license/patent/publication decisions.
+non-pilot retained-frame lifecycle, authenticated rights signatures, trusted fixture-marker
+authorship, authorized double-annotated real-media evaluation, and project-license/patent/
+publication decisions.
 Low-level parser helpers accept ordinary paths; snapshot routing is enforced by supported
 orchestration entry points. M2B.2 does not close issues 11/12 on this branch. No pilot, model or
 checkpoint download, GPU use, cloud/paid API, training, M2C work, semantic-vision claim, or full-M2
@@ -1276,8 +1277,8 @@ removal are logical lifecycle cleanup, not secure erasure; the default temporary
 backed, journaled, snapshotted, swapped, or backed up. Before real media, an operator-selected
 private capacity-bounded encrypted volume or suitably configured tmpfs, or explicit remanence-risk
 acceptance, remains required. The strict allowlist is not an OS/native-parser sandbox. Same-UID
-hostility, authenticated fixture/rights signatures, retained-frame lifecycle, growing/live and
-non-Matroska input, non-POSIX support, project license/patent/publication decisions, and the
+hostility, authenticated fixture/rights signatures, non-pilot retained-frame lifecycle, growing/
+live and non-Matroska input, non-POSIX support, project license/patent/publication decisions, and the
 double-annotated pilot remain unresolved. Issues 11, 12, and 14 stay open. No pilot, M2C, model,
 checkpoint, GPU, cloud/paid API, training, tag, release, or merge occurred.
 
@@ -1371,9 +1372,9 @@ tag, or release changed.
 Issues 11, 12, and 14 remain open and PR 16 remains unmerged with `needs-work` pending source
 review. Residual limitations remain the strict allowlist without an OS/native-parser sandbox,
 same-UID hostility, logical-not-secure erasure, temporary-root policy, authenticated rights/
-fixture signatures, retained-frame lifecycle, non-Matroska/live input, the authorized real-media
-pilot, and project license/patent/publication decisions. No real media, M2C, model/checkpoint, GPU,
-cloud/paid API, training, tag, release, or merge occurred.
+fixture signatures, non-pilot retained-frame lifecycle, non-Matroska/live input, the authorized
+real-media pilot, and project license/patent/publication decisions. No real media, M2C, model/
+checkpoint, GPU, cloud/paid API, training, tag, release, or merge occurred.
 
 ## 2026-07-16 — M2B.2 controlled baseline v1.2 release record
 
@@ -1512,11 +1513,17 @@ The release candidate includes no generated fixture media, run, source/snapshot 
 rights declaration, annotation, traineddata, checkpoint, weight, archive, or credential. Issue 17
 remains the security/temporary-root gate before real media. Snapshot deletion is logical rather
 than secure; native parsers lack an OS sandbox; same-UID hostility, non-Matroska and live input,
-non-POSIX support, retained-frame lifecycle, authenticated rights signatures, license selection,
-patent/publication review, the double-annotated pilot, full M2, and M2C remain unresolved. No real
-media, pilot, M2C, model, checkpoint, training, tag, or release was processed or created.
+non-POSIX support, non-pilot retained-frame lifecycle, authenticated rights signatures, license
+selection, patent/publication review, the double-annotated pilot, full M2, and M2C remain
+unresolved. No real media, pilot, M2C, model, checkpoint, training, tag, or release was processed or
+created.
 
 ## 2026-07-16 — M2B.3 private storage and sandboxed pilot execution
+
+**Historical pre-source-review record; superseded by “M2B.3 source-review boundary corrections”
+below.** The 1.0 contracts, original profile, test count, replay measurements, and hashes in this
+section document the earlier review head and are not the current PR result. They are retained for
+review history and must not be used as current reproduction targets.
 
 Implementation branch `feat/m2b3-pilot-security` adds the local-private policy and mandatory
 Bubblewrap execution boundary accepted in issue 17. Package version is `0.2.3`. The engineering
@@ -1687,11 +1694,142 @@ time limits; timeout/interruption/process-tree cleanup; stale recovery; policy/p
 transitions; sandbox bypass prevention; strict pilot-manifest linkage; absolute-path/secret scans;
 and accepted-release compatibility.
 
-Remaining limits are source review and merge, same-UID host hostility, `SIGKILL`/power-loss
-recovery, logical rather than secure deletion, possible tmpfs swap, operator-asserted encrypted
-storage, Linux/Bubblewrap portability, native-parser residual vulnerability, retained-frame
-lifecycle, authenticated rights signatures, real independent annotations and adjudication, license
+Remaining limits at that superseded review head were source review and merge, same-UID host
+hostility, `SIGKILL`/power-loss recovery, logical rather than secure deletion, possible tmpfs swap,
+operator-asserted encrypted storage, Linux/Bubblewrap portability, native-parser residual
+vulnerability, non-pilot retained-frame lifecycle, authenticated rights signatures, real
+independent annotations and adjudication, license
 selection, patent/publication review, ASR/alignment, diarization, acoustic events, semantic visual
 perception, direct-VLM comparison, full M2, and M2C. No model/checkpoint was downloaded, no GPU,
 cloud or paid API was used, no training occurred, no tag/release was created or moved, and no real-
 media pilot or M2C work began.
+
+## 2026-07-16 — M2B.3 source-review boundary corrections
+
+The unmerged `feat/m2b3-pilot-security` correction keeps issue 17 and pull request 20 open while
+addressing the four required source-review boundaries. It processed only the unchanged
+project-authored synthetic M2B fixture. No real media, independent human annotation, M2C work,
+model/checkpoint, GPU, cloud inference, paid API, training, license decision, tag, or release was
+introduced.
+
+The measurements, test count, and runtime-bearing hashes in this correction section are the final
+local source-review replay values. Remote CI, CodeQL, and source-review acceptance remain pending;
+these local values are not a final milestone-acceptance claim.
+
+### Corrected contracts
+
+- Policy and sanitized receipt are additive schema/contract `1.1.0`; their historical 1.0 forms
+  remain read-only validation compatible. The private policy now binds distinct transient and
+  retained roots, separately bounded capacity decisions, and a required pilot-scoped, expiring
+  reviewer pseudonym for every reviewed storage decision. The public receipt deliberately omits
+  the pseudonym and all absolute private paths. A policy or receipt self-hash is an integrity
+  checksum, not an authenticated signature.
+- Pilot manifest `1.2.0` adds retained-storage identity and Bubblewrap profile 1.1 facts while
+  preserving validation of manifests 1.0 and 1.1. New execution requires the current contract.
+- Synthetic security reports are current contract
+  `av-atlas-m2b3-synthetic-pilot/1.1.0`; report 1.0 remains read-only validation compatible and
+  cannot authorize current execution.
+- Bubblewrap profile `av-atlas-bubblewrap-pilot/1.1.0` has SHA-256
+  `18ba5b8e06291138310fa45d040c5930bcbc5c705ac4c2a7018398114b0be2ad`. It exposes only
+  `/usr/bin`, `/usr/lib`, optional `/usr/lib64`, `/usr/share/tesseract-ocr`, and optional
+  `/etc/alternatives`; `/usr/local`, `/usr/src`, `/usr/include`, `/usr/share/doc`, and
+  `/usr/share/man` are masked or unexposed. Inputs, policies, transient/retained roots, and outputs
+  that overlap exposed host runtime mounts fail before native execution. The profile-bound
+  Bubblewrap dependency identity is
+  `f75d9e08d32eaad33de98592ee0f603a19539768f3e5381b8a0b31e3c1f6c94e`.
+  The profile SHA-256 binds its declarative arguments, mounts, masks, and fixed tool paths; it does
+  not independently bind the Python overlap-check or runner-enforcement code, which is covered by
+  the reviewed source commit and regressions.
+- OCR output package `av-atlas-pilot-ocr-output/1.0.0` is a fixed six-file package. Its manifest
+  binds the frozen pilot file and embedded hash, pilot/spec/source-set and rights identities,
+  policy, prepared and `ocr-complete` receipts, OCR configuration, sanitized dependency,
+  observations, evidence index, runtime, counts, and semantic output. The completion receipt binds
+  the pre-receipt output digest and the manifest is written last. Evaluation accepts this package,
+  recomputes every relationship, and rejects missing, modified, swapped, wrong-stage,
+  cross-policy, or cross-pilot content before metrics.
+- Retained prepared pilots, annotation packages, OCR packages, and evaluation outputs are direct
+  descriptor-created children of the exact policy retained root; both transient and retained roots
+  must be outside the tracked checkout. Root and child device/inode, current UID, modes
+  `0700`/`0600`, one-link files, local filesystem, parent identity, current capacity, and the
+  aggregate retained-byte ceiling are rechecked. Every production writer uses pinned package
+  descriptors, stable retained-input reads, create-only files, and pre-write bounded capacity
+  admission. Repository-local or arbitrary output,
+  replacement, symlink, special file, remote filesystem, capacity failure, and partial interrupted
+  output fail closed. Logical deletion is not secure erasure.
+
+The M2B.3 synthetic check requires explicit source-bound `synthetic-controlled` rights,
+evaluation-mode permission closure, and the exact current fixture bundle before FFprobe or FFmpeg
+can run. Pilot security policy is an additional execution boundary, not media authorization. Direct
+native compatibility remains limited to accepted controlled non-pilot baselines; no pilot command
+accepts it. `pilot-evaluate` takes the complete authenticated OCR package and validates all six
+fixed components and cross-bindings before metrics rather than accepting loose OCR output files.
+
+The current schema file SHA-256 values are:
+
+- private policy: `46470353fa45e6dc16dd55449ac8806986a466ef0c918020c9d1ed04bda52ccc`;
+- sanitized receipt: `07e6f81724597a8a53a20bf6a2c05d6c45d3966146f13cee6af823fb04dd19fa`;
+- synthetic security report: `23df35b1444c3c6ce494689e99df99c35ddb21876c7c220ceadac2c3567b3172`;
+- pilot manifest: `5aa3f901bb3b61244c36b4adcd1e8d948a4b8b56c704ba3543f112fef96dc1c5`;
+- pilot OCR output manifest: `9bf13a7864d4a31405180d5be1a7273234eb3a9bb4fa58e14161ecdade39356f`;
+  and
+- pilot OCR observation: `6a68b863ebd3215015d222709a556e6c3e2e04bbd0bfebc5fdb45e80aa8fa552`.
+
+### Corrected synthetic execution and gates
+
+A fresh ignored private-policy replay used verified, distinct tmpfs roots with separate 64 MiB
+temporary and retained ceilings and 16 MiB reserves. The private policy file SHA-256 was
+`cc078e5a276b883b1244bc498d2f0a19aabf653a6c6e7202ab5cd61339072dd5`; its embedded checksum was
+`ac3bac4e60660235f9d1689f8e6af22b358b902767c1314afa66d051a3d02071`. Its path and root
+identities remain untracked and undisclosed. `RLIMIT_NPROC` was set to 8,192 because Linux charges
+that limit against the host real UID before Bubblewrap enters its user namespace and the measured
+desktop UID already had more than 4,096 threads. The reviewed maximum remains 16,384; this is a
+bounded host-UID ceiling, not a precise per-sandbox process count.
+
+The unchanged 2,401,427-byte synthetic source retained SHA-256
+`6d1f79c6a63b6a8d5510bcd67a74e522096fe97b6c2bba68587f0213ccc682a8`; the 224-byte synthetic
+pilot specification retained SHA-256
+`e315d7ff3d881e37aba46166e2264570fa3fd4763c2ffaff7e0d10f727fcccac`. Approved local FFprobe,
+FFmpeg, and Tesseract all executed through Bubblewrap profile 1.1. One 5,250-byte frame produced
+three OCR observations with zero retries and zero timeouts. Measured wall time was
+2.529523903998779 seconds, child CPU time 2.065997 seconds, and peak child RSS 180,672 KiB.
+
+Hostile measurements were all true: namespace smoke, loopback/external network denial,
+out-of-mount sentinel denial, masked mutable-runtime sentinel denial, and denial of writes outside
+the one descriptor-bound work directory. The transient root was empty after completion. Retained
+files and directory had exact private modes; a scan found no private path, source/frame export,
+user/host identity, environment value, or secret-like value in the public receipt/report.
+
+Fresh runtime-bearing artifact identities are:
+
+- sanitized receipt file / embedded receipt hash:
+  `4f309b27bee969a3386baa746b3f9b2c0a0de2efe1da7646b4642386be195d2e` /
+  `02e7b047d0ec2ff9025f92eb84c477ca250ccf919aae77666c19a948bdc69b98`;
+- synthetic report file / embedded report hash:
+  `246b9af64ef8d8bd843aab833bceabbf78ca2f273f5ef28ae847d82e7faec603` /
+  `c01fb53bd9bb456c47e4f77c5ad123ca14182ad543d399cf0d013fe32d23031f`;
+- sandboxed dependency inventory:
+  `ab20ef53a2039d191460b0b19fe306c710107735cc5370c0edee7c07b7ffdb12`; and
+- sandboxed raw OCR observations:
+  `7f3c10085a9e3e80289e925b0121d4aa673eaeab495517e8f2879b1627da805e`.
+
+The exact local correction gates passed: locked/offline sync; Ruff format and lint; Mypy over 28
+source files; 405 tests in 137.84 seconds with zero failures and zero skips; doctor with FFmpeg,
+FFprobe, Tesseract, and Bubblewrap available; policy inspect/validation; and the actual synthetic
+sandbox check. The new regressions cover all OCR package substitutions, wrong/missing completion
+receipt, policy/pilot crossing, retained output placement/replacement/capacity/interruption,
+masked-runtime access, reviewer creation/removal/tampering/expiry/redaction, schema compatibility,
+and valid unchanged paths.
+
+Immutable tag object/commit pairs remain v1
+`8cadd6c8ecda7d0b6f60421f312c199cbad163e1` /
+`54d96dc25bdf03ab1e92d22150c5011faf16b7e6`, v1.1
+`8be328eef2fd10037b56921aff1f401c3ef3a12e` /
+`5d016784c6b3d7226a9f6e0f56cca9fb3ef48822`, and v1.2
+`5427bb4639d94f0311d49f5ef8be9337fdcad167` /
+`c24ff0c9dacb1d3e42cfe8e48e31ec866ab9a882`. Accepted v1 fixture, gold, configuration, raw OCR,
+evaluation, benchmark, run-manifest, and release-manifest hashes remain unchanged. Issue 17 and PR
+20 remain open; remote CI, CodeQL, and source-review acceptance are still required. Same-UID host
+processes, kernel/native-parser vulnerabilities, swap/backups/snapshots/remanence, crash/power-loss
+cleanup, reviewed-storage assertions, authenticated signatures, Linux portability, real human
+annotations, the authorized real-media pilot, license/patent decisions, full M2, and M2C remain
+open limitations.

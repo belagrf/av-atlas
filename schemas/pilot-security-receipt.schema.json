@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://av-atlas.local/schemas/pilot-security-receipt/1.0.0",
+  "$id": "https://av-atlas.local/schemas/pilot-security-receipt/1.1.0",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -24,8 +24,13 @@
     "receipt_hash"
   ],
   "properties": {
-    "schema_version": {"const": "1.0.0"},
-    "contract_version": {"const": "av-atlas-pilot-security-receipt/1.0.0"},
+    "schema_version": {"enum": ["1.0.0", "1.1.0"]},
+    "contract_version": {
+      "enum": [
+        "av-atlas-pilot-security-receipt/1.0.0",
+        "av-atlas-pilot-security-receipt/1.1.0"
+      ]
+    },
     "stage": {
       "enum": ["policy-validated", "prepared", "ocr-complete", "synthetic-smoke-complete"]
     },
@@ -35,9 +40,14 @@
     "pilot_spec_size_bytes": {"type": "integer", "minimum": 1, "maximum": 1000000},
     "policy_sha256": {"$ref": "#/$defs/sha256"},
     "source_rights_aggregate_sha256": {"$ref": "#/$defs/sha256"},
+    "output_binding_sha256": {
+      "type": ["string", "null"],
+      "pattern": "^[a-f0-9]{64}$"
+    },
     "root_identity_sha256": {"$ref": "#/$defs/sha256"},
     "filesystem_type": {"type": "string", "pattern": "^[A-Za-z0-9._+-]+$"},
     "storage": {"$ref": "#/$defs/storageReceipt"},
+    "retained_storage": {"$ref": "#/$defs/retainedStorageReceipt"},
     "sandbox": {"$ref": "#/$defs/sandboxReceipt"},
     "resource_limits": {"$ref": "#/$defs/resourceLimits"},
     "capability": {"$ref": "#/$defs/capability"},
@@ -79,6 +89,46 @@
         "capacity_verified": {"const": true}
       }
     },
+    "retainedStorageReceipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "decision",
+        "root_identity_sha256",
+        "filesystem_type",
+        "available_bytes",
+        "aggregate_bytes",
+        "byte_ceiling",
+        "reserve_bytes",
+        "root_identity_verified",
+        "owner_verified",
+        "mode_verified",
+        "local_filesystem_verified",
+        "capacity_verified",
+        "private_path_exported"
+      ],
+      "properties": {
+        "decision": {
+          "enum": [
+            "verified-tmpfs",
+            "reviewed-encrypted-volume",
+            "reviewed-remanence-acceptance"
+          ]
+        },
+        "root_identity_sha256": {"$ref": "#/$defs/sha256"},
+        "filesystem_type": {"type": "string", "pattern": "^[A-Za-z0-9._+-]+$"},
+        "available_bytes": {"type": "integer", "minimum": 0},
+        "aggregate_bytes": {"type": "integer", "minimum": 0},
+        "byte_ceiling": {"type": "integer", "minimum": 1, "maximum": 68719476736},
+        "reserve_bytes": {"type": "integer", "minimum": 0, "maximum": 68719476736},
+        "root_identity_verified": {"const": true},
+        "owner_verified": {"const": true},
+        "mode_verified": {"const": true},
+        "local_filesystem_verified": {"const": true},
+        "capacity_verified": {"const": true},
+        "private_path_exported": {"const": false}
+      }
+    },
     "sandboxReceipt": {
       "type": "object",
       "additionalProperties": false,
@@ -107,7 +157,12 @@
       ],
       "properties": {
         "provider": {"const": "bubblewrap"},
-        "profile_contract_version": {"const": "av-atlas-bubblewrap-pilot/1.0.0"},
+        "profile_contract_version": {
+          "enum": [
+            "av-atlas-bubblewrap-pilot/1.0.0",
+            "av-atlas-bubblewrap-pilot/1.1.0"
+          ]
+        },
         "profile_sha256": {"$ref": "#/$defs/sha256"},
         "dependency_identity_sha256": {"$ref": "#/$defs/sha256"},
         "executable_basename": {"const": "bwrap"},
@@ -140,7 +195,25 @@
         "whole_root_bound": {"const": false},
         "input_read_only": {"const": true},
         "output_only_writable": {"const": true},
-        "private_tmp": {"const": true}
+        "private_tmp": {"const": true},
+        "exposed_host_subtrees": {
+          "const": [
+            "/usr/bin",
+            "/usr/lib",
+            "/usr/lib64",
+            "/usr/share/tesseract-ocr",
+            "/etc/alternatives"
+          ]
+        },
+        "masked_host_subtrees": {
+          "const": [
+            "/usr/local",
+            "/usr/src",
+            "/usr/include",
+            "/usr/share/doc",
+            "/usr/share/man"
+          ]
+        }
       }
     },
     "resourceLimits": {
@@ -163,7 +236,7 @@
         "address_space_bytes": {"type": "integer", "minimum": 1048576, "maximum": 68719476736},
         "output_file_size_bytes": {"type": "integer", "minimum": 1024, "maximum": 1073741824},
         "open_files": {"type": "integer", "minimum": 8, "maximum": 1024},
-        "process_count": {"type": "integer", "minimum": 1, "maximum": 4096},
+        "process_count": {"type": "integer", "minimum": 1, "maximum": 16384},
         "core_dump_bytes": {"const": 0},
         "capture_bytes": {"type": "integer", "minimum": 1024, "maximum": 16777216},
         "cleanup_timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 60}
@@ -182,7 +255,8 @@
         "namespace_smoke_test_passed": {"const": true},
         "network_denied": {"const": true},
         "external_sentinel_denied": {"const": true},
-        "outside_write_denied": {"const": true}
+        "outside_write_denied": {"const": true},
+        "mutable_runtime_subtree_denied": {"const": true}
       }
     },
     "lifecycle": {
@@ -225,5 +299,71 @@
         "raw_environment_exported": {"const": false}
       }
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"schema_version": {"const": "1.0.0"}}},
+      "then": {
+        "properties": {
+          "contract_version": {"const": "av-atlas-pilot-security-receipt/1.0.0"},
+          "sandbox": {
+            "properties": {
+              "profile_contract_version": {"const": "av-atlas-bubblewrap-pilot/1.0.0"}
+            },
+            "not": {
+              "anyOf": [
+                {"required": ["exposed_host_subtrees"]},
+                {"required": ["masked_host_subtrees"]}
+              ]
+            }
+          },
+          "capability": {
+            "not": {"required": ["mutable_runtime_subtree_denied"]}
+          }
+        },
+        "not": {
+          "anyOf": [
+            {"required": ["retained_storage"]},
+            {"required": ["output_binding_sha256"]}
+          ]
+        }
+      }
+    },
+    {
+      "if": {"properties": {"schema_version": {"const": "1.1.0"}}},
+      "then": {
+        "required": ["retained_storage", "output_binding_sha256"],
+        "properties": {
+          "contract_version": {"const": "av-atlas-pilot-security-receipt/1.1.0"},
+          "sandbox": {
+            "required": ["exposed_host_subtrees", "masked_host_subtrees"],
+            "properties": {
+              "profile_contract_version": {"const": "av-atlas-bubblewrap-pilot/1.1.0"}
+            }
+          },
+          "capability": {"required": ["mutable_runtime_subtree_denied"]}
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "schema_version": {"const": "1.1.0"},
+          "stage": {"const": "ocr-complete"}
+        },
+        "required": ["schema_version", "stage"]
+      },
+      "then": {
+        "properties": {"output_binding_sha256": {"$ref": "#/$defs/sha256"}}
+      }
+    },
+    {
+      "if": {
+        "properties": {"schema_version": {"const": "1.1.0"}},
+        "required": ["schema_version"],
+        "not": {"properties": {"stage": {"const": "ocr-complete"}}}
+      },
+      "then": {"properties": {"output_binding_sha256": {"type": "null"}}}
+    }
+  ]
 }

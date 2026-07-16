@@ -31,8 +31,8 @@ from typing import Any, BinaryIO
 from av_atlas.errors import AtlasError, ResourceLimitError
 
 BUBBLEWRAP_INSTALL_COMMAND = "sudo apt-get install bubblewrap"
-PROFILE_VERSION = "av-atlas-bubblewrap-pilot/1.0.0"
-PROFILE_SCHEMA_VERSION = "1.0.0"
+PROFILE_VERSION = "av-atlas-bubblewrap-pilot/1.1.0"
+PROFILE_SCHEMA_VERSION = "1.1.0"
 _HASH_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 _FIXED_ENVIRONMENT = {
     "HOME": "/nonexistent",
@@ -42,6 +42,25 @@ _FIXED_ENVIRONMENT = {
 }
 _INVOCATION_ENVIRONMENT_KEYS = frozenset({"OMP_THREAD_LIMIT"})
 _SANDBOX_HOSTNAME = "av-atlas-pilot"
+_EXPOSED_HOST_SUBTREES = (
+    "/usr/bin",
+    "/usr/lib",
+    "/usr/lib64",
+    "/usr/share/tesseract-ocr",
+    "/etc/alternatives",
+)
+_MASKED_HOST_SUBTREES = (
+    "/usr/local",
+    "/usr/src",
+    "/usr/include",
+    "/usr/share/doc",
+    "/usr/share/man",
+)
+_MASKED_RUNTIME_SENTINEL_CANDIDATES = (
+    Path("/usr/local/bin"),
+    Path("/usr/local/lib"),
+    Path("/usr/local/share"),
+)
 _PROFILE_PREFIX_ARGUMENTS = (
     "--unshare-user",
     "--unshare-pid",
@@ -55,9 +74,32 @@ _PROFILE_PREFIX_ARGUMENTS = (
     "--cap-drop",
     "ALL",
     "--clearenv",
+    "--dir",
+    "/usr",
     "--ro-bind",
-    "/usr",
-    "/usr",
+    "/usr/bin",
+    "/usr/bin",
+    "--ro-bind",
+    "/usr/lib",
+    "/usr/lib",
+    "--ro-bind-try",
+    "/usr/lib64",
+    "/usr/lib64",
+    "--dir",
+    "/usr/share",
+    "--ro-bind-try",
+    "/usr/share/tesseract-ocr",
+    "/usr/share/tesseract-ocr",
+    "--dir",
+    "/usr/local",
+    "--dir",
+    "/usr/src",
+    "--dir",
+    "/usr/include",
+    "--dir",
+    "/usr/share/doc",
+    "--dir",
+    "/usr/share/man",
     "--symlink",
     "usr/bin",
     "/bin",
@@ -124,13 +166,26 @@ _SYSTEM_PROFILE = {
     "hostname": _SANDBOX_HOSTNAME,
     "environment": _FIXED_ENVIRONMENT,
     "system_runtime_mounts": [
-        {"source": "/usr", "target": "/usr", "mode": "read-only"},
+        {"source": "/usr/bin", "target": "/usr/bin", "mode": "read-only"},
+        {"source": "/usr/lib", "target": "/usr/lib", "mode": "read-only"},
+        {
+            "source": "/usr/lib64",
+            "target": "/usr/lib64",
+            "mode": "read-only-if-present",
+        },
+        {
+            "source": "/usr/share/tesseract-ocr",
+            "target": "/usr/share/tesseract-ocr",
+            "mode": "read-only-if-present",
+        },
         {
             "source": "/etc/alternatives",
             "target": "/etc/alternatives",
             "mode": "read-only-if-present",
         },
     ],
+    "exposed_host_subtrees": list(_EXPOSED_HOST_SUBTREES),
+    "masked_host_subtrees": list(_MASKED_HOST_SUBTREES),
     "compatibility_symlinks": {
         "/bin": "usr/bin",
         "/lib": "usr/lib",
@@ -149,6 +204,25 @@ _SYSTEM_PROFILE = {
 PROFILE_SHA256 = hashlib.sha256(
     json.dumps(_SYSTEM_PROFILE, sort_keys=True, separators=(",", ":")).encode("utf-8")
 ).hexdigest()
+
+
+def reject_exposed_host_path(path: Path, *, label: str = "operator path") -> None:
+    """Reject a host path whose bytes are already visible through fixed runtime mounts."""
+    if not isinstance(path, Path) or "\x00" in str(path):
+        raise AtlasError(f"{label} must be a NUL-free filesystem path")
+    if not isinstance(label, str) or not label or any(character in label for character in "\r\n"):
+        raise AtlasError("sandbox path label is invalid")
+    try:
+        candidates = {
+            Path(os.path.abspath(path)),
+            path.resolve(strict=False),
+        }
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise AtlasError(f"{label} could not be classified against sandbox runtime mounts") from exc
+    for candidate in candidates:
+        for exposed in map(Path, _EXPOSED_HOST_SUBTREES):
+            if candidate.is_relative_to(exposed) or exposed.is_relative_to(candidate):
+                raise AtlasError(f"{label} overlaps a sandbox-exposed host runtime subtree")
 
 
 class NativeTool(StrEnum):
@@ -186,7 +260,7 @@ class NativeResourceLimits:
     # RLIMIT_NPROC is charged against the host real UID before Bubblewrap
     # enters its user namespace.  This remains bounded, but must accommodate
     # the operator's already-running threads on a shared desktop session.
-    process_count: int = 4096
+    process_count: int = 8192
     stdout_bytes: int = 8 * 1024**2
     stderr_bytes: int = 8 * 1024**2
     termination_grace_seconds: float = 1.0
@@ -220,7 +294,7 @@ class NativeResourceLimits:
             "address_space_bytes": 16 * 1024**3,
             "file_size_bytes": 8 * 1024**3,
             "open_files": 4096,
-            "process_count": 4096,
+            "process_count": 16384,
             "stdout_bytes": 64 * 1024**2,
             "stderr_bytes": 64 * 1024**2,
         }
@@ -299,6 +373,7 @@ class ReadOnlyBind:
         expected_size: int | None = None,
         expected_sha256: str | None = None,
     ) -> ReadOnlyBind:
+        reject_exposed_host_path(source, label="native read-only input")
         descriptor, measured = _open_verified_path(source, BindKind.FILE)
         try:
             size = measured.st_size
@@ -313,6 +388,7 @@ class ReadOnlyBind:
 
     @classmethod
     def measure_directory(cls, source: Path, target: str) -> ReadOnlyBind:
+        reject_exposed_host_path(source, label="native read-only input")
         descriptor, measured = _open_verified_path(source, BindKind.DIRECTORY)
         os.close(descriptor)
         return cls(source, target, BindKind.DIRECTORY, measured.st_dev, measured.st_ino)
@@ -347,6 +423,7 @@ class WritableDirectory:
 
     @classmethod
     def measure(cls, source: Path) -> WritableDirectory:
+        reject_exposed_host_path(source, label="native writable directory")
         absolute = Path(os.path.abspath(source))
         if absolute.name in {"", ".", ".."}:
             raise AtlasError("native writable directory must have a stable parent entry")
@@ -487,6 +564,8 @@ class BubblewrapInventory:
             "provider": "bubblewrap",
             "profile_version": PROFILE_VERSION,
             "profile_sha256": PROFILE_SHA256,
+            "exposed_host_subtrees": list(_EXPOSED_HOST_SUBTREES),
+            "masked_host_subtrees": list(_MASKED_HOST_SUBTREES),
             "executable": {
                 "basename": self.basename,
                 "path_class": self.path_class,
@@ -1272,6 +1351,41 @@ class BubblewrapNativeRunner:
                 os.close(bubblewrap_fd)
 
 
+def _masked_runtime_sentinel() -> Path:
+    """Select one readable file whose bytes a whole-/usr bind would expose."""
+    scanned = 0
+    for candidate in _MASKED_RUNTIME_SENTINEL_CANDIDATES:
+        try:
+            measured = os.lstat(candidate)
+        except OSError:
+            continue
+        if stat.S_ISREG(measured.st_mode):
+            return candidate
+        if not stat.S_ISDIR(measured.st_mode):
+            continue
+        pending: list[tuple[Path, int]] = [(candidate, 0)]
+        while pending:
+            current, depth = pending.pop(0)
+            try:
+                entries = sorted(os.scandir(current), key=lambda entry: entry.name)
+            except OSError:
+                continue
+            for entry in entries:
+                scanned += 1
+                if scanned > 512:
+                    raise AtlasError("sandbox masked-runtime sentinel scan exceeded its bound")
+                try:
+                    value = entry.stat(follow_symlinks=False)
+                except OSError:
+                    continue
+                path = current / entry.name
+                if stat.S_ISREG(value.st_mode) and os.access(path, os.R_OK):
+                    return path
+                if stat.S_ISDIR(value.st_mode) and depth < 3:
+                    pending.append((path, depth + 1))
+    raise AtlasError("sandbox masked-runtime sentinel is unavailable on this host")
+
+
 def run_hostile_sandbox_probes(
     runner: BubblewrapNativeRunner,
     writable_directory: WritableDirectory,
@@ -1288,6 +1402,7 @@ def run_hostile_sandbox_probes(
         raise AtlasError("sandbox hostile sentinel is unavailable") from exc
     if not stat.S_ISREG(sentinel_stat.st_mode):
         raise AtlasError("sandbox hostile sentinel must be a regular non-symlink file")
+    masked_runtime_sentinel = _masked_runtime_sentinel()
     parent_fd, _ = _open_verified_path(sentinel.parent, BindKind.DIRECTORY)
     positive_name: str | None = None
     positive_fd: int | None = None
@@ -1326,6 +1441,9 @@ def run_hostile_sandbox_probes(
         os.close(parent_fd)
         raise
     sentinel_encoded = base64.b64encode(str(sentinel).encode("utf-8")).decode("ascii")
+    masked_runtime_encoded = base64.b64encode(str(masked_runtime_sentinel).encode("utf-8")).decode(
+        "ascii"
+    )
     positive_encoded = base64.b64encode(str(positive_path).encode("utf-8")).decode("ascii")
     listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
@@ -1351,8 +1469,10 @@ def denied(host, port):
     try: sock.connect((host,port)); return False
     except OSError: return True
     finally: sock.close()
+masked_runtime_sentinel=base64.b64decode('{masked_runtime_encoded}').decode()
 value={{
  'outside_sentinel_denied': not readable(base64.b64decode('{sentinel_encoded}').decode()),
+ 'masked_runtime_sentinel_denied': not os.path.exists(masked_runtime_sentinel),
  'outside_host_write_denied': not writable(base64.b64decode('{positive_encoded}').decode()),
  'outside_root_write_denied': not writable('/escape'),
  'device_directory_write_denied': not writable('/dev/escape'),
@@ -1373,7 +1493,7 @@ print(json.dumps(value))
                     NativeTool.PYTHON_PROBE,
                     ("-c", script),
                     writable_directory,
-                    private_paths=(sentinel, positive_path),
+                    private_paths=(sentinel, positive_path, masked_runtime_sentinel),
                 )
             )
             os.lseek(positive_fd, 0, os.SEEK_SET)
@@ -1391,6 +1511,7 @@ print(json.dumps(value))
         raise AtlasError("sandbox hostile probe returned invalid bounded output") from exc
     expected = {
         "outside_sentinel_denied",
+        "masked_runtime_sentinel_denied",
         "outside_host_write_denied",
         "outside_root_write_denied",
         "device_directory_write_denied",

@@ -41,6 +41,9 @@ from av_atlas.ocr_pilot import (
     validate_pilot_security_artifacts,
 )
 from av_atlas.pilot_security import (
+    DEFAULT_MAX_RETAINED_BYTES as DEFAULT_PILOT_MAX_RETAINED_BYTES,
+)
+from av_atlas.pilot_security import (
     DEFAULT_MAX_SOURCE_BYTES as DEFAULT_PILOT_MAX_SOURCE_BYTES,
 )
 from av_atlas.pilot_security import (
@@ -51,8 +54,9 @@ from av_atlas.pilot_security import (
     create_pilot_security_policy,
     load_pilot_security_policy,
     open_verified_pilot_root,
+    open_verified_retained_root,
     policy_resource_limits,
-    preflight_pilot_security_root,
+    preflight_pilot_security_roots,
     validate_private_policy_output_path,
 )
 from av_atlas.pipeline import export_run, initialize_run, resume_run
@@ -129,6 +133,7 @@ def _parser() -> argparse.ArgumentParser:
         help="create a private, pilot-bound storage and sandbox policy",
     )
     security_create.add_argument("--root", type=Path, required=True)
+    security_create.add_argument("--retained-root", type=Path, required=True)
     security_create.add_argument("--pilot-id", required=True)
     security_create.add_argument("--pilot-spec", type=Path, required=True)
     security_create.add_argument("--output", type=Path, required=True)
@@ -143,12 +148,27 @@ def _parser() -> argparse.ArgumentParser:
         ],
     )
     security_create.add_argument(
+        "--retained-storage-decision",
+        required=True,
+        choices=[
+            "verified-tmpfs",
+            "reviewed-encrypted-volume",
+            "reviewed-remanence-acceptance",
+        ],
+    )
+    security_create.add_argument(
         "--source-byte-ceiling", type=int, default=DEFAULT_PILOT_MAX_SOURCE_BYTES
     )
     security_create.add_argument(
         "--temporary-byte-ceiling", type=int, default=DEFAULT_PILOT_MAX_TEMPORARY_BYTES
     )
     security_create.add_argument("--reserve-bytes", type=int, default=DEFAULT_RESERVE_BYTES)
+    security_create.add_argument(
+        "--retained-byte-ceiling", type=int, default=DEFAULT_PILOT_MAX_RETAINED_BYTES
+    )
+    security_create.add_argument(
+        "--retained-reserve-bytes", type=int, default=DEFAULT_RESERVE_BYTES
+    )
     security_create.add_argument("--reviewer-pseudonym")
     security_create.add_argument("--review-record")
     security_create.add_argument("--review-expires-at")
@@ -219,6 +239,7 @@ def _parser() -> argparse.ArgumentParser:
         "pilot-annotation-packages", help="create two independent blank annotation packages"
     )
     pilot_packages.add_argument("pilot_dir", type=Path)
+    pilot_packages.add_argument("--security-policy", type=Path, required=True)
     pilot_compare = commands.add_parser(
         "pilot-compare-annotations", help="compare two completed human annotation packages"
     )
@@ -226,6 +247,7 @@ def _parser() -> argparse.ArgumentParser:
     pilot_compare.add_argument("first", type=Path)
     pilot_compare.add_argument("second", type=Path)
     pilot_compare.add_argument("--output", type=Path, required=True)
+    pilot_compare.add_argument("--security-policy", type=Path, required=True)
     pilot_freeze = commands.add_parser(
         "pilot-freeze", help="freeze completed, adjudicated pilot gold"
     )
@@ -234,15 +256,16 @@ def _parser() -> argparse.ArgumentParser:
     pilot_freeze.add_argument("second", type=Path)
     pilot_freeze.add_argument("adjudicated", type=Path)
     pilot_freeze.add_argument("--output", type=Path, required=True)
+    pilot_freeze.add_argument("--security-policy", type=Path, required=True)
     pilot_evaluate = commands.add_parser(
         "pilot-evaluate", help="evaluate OCR against frozen adjudicated pilot gold"
     )
     pilot_evaluate.add_argument("pilot_dir", type=Path)
     pilot_evaluate.add_argument("frozen_manifest", type=Path)
     pilot_evaluate.add_argument("adjudicated_gold", type=Path)
-    pilot_evaluate.add_argument("observations", type=Path)
-    pilot_evaluate.add_argument("runtime", type=Path)
+    pilot_evaluate.add_argument("ocr_output", type=Path)
     pilot_evaluate.add_argument("--output", type=Path, required=True)
+    pilot_evaluate.add_argument("--security-policy", type=Path, required=True)
     pilot_run = commands.add_parser(
         "pilot-run-ocr", help="run frozen M2B OCR on a frozen authorized pilot"
     )
@@ -338,8 +361,15 @@ def _sanitized_pilot_policy_summary(
     policy: dict[str, object], *, root_validation: str
 ) -> dict[str, object]:
     private_root = policy["private_root"]
+    retained_root = policy.get("retained_root")
     storage = policy["storage"]
-    if not isinstance(private_root, dict) or not isinstance(storage, dict):
+    retained_storage = policy.get("retained_storage")
+    if (
+        not isinstance(private_root, dict)
+        or not isinstance(retained_root, dict)
+        or not isinstance(storage, dict)
+        or not isinstance(retained_storage, dict)
+    ):
         raise AtlasError("private pilot security policy has invalid structured fields")
     return {
         "schema_version": policy["schema_version"],
@@ -362,6 +392,19 @@ def _sanitized_pilot_policy_summary(
             "independently_reviewed": storage["independently_reviewed"],
             "review_expires_at": storage["review_expires_at"],
             "secure_erasure_claimed": storage["secure_erasure_claimed"],
+        },
+        "retained_root": {
+            "path_redacted": True,
+            "identity_bound": True,
+            "expected_mode": retained_root["expected_mode"],
+            "root_validation": root_validation,
+        },
+        "retained_storage": {
+            "decision": retained_storage["decision"],
+            "expected_filesystem_type": retained_storage["expected_filesystem_type"],
+            "independently_reviewed": retained_storage["independently_reviewed"],
+            "review_expires_at": retained_storage["review_expires_at"],
+            "secure_erasure_claimed": retained_storage["secure_erasure_claimed"],
         },
         "capacity": policy["capacity"],
         "sandbox": policy["sandbox"],
@@ -426,20 +469,26 @@ def main(arguments: list[str] | None = None) -> int:
             return 0
         if args.command == "pilot-security-create":
             validate_private_policy_output_path(args.output)
-            preflight_pilot_security_root(
+            preflight_pilot_security_roots(
                 args.root,
+                args.retained_root,
                 args.storage_decision,
+                args.retained_storage_decision,
                 args.source_byte_ceiling,
                 args.temporary_byte_ceiling,
+                args.retained_byte_ceiling,
                 args.reserve_bytes,
+                args.retained_reserve_bytes,
             )
             policy = create_pilot_security_policy(
                 root=args.root,
+                retained_root=args.retained_root,
                 pilot_id=args.pilot_id,
                 pilot_spec=args.pilot_spec,
                 output=args.output,
                 expires_at=args.expires_at,
                 storage_decision=args.storage_decision,
+                retained_storage_decision=args.retained_storage_decision,
                 bubblewrap_inventory=inspect_bubblewrap(),
                 resource_limits=policy_resource_limits(_native_resource_limits(args)),
                 reviewer_pseudonym=args.reviewer_pseudonym,
@@ -449,7 +498,9 @@ def main(arguments: list[str] | None = None) -> int:
                 deletion_plan=args.deletion_plan,
                 max_source_bytes=args.source_byte_ceiling,
                 max_temporary_bytes=args.temporary_byte_ceiling,
+                max_retained_bytes=args.retained_byte_ceiling,
                 reserve_bytes=args.reserve_bytes,
+                retained_reserve_bytes=args.retained_reserve_bytes,
             )
             print(
                 json.dumps(
@@ -467,7 +518,10 @@ def main(arguments: list[str] | None = None) -> int:
             )
             root_state = "not-requested"
             if args.command == "pilot-security-validate":
-                with open_verified_pilot_root(policy):
+                with (
+                    open_verified_pilot_root(policy),
+                    open_verified_retained_root(policy),
+                ):
                     validate_current_pilot_sandbox(policy)
                     root_state = "passed-with-current-sandbox"
             print(
@@ -593,14 +647,35 @@ def main(arguments: list[str] | None = None) -> int:
                 )
             )
         elif args.command == "pilot-annotation-packages":
-            make_annotation_packages(args.pilot_dir)
-            print(args.pilot_dir)
+            make_annotation_packages(args.pilot_dir, args.security_policy)
+            print(
+                json.dumps(
+                    {
+                        "annotation_packages_created": 2,
+                        "private_path_exported": False,
+                        "state": "created",
+                    },
+                    indent=2,
+                    sort_keys=True,
+                )
+            )
         elif args.command == "pilot-compare-annotations":
-            report = compare_annotations(args.pilot_dir, args.first, args.second, args.output)
+            report = compare_annotations(
+                args.pilot_dir,
+                args.first,
+                args.second,
+                args.output,
+                args.security_policy,
+            )
             print(json.dumps(report, indent=2, sort_keys=True))
         elif args.command == "pilot-freeze":
             frozen = freeze_pilot(
-                args.pilot_dir, args.first, args.second, args.adjudicated, args.output
+                args.pilot_dir,
+                args.first,
+                args.second,
+                args.adjudicated,
+                args.output,
+                args.security_policy,
             )
             print(json.dumps(frozen, indent=2, sort_keys=True))
         elif args.command == "pilot-evaluate":
@@ -608,9 +683,9 @@ def main(arguments: list[str] | None = None) -> int:
                 args.pilot_dir,
                 args.frozen_manifest,
                 args.adjudicated_gold,
-                args.observations,
-                args.runtime,
+                args.ocr_output,
                 args.output,
+                args.security_policy,
             )
             print(json.dumps(report, indent=2, sort_keys=True))
         elif args.command == "pilot-run-ocr":

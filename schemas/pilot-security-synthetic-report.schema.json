@@ -1,6 +1,6 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
-    "$id": "https://av-atlas.local/schemas/pilot-security-synthetic-report/1.0.0",
+    "$id": "https://av-atlas.local/schemas/pilot-security-synthetic-report/1.1.0",
     "type": "object",
     "additionalProperties": false,
     "required": [
@@ -21,8 +21,10 @@
         "report_hash"
     ],
     "properties": {
-        "schema_version": {"const": "1.0.0"},
-        "contract_version": {"const": "av-atlas-m2b3-synthetic-pilot/1.0.0"},
+        "schema_version": {"enum": ["1.0.0", "1.1.0"]},
+        "contract_version": {
+            "enum": ["av-atlas-m2b3-synthetic-pilot/1.0.0", "av-atlas-m2b3-synthetic-pilot/1.1.0"]
+        },
         "state": {"const": "succeeded"},
         "pilot_id": {"type": "string", "pattern": "^PILOT_[A-Z0-9_-]+$"},
         "source_id": {"type": "string", "pattern": "^SRC_[A-F0-9]{12}$"},
@@ -85,7 +87,7 @@
                 "address_space_bytes": {"type": "integer", "minimum": 1048576},
                 "output_file_size_bytes": {"type": "integer", "minimum": 1024},
                 "open_files": {"type": "integer", "minimum": 8, "maximum": 4096},
-                "process_count": {"type": "integer", "minimum": 1, "maximum": 4096},
+                "process_count": {"type": "integer", "minimum": 1, "maximum": 16384},
                 "core_dump_bytes": {"const": 0},
                 "capture_bytes": {"type": "integer", "minimum": 1024},
                 "cleanup_timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 60}
@@ -104,6 +106,7 @@
                 "namespace_smoke_test_passed": {"const": true},
                 "network_denied": {"const": true},
                 "external_sentinel_denied": {"const": true},
+                "mutable_runtime_subtree_denied": {"const": true},
                 "outside_write_denied": {"const": true}
             }
         },
@@ -135,5 +138,22 @@
         },
         "report_hash": {"$ref": "#/$defs/sha256"}
     },
+    "allOf": [
+        {
+            "if": {"properties": {"schema_version": {"const": "1.0.0"}}},
+            "then": {
+                "properties": {"contract_version": {"const": "av-atlas-m2b3-synthetic-pilot/1.0.0"}}
+            }
+        },
+        {
+            "if": {"properties": {"schema_version": {"const": "1.1.0"}}},
+            "then": {
+                "properties": {
+                    "contract_version": {"const": "av-atlas-m2b3-synthetic-pilot/1.1.0"},
+                    "capability": {"required": ["mutable_runtime_subtree_denied"]}
+                }
+            }
+        }
+    ],
     "$defs": {"sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}}
 }
