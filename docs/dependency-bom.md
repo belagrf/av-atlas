@@ -39,3 +39,17 @@ M2B.1 separates declared project metadata, measured current-host inventory, pack
 and hashes computed directly over installed files. Ordinary run exports use a hash-derived OCR
 identity plus sanitized path classes and basenames. A package license is not hardcoded when its
 installed metadata cannot be read or does not identify it; uncertainty is reported instead.
+
+M2B.2 adds no third-party dependency, checkpoint, or language data. Its copy, hashing, file-mode,
+descriptor, synchronization, and advisory-lock controls use the Python standard library and local
+operating-system interfaces. The private descriptor-relative recovery path was exercised on Linux;
+platforms without POSIX-style directory descriptors or `flock` fail closed before acquisition. The
+machine-readable dependency inventory and empty checkpoint list are
+therefore unchanged.
+
+The M2B.2 source-review correction uses reviewed controls already provided by the inventoried local
+FFmpeg/libavformat build: an explicit `file` protocol whitelist, a forced and whitelisted
+`matroska` demuxer for authorized source snapshots, and a forced `png_pipe` demuxer for generated
+OCR frames. The supported-format narrowing is AV-Atlas policy, not a new dependency or a claim that
+native parsing is sandboxed. No network component, model, checkpoint, language data, or package was
+added.

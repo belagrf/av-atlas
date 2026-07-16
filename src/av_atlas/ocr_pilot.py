@@ -14,9 +14,11 @@ from av_atlas.config import BaselineConfig
 from av_atlas.errors import AtlasError
 from av_atlas.io import canonical_json, sha256_file, write_json, write_jsonl
 from av_atlas.media import inspect_media
+from av_atlas.native_media import NativeInputPolicy, enforce_path_policy, policy_from_inventory
 from av_atlas.ocr import TesseractOcrAdapter
 from av_atlas.rights import load_rights_manifest, validate_rights
 from av_atlas.schemas import validate_instance
+from av_atlas.stable_input import acquire_authorized_input, preflight_authorized_source
 
 REQUIRED_PILOT_OPERATIONS = (
     "analysis",
@@ -40,15 +42,24 @@ def _load_json(path: Path) -> dict[str, Any]:
 
 
 def _empty_output(path: Path) -> None:
+    if path.is_symlink() or (path.exists() and not path.is_dir()):
+        raise AtlasError("pilot output must be a regular local directory, not a symlink")
     if path.exists() and any(path.iterdir()):
         raise AtlasError(f"pilot output must be a new empty directory: {path}")
-    path.mkdir(parents=True, exist_ok=True)
+    path.mkdir(mode=0o700, parents=True, exist_ok=True)
+    path.chmod(0o700)
 
 
-def _extract_frame(media: Path, timestamp_ms: int, output: Path) -> None:
+def _extract_frame(
+    media: Path,
+    timestamp_ms: int,
+    output: Path,
+    native_policy: NativeInputPolicy,
+) -> None:
     executable = shutil.which("ffmpeg")
     if executable is None:
         raise AtlasError("ffmpeg is required for pilot frame extraction")
+    enforce_path_policy(media, native_policy)
     try:
         subprocess.run(
             [
@@ -57,10 +68,7 @@ def _extract_frame(media: Path, timestamp_ms: int, output: Path) -> None:
                 "-hide_banner",
                 "-loglevel",
                 "error",
-                "-ss",
-                f"{timestamp_ms / 1000:.3f}",
-                "-i",
-                str(media),
+                *native_policy.arguments(media, seek_ms=timestamp_ms),
                 "-frames:v",
                 "1",
                 "-compression_level",
@@ -76,9 +84,13 @@ def _extract_frame(media: Path, timestamp_ms: int, output: Path) -> None:
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
         output.unlink(missing_ok=True)
         raise AtlasError(f"failed to extract pre-registered frame at {timestamp_ms}ms") from exc
+    except OSError as exc:
+        output.unlink(missing_ok=True)
+        raise AtlasError("pilot frame extraction could not start safely") from exc
     if not output.is_file() or output.stat().st_size == 0:
         output.unlink(missing_ok=True)
         raise AtlasError(f"empty extracted frame at {timestamp_ms}ms")
+    output.chmod(0o600)
 
 
 def prepare_pilot(spec_path: Path, output: Path) -> dict[str, Any]:
@@ -99,70 +111,144 @@ def prepare_pilot(spec_path: Path, output: Path) -> dict[str, Any]:
     sources = spec.get("sources")
     if not isinstance(sources, list) or len(sources) < 3:
         raise AtlasError("pilot requires at least three distinct authorized sources")
+    # Authorize every source parser-free before any source reaches FFprobe. A
+    # denied later source therefore cannot cause earlier media to be parsed.
+    preflight_sources: list[tuple[dict[str, Any], str, str, str]] = []
+    preflight_ids: set[str] = set()
+    split_counts = {"calibration": 0, "evaluation": 0}
+    for source in sources:
+        if not isinstance(source, dict) or set(source) != {
+            "media_path",
+            "rights_manifest_path",
+            "selections",
+        }:
+            raise AtlasError(
+                "each source must contain only media_path, rights_manifest_path, selections"
+            )
+        if not isinstance(source["selections"], list):
+            raise AtlasError("pilot source selections must be an array")
+        seen_source_timestamps: set[int] = set()
+        for selection in source["selections"]:
+            required = {"timestamp_ms", "split", "categories", "difficulty"}
+            if not isinstance(selection, dict) or set(selection) != required:
+                raise AtlasError("each frame selection has unknown or missing fields")
+            timestamp_ms = selection["timestamp_ms"]
+            if (
+                not isinstance(timestamp_ms, int)
+                or isinstance(timestamp_ms, bool)
+                or timestamp_ms < 0
+            ):
+                raise AtlasError("selected timestamp must be a nonnegative integer")
+            split = selection["split"]
+            if split not in split_counts:
+                raise AtlasError("frame split must be calibration or evaluation")
+            if timestamp_ms in seen_source_timestamps:
+                raise AtlasError("duplicate timestamp within one pilot source is not permitted")
+            seen_source_timestamps.add(timestamp_ms)
+            split_counts[split] += 1
+        measurement = preflight_authorized_source(
+            Path(source["media_path"]),
+            Path(source["rights_manifest_path"]),
+            "evaluation",
+            additional_permissions=("annotation",),
+        )
+        if measurement.source_id in preflight_ids:
+            raise AtlasError("pilot sources must be content-distinct")
+        preflight_ids.add(measurement.source_id)
+        preflight_sources.append(
+            (
+                source,
+                measurement.source_sha256,
+                measurement.source_id,
+                str(measurement.authorization.rights_declaration["manifest_hash"]),
+            )
+        )
+    if split_counts != {"calibration": 20, "evaluation": 60}:
+        raise AtlasError(
+            "pilot requires exactly 20 calibration and 60 evaluation frames; "
+            f"got {split_counts['calibration']}/{split_counts['evaluation']}"
+        )
     _empty_output(output)
-    (output / "frames").mkdir()
-    (output / "rights").mkdir()
+    (output / "frames").mkdir(mode=0o700)
+    (output / "rights").mkdir(mode=0o700)
     source_records: list[dict[str, Any]] = []
     frame_records: list[dict[str, Any]] = []
     seen_sources: set[str] = set()
     seen_frames: set[tuple[str, int]] = set()
     try:
-        for source in sources:
-            if set(source) != {"media_path", "rights_manifest_path", "selections"}:
-                raise AtlasError(
-                    "each source must contain only media_path, rights_manifest_path, selections"
-                )
+        for source, expected_hash, expected_source_id, expected_manifest_hash in preflight_sources:
             media = Path(source["media_path"])
-            inventory = inspect_media(media)
-            if inventory["source_id"] in seen_sources:
-                raise AtlasError("pilot sources must be content-distinct")
-            seen_sources.add(inventory["source_id"])
-            rights = load_rights_manifest(Path(source["rights_manifest_path"]))
-            for operation in REQUIRED_PILOT_OPERATIONS:
-                validate_rights(rights, inventory["sha256"], inventory["source_id"], operation)
-            rights_name = f"{inventory['source_id']}.rights.json"
-            shutil.copy2(source["rights_manifest_path"], output / "rights" / rights_name)
-            source_records.append(
-                {
-                    "source_id": inventory["source_id"],
-                    "source_sha256": inventory["sha256"],
-                    "duration_ms": inventory["duration_ms"],
-                    "rights_manifest": f"rights/{rights_name}",
-                    "rights_manifest_sha256": sha256_file(output / "rights" / rights_name),
-                }
-            )
-            for selection in source["selections"]:
-                required = {"timestamp_ms", "split", "categories", "difficulty"}
-                if set(selection) != required:
-                    raise AtlasError("each frame selection has unknown or missing fields")
-                timestamp_ms = selection["timestamp_ms"]
+            with acquire_authorized_input(
+                media,
+                Path(source["rights_manifest_path"]),
+                "evaluation",
+                expected_source_sha256=expected_hash,
+                expected_source_id=expected_source_id,
+                expected_manifest_hash=expected_manifest_hash,
+                additional_permissions=("annotation",),
+            ) as stable:
+                inventory = inspect_media(stable.snapshot_path)
                 if (
-                    not isinstance(timestamp_ms, int)
-                    or not 0 <= timestamp_ms < inventory["duration_ms"]
+                    inventory["sha256"] != stable.source_sha256
+                    or inventory["source_id"] != stable.source_id
                 ):
-                    raise AtlasError("selected timestamp is outside its source")
-                split = selection["split"]
-                if split not in {"calibration", "evaluation"}:
-                    raise AtlasError("frame split must be calibration or evaluation")
-                key = (inventory["source_id"], timestamp_ms)
-                if key in seen_frames:
-                    raise AtlasError("duplicate source/timestamp selection is not permitted")
-                seen_frames.add(key)
-                frame_id = f"FRM_{inventory['sha256'][:12].upper()}_{timestamp_ms:010d}"
-                relative = f"frames/{frame_id}.png"
-                _extract_frame(media, timestamp_ms, output / relative)
-                frame_records.append(
+                    raise AtlasError("pilot snapshot inventory identity mismatch")
+                if inventory["source_id"] in seen_sources:
+                    raise AtlasError("pilot sources must be content-distinct")
+                seen_sources.add(inventory["source_id"])
+                rights = stable.authorization.rights_declaration
+                native_policy = policy_from_inventory(inventory)
+                for operation in REQUIRED_PILOT_OPERATIONS:
+                    validate_rights(rights, inventory["sha256"], inventory["source_id"], operation)
+                rights_name = f"{inventory['source_id']}.rights.json"
+                write_json(output / "rights" / rights_name, rights)
+                source_records.append(
                     {
-                        "frame_id": frame_id,
                         "source_id": inventory["source_id"],
-                        "timestamp_ms": timestamp_ms,
-                        "split": split,
-                        "categories": selection["categories"],
-                        "difficulty": selection["difficulty"],
-                        "path": relative,
-                        "sha256": sha256_file(output / relative),
+                        "source_sha256": inventory["sha256"],
+                        "duration_ms": inventory["duration_ms"],
+                        "rights_manifest": f"rights/{rights_name}",
+                        "rights_manifest_sha256": sha256_file(output / "rights" / rights_name),
                     }
                 )
+                for selection in source["selections"]:
+                    required = {"timestamp_ms", "split", "categories", "difficulty"}
+                    if not isinstance(selection, dict) or set(selection) != required:
+                        raise AtlasError("each frame selection has unknown or missing fields")
+                    timestamp_ms = selection["timestamp_ms"]
+                    if (
+                        not isinstance(timestamp_ms, int)
+                        or isinstance(timestamp_ms, bool)
+                        or not 0 <= timestamp_ms < inventory["duration_ms"]
+                    ):
+                        raise AtlasError("selected timestamp is outside its source")
+                    split = selection["split"]
+                    if split not in {"calibration", "evaluation"}:
+                        raise AtlasError("frame split must be calibration or evaluation")
+                    key = (inventory["source_id"], timestamp_ms)
+                    if key in seen_frames:
+                        raise AtlasError("duplicate source/timestamp selection is not permitted")
+                    seen_frames.add(key)
+                    frame_id = f"FRM_{inventory['sha256'][:12].upper()}_{timestamp_ms:010d}"
+                    relative = f"frames/{frame_id}.png"
+                    _extract_frame(
+                        stable.snapshot_path,
+                        timestamp_ms,
+                        output / relative,
+                        native_policy,
+                    )
+                    frame_records.append(
+                        {
+                            "frame_id": frame_id,
+                            "source_id": inventory["source_id"],
+                            "timestamp_ms": timestamp_ms,
+                            "split": split,
+                            "categories": selection["categories"],
+                            "difficulty": selection["difficulty"],
+                            "path": relative,
+                            "sha256": sha256_file(output / relative),
+                        }
+                    )
     except BaseException:
         shutil.rmtree(output, ignore_errors=True)
         raise

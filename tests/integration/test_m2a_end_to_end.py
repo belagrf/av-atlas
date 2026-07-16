@@ -27,18 +27,33 @@ def project_root() -> Path:
 def controlled_media(tmp_path_factory: pytest.TempPathFactory) -> Path:
     if shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None:
         pytest.skip("FFmpeg is unavailable")
-    return make_m2a_fixture(tmp_path_factory.mktemp("m2a_fixture"))
+    media = make_m2a_fixture(tmp_path_factory.mktemp("m2a_fixture"))
+    _rights(
+        media,
+        media.with_suffix(".rights.json"),
+        {"analysis", "evaluation", "derivative_artifact_retention"},
+    )
+    return media
 
 
-def _rights(media: Path, path: Path, allowed: set[str]) -> Path:
+def _rights(
+    media: Path,
+    path: Path,
+    allowed: set[str],
+    basis: str = "synthetic-controlled",
+) -> Path:
     create_rights_manifest(
         media,
         path,
         "test-operator",
-        "synthetic-controlled",
+        basis,
         allowed,
     )
     return path
+
+
+def _controlled_rights(media: Path) -> Path:
+    return media.with_suffix(".rights.json")
 
 
 def test_non_fixture_refusal_mismatch_permission_and_valid_acceptance(
@@ -100,6 +115,7 @@ def test_non_fixture_refusal_mismatch_permission_and_valid_acceptance(
         media,
         tmp_path / "valid.json",
         {"analysis", "evaluation", "derivative_artifact_retention"},
+        basis="owned",
     )
     run_dir = tmp_path / "accepted"
     assert (
@@ -189,6 +205,8 @@ def test_m2a_interruption_repeated_resume_and_semantic_determinism(
                 str(interrupted),
                 "--stop-after",
                 "inventory",
+                "--rights-manifest",
+                str(_controlled_rights(controlled_media)),
             ]
         )
         == 0
@@ -200,14 +218,30 @@ def test_m2a_interruption_repeated_resume_and_semantic_determinism(
 
     second = tmp_path / "second"
     assert (
-        main(["run", str(controlled_media), "--config", str(config), "--output", str(second)]) == 0
+        main(
+            [
+                "run",
+                str(controlled_media),
+                "--config",
+                str(config),
+                "--output",
+                str(second),
+                "--rights-manifest",
+                str(_controlled_rights(controlled_media)),
+            ]
+        )
+        == 0
     )
     for name in ("shots.jsonl", "keyframes.jsonl", "subtitles.jsonl", "subtitle_tracks.json"):
         assert sha256_file(interrupted / name) == sha256_file(second / name)
 
 
 def test_missing_subtitles_is_observed_absence(tmp_path: Path, project_root: Path) -> None:
-    no_subtitles, _ = make_modality_edge_fixtures(tmp_path / "edges")
+    no_subtitles, no_video = make_modality_edge_fixtures(tmp_path / "edges")
+    for fixture in (no_subtitles, no_video):
+        marker = json.loads(fixture.with_suffix(".fixture.json").read_text())
+        assert marker["schema_version"] == "1.1.0"
+        assert marker["sidecars"] == []
     config = BaselineConfig.load(project_root / "configs/m2a.yaml")
     output = extract_subtitles(
         no_subtitles,
@@ -220,6 +254,14 @@ def test_missing_subtitles_is_observed_absence(tmp_path: Path, project_root: Pat
     assert output.result.status == "success_zero"
     assert output.result.observations == ()
     assert output.tracks["tracks"] == []
+
+
+def test_fresh_m2a_fixture_has_current_empty_sidecar_contract(
+    controlled_media: Path,
+) -> None:
+    marker = json.loads(controlled_media.with_suffix(".fixture.json").read_text())
+    assert marker["schema_version"] == "1.1.0"
+    assert marker["sidecars"] == []
 
 
 def test_explicit_subtitle_track_selection(
@@ -237,6 +279,138 @@ def test_explicit_subtitle_track_selection(
     assert [cue["track_id"] for cue in output.cues] == ["TRACK_0003", "TRACK_0003"]
     statuses = {track["track_id"]: track["status"] for track in output.tracks["tracks"]}
     assert statuses == {"TRACK_0002": "not_selected", "TRACK_0003": "extracted"}
+
+
+def test_run_native_parser_arguments_never_contain_original_media_path(
+    controlled_media: Path,
+    project_root: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    real_run = subprocess.run
+    argument_lists: list[list[str]] = []
+
+    def capture(
+        arguments: list[str], *args: object, **kwargs: object
+    ) -> subprocess.CompletedProcess:  # type: ignore[type-arg]
+        argument_lists.append([str(item) for item in arguments])
+        return real_run(arguments, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(subprocess, "run", capture)
+    run_dir = tmp_path / "snapshot-only"
+    assert (
+        main(
+            [
+                "run",
+                str(controlled_media),
+                "--config",
+                str(project_root / "configs/m2a.yaml"),
+                "--output",
+                str(run_dir),
+                "--rights-manifest",
+                str(_controlled_rights(controlled_media)),
+            ]
+        )
+        == 0
+    )
+    original = str(controlled_media)
+    assert all(original not in arguments for arguments in argument_lists)
+    media_parser_calls = [
+        arguments
+        for arguments in argument_lists
+        if Path(arguments[0]).name in {"ffprobe", "ffmpeg"}
+        and any(Path(argument).name == "source.snapshot" for argument in arguments)
+    ]
+    assert media_parser_calls
+    expected_policy_prefix = [
+        "-protocol_whitelist",
+        "file",
+        "-format_whitelist",
+        "matroska",
+        "-f",
+        "matroska",
+    ]
+    for arguments in media_parser_calls:
+        assert arguments.count("-i") == 1
+        input_index = arguments.index("-i")
+        policy_index = arguments.index("-protocol_whitelist")
+        assert arguments[policy_index : policy_index + 6] == expected_policy_prefix
+        assert policy_index < input_index
+        assert Path(arguments[input_index + 1]).name == "source.snapshot"
+        assert not any(
+            value in arguments for value in ("hls", "dash", "concat", "concatf", "image2", "bluray")
+        )
+    snapshot_arguments = [
+        argument
+        for arguments in media_parser_calls
+        for argument in arguments
+        if Path(argument).name == "source.snapshot"
+    ]
+    assert all(not Path(argument).exists() for argument in snapshot_arguments)
+
+
+def test_authorized_nonfixture_run_uses_only_snapshot_and_exports_no_input_paths(
+    controlled_media: Path,
+    project_root: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    media = tmp_path / "operator;$(inert).mkv"
+    media.write_bytes(controlled_media.read_bytes())
+    rights = _rights(
+        media,
+        tmp_path / "rights.json",
+        {"analysis", "derivative_artifact_retention"},
+        basis="owned",
+    )
+    real_run = subprocess.run
+    argument_lists: list[list[str]] = []
+
+    def capture(
+        arguments: list[str], *args: object, **kwargs: object
+    ) -> subprocess.CompletedProcess:  # type: ignore[type-arg]
+        argument_lists.append([str(item) for item in arguments])
+        return real_run(arguments, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(subprocess, "run", capture)
+    run_dir = tmp_path / "authorized-nonfixture"
+    assert (
+        main(
+            [
+                "run",
+                str(media),
+                "--config",
+                str(project_root / "configs/m2a.yaml"),
+                "--rights-manifest",
+                str(rights),
+                "--output",
+                str(run_dir),
+            ]
+        )
+        == 0
+    )
+    parser_calls = [
+        arguments
+        for arguments in argument_lists
+        if Path(arguments[0]).name in {"ffprobe", "ffmpeg", "tesseract"}
+    ]
+    assert parser_calls
+    original = str(media).encode()
+    snapshots = {
+        argument
+        for arguments in parser_calls
+        for argument in arguments
+        if Path(argument).name == "source.snapshot"
+    }
+    assert snapshots
+    assert all(str(media) not in arguments for arguments in parser_calls)
+    assert all(not Path(snapshot).exists() for snapshot in snapshots)
+    private_values = [original, *(snapshot.encode() for snapshot in snapshots)]
+    for artifact in run_dir.rglob("*"):
+        if artifact.is_file():
+            content = artifact.read_bytes()
+            assert all(value not in content for value in private_values), artifact
+    assert not (tmp_path / "inert").exists()
 
 
 @pytest.mark.parametrize(
@@ -320,6 +494,8 @@ def test_validate_recomputes_rights_manifest_digest(
                 str(project_root / "configs/m2a.yaml"),
                 "--output",
                 str(run_dir),
+                "--rights-manifest",
+                str(_controlled_rights(controlled_media)),
             ]
         )
         == 0
@@ -350,6 +526,8 @@ def test_resume_rehashed_rights_with_stale_run_linkage_invokes_no_processing(
                 str(run_dir),
                 "--stop-after",
                 "inventory",
+                "--rights-manifest",
+                str(_controlled_rights(controlled_media)),
             ]
         )
         == 0

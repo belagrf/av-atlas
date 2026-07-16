@@ -7,6 +7,13 @@ import subprocess
 from pathlib import Path
 
 from av_atlas.errors import AtlasError
+from av_atlas.fixture_inputs import (
+    FIXTURE_CONTRACT_VERSION,
+    FIXTURE_SCHEMA_VERSION,
+    MAX_OBSERVATION_SIDECAR_BYTES,
+    OBSERVATION_SIDECAR_TYPE,
+    fixture_manifest_digest,
+)
 from av_atlas.io import sha256_file, source_id_from_sha256, write_json
 from av_atlas.media import tool_version
 from av_atlas.schemas import validate_instance
@@ -164,24 +171,58 @@ def make_fixture(output: Path) -> Path:
     }
     validate_instance("observation_sidecar", payload, sidecar.name)
     write_json(sidecar, payload)
-    _write_fixture_manifest(media, "m1", "M1_SYNTHETIC_V1", {"duration_ms": 6000})
+    _write_fixture_manifest(
+        media,
+        "m1",
+        "M1_SYNTHETIC_V1",
+        {"duration_ms": 6000},
+        sidecars=(sidecar,),
+    )
     return media
 
 
 def _write_fixture_manifest(
-    media: Path, profile: str, fixture_id: str, parameters: dict[str, object]
+    media: Path,
+    profile: str,
+    fixture_id: str,
+    parameters: dict[str, object],
+    *,
+    sidecars: tuple[Path, ...] = (),
 ) -> None:
     content_hash = sha256_file(media)
-    value = {
-        "schema_version": "1.0.0",
+    descriptors = []
+    for sidecar in sorted(sidecars, key=lambda item: item.name):
+        if (
+            sidecar.parent != media.parent
+            or sidecar.name != media.with_suffix(".observations.json").name
+        ):
+            raise AtlasError("fixture observation sidecar must use the canonical adjacent name")
+        size = sidecar.stat().st_size
+        if not 1 <= size <= MAX_OBSERVATION_SIDECAR_BYTES:
+            raise AtlasError("fixture observation sidecar exceeds its bounded contract")
+        descriptors.append(
+            {
+                "basename": sidecar.name,
+                "type": OBSERVATION_SIDECAR_TYPE,
+                "payload_schema_version": "1.0.0",
+                "sha256": sha256_file(sidecar),
+                "size_bytes": size,
+            }
+        )
+    value: dict[str, object] = {
+        "schema_version": FIXTURE_SCHEMA_VERSION,
+        "contract_version": FIXTURE_CONTRACT_VERSION,
         "fixture_id": fixture_id,
         "profile": profile,
-        "generator_version": "1.0.0",
+        "generator_version": "1.1.0",
         "source_id": source_id_from_sha256(content_hash),
         "content_sha256": content_hash,
         "ffmpeg_version": tool_version("ffmpeg") or "unavailable",
         "parameters": parameters,
+        "sidecars": descriptors,
+        "manifest_hash": "",
     }
+    value["manifest_hash"] = fixture_manifest_digest(value)
     validate_instance("fixture_manifest", value, media.with_suffix(".fixture.json").name)
     write_json(media.with_suffix(".fixture.json"), value)
 

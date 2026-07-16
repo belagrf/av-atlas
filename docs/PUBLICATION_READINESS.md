@@ -62,3 +62,30 @@ sentinels (`/home/operator/...` and `operator@example.invalid`) whose tests prov
 private media, private derivative, private rights declaration, credential, personal path, or
 private annotation is included. The detached publication-manifest hash is computed after this final
 record and reported in release verification, avoiding a circular hash claim inside a hashed input.
+
+## M2B.2 pull-request candidate
+
+The M2B.2 candidate adds standard-library stable-input acquisition, stable-input/fixture/inventory
+compatibility schemas, a fixed native-input policy schema, one explicit configuration, synthetic
+security/regression tests, and documentation. The source-review correction forces self-contained
+Matroska/WebM through a `file`-only protocol and `matroska`-only demuxer/format policy, forces
+generated PNG decoding through `png_pipe`, and passes only hash/size-bound immutable controlled-
+fixture observations to adapters. Hostile local-manifest and loopback-network cases are generated
+under pytest temporary directories and produce zero parser calls, local-sentinel access, and HTTP
+requests; they are not tracked media or downloaded content.
+
+The follow-up trust correction requires explicit rights for every fresh run and inspection. Only
+`synthetic-controlled` plus an exact current fixture bundle admits sidecars; ordinary rights ignore
+adjacent marker/sidecar data, and legacy markers are validation-only. Stable-input 1.2 and run-
+manifest 1.1 persist and validate this decision. Forged-marker, missing-bundle, ordinary-isolation,
+trust-transition, and impossible-state regressions contain only temporary synthetic bytes.
+
+The candidate adds no media, frame, audio, subtitle, annotation, rights workspace, traineddata,
+checkpoint, model, binary, or run directory. Private lease roots, snapshots, verified sidecar
+payloads, and residues are ignored and are not release artifacts. Snapshot unlinking is documented
+as logical cleanup rather than secure erasure. The final review scan and machine-readable manifest
+cover 132 proposed branch paths, and a second independently rendered manifest was byte-identical.
+Exact gate counts are recorded in `PROJECT_STATE.md`; the detached manifest hash and clean-checkout
+CI/CodeQL results are reported in the PR update to avoid circular tracked claims. This branch
+creates no release and does not alter the v1/v1.1 release records. Issues 11, 12, and 14 remain
+open.

@@ -4,12 +4,16 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import stat
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from av_atlas.contracts import Observation
 from av_atlas.errors import AtlasError
+from av_atlas.fixture_inputs import VerifiedFixtureSidecar, load_controlled_fixture_bundle
 from av_atlas.io import canonical_json, sha256_file, source_id_from_sha256, write_json
 from av_atlas.schemas import validate_instance
 
@@ -28,6 +32,18 @@ RUN_MODE_PERMISSIONS: dict[str, tuple[str, ...]] = {
     "evaluation": ("analysis", "evaluation", "derivative_artifact_retention"),
 }
 
+ORDINARY_EXPLICIT_RIGHTS = "ordinary-explicit-rights"
+SYNTHETIC_CONTROLLED_EXPLICIT_RIGHTS = "synthetic-controlled-explicit-rights"
+
+
+def fixture_trust_mode_for_rights_basis(rights_basis: str) -> str:
+    """Derive fixture trust solely from the validated operator declaration basis."""
+    if rights_basis == "synthetic-controlled":
+        return SYNTHETIC_CONTROLLED_EXPLICIT_RIGHTS
+    if rights_basis in {"owned", "licensed", "public-domain", "other-documented-authorization"}:
+        return ORDINARY_EXPLICIT_RIGHTS
+    raise AtlasError(f"unsupported rights basis: {rights_basis}")
+
 
 @dataclass(frozen=True)
 class AuthorizationPreflight:
@@ -36,10 +52,19 @@ class AuthorizationPreflight:
     source_sha256: str
     source_id: str
     fixture_status: str
+    fixture_trust_mode: str
     fixture_manifest: dict[str, Any] | None
+    fixture_sidecars: tuple[VerifiedFixtureSidecar, ...]
     rights_declaration: dict[str, Any]
     requested_run_mode: str
     authorized_at: str
+
+    @property
+    def fixture_observations(self) -> tuple[Observation, ...]:
+        """Return immutable observations from already verified fixture sidecars."""
+        return tuple(
+            observation for sidecar in self.fixture_sidecars for observation in sidecar.observations
+        )
 
 
 def manifest_digest(value: dict[str, Any]) -> str:
@@ -90,10 +115,62 @@ def create_rights_manifest(
 
 def load_rights_manifest(path: Path) -> dict[str, Any]:
     try:
-        value: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise AtlasError(f"invalid rights manifest {path.name}: {exc}") from exc
-    validate_instance("rights_manifest", value, path.name)
+        before = os.lstat(path)
+        if not stat.S_ISREG(before.st_mode) or before.st_size > 1_000_000:
+            raise OSError("rights declaration is not a bounded regular file")
+        descriptor = os.open(
+            path,
+            os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0),
+        )
+        try:
+            opened = os.fstat(descriptor)
+            raw = b""
+            while len(raw) <= 1_000_000:
+                block = os.read(descriptor, min(65_536, 1_000_001 - len(raw)))
+                if not block:
+                    break
+                raw += block
+            after = os.fstat(descriptor)
+        finally:
+            os.close(descriptor)
+        if (
+            len(raw) != before.st_size
+            or (
+                before.st_dev,
+                before.st_ino,
+                before.st_size,
+                before.st_mtime_ns,
+                before.st_ctime_ns,
+            )
+            != (
+                opened.st_dev,
+                opened.st_ino,
+                opened.st_size,
+                opened.st_mtime_ns,
+                opened.st_ctime_ns,
+            )
+            or (
+                opened.st_dev,
+                opened.st_ino,
+                opened.st_size,
+                opened.st_mtime_ns,
+                opened.st_ctime_ns,
+            )
+            != (
+                after.st_dev,
+                after.st_ino,
+                after.st_size,
+                after.st_mtime_ns,
+                after.st_ctime_ns,
+            )
+        ):
+            raise OSError("rights declaration changed while it was read")
+        value: dict[str, Any] = json.loads(raw.decode("utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise AtlasError(
+            "invalid rights manifest: unreadable, unstable, or malformed JSON"
+        ) from exc
+    validate_instance("rights_manifest", value, "rights manifest")
     if value["manifest_hash"] != manifest_digest(value):
         raise AtlasError("rights manifest hash is invalid")
     return value
@@ -114,7 +191,7 @@ def validate_rights_artifact(
     if value["manifest_hash"] != actual:
         raise AtlasError("rights manifest hash is invalid")
     if expected_manifest_hash is not None and actual != expected_manifest_hash:
-        raise AtlasError("run manifest rights hash does not match rights artifact")
+        raise AtlasError("expected rights manifest hash does not match rights artifact")
     validate_run_mode_permissions(value, source_hash, source_id, run_mode)
 
 
@@ -134,7 +211,7 @@ def load_and_validate_rights(
         source_id,
         run_mode,
         expected_manifest_hash=expected_manifest_hash,
-        label=path.name,
+        label="rights manifest",
     )
     return value
 
@@ -177,46 +254,63 @@ def validate_run_mode_permissions(
         validate_rights(value, source_hash, source_id, permission)
 
 
-def controlled_fixture_manifest(
+def authorize_source_identity(
     media: Path,
-    source_hash: str | None = None,
-    source_id: str | None = None,
-) -> dict[str, Any] | None:
-    """Return a marker only when it is schema-valid and bound to these exact bytes."""
-    marker = media.with_suffix(".fixture.json")
-    if not marker.is_file():
-        return None
-    try:
-        value: dict[str, Any] = json.loads(marker.read_text(encoding="utf-8"))
-        validate_instance("fixture_manifest", value, marker.name)
-    except (OSError, json.JSONDecodeError, AtlasError):
-        return None
-    exact_hash = source_hash if source_hash is not None else sha256_file(media)
-    exact_source_id = source_id if source_id is not None else source_id_from_sha256(exact_hash)
-    if value["content_sha256"] != exact_hash or value["source_id"] != exact_source_id:
-        return None
-    return value
+    source_hash: str,
+    source_id: str,
+    rights_manifest: Path | None,
+    run_mode: str,
+    *,
+    expected_manifest_hash: str | None = None,
+    additional_permissions: tuple[str, ...] = (),
+) -> AuthorizationPreflight:
+    """Authorize a parser-free, independently measured source identity.
 
+    The caller owns the file-descriptor and mutation checks that established
+    ``source_hash`` and ``source_id``. This function never opens the media bytes.
+    """
+    if rights_manifest is None:
+        raise AtlasError(
+            "fresh processing and inspection authorization requires --rights-manifest bound "
+            "to the exact source hash"
+        )
+    required_permissions_for_run_mode(run_mode)
+    rights = load_and_validate_rights(
+        rights_manifest,
+        source_hash,
+        source_id,
+        run_mode,
+        expected_manifest_hash=expected_manifest_hash,
+    )
+    for permission in additional_permissions:
+        validate_rights(rights, source_hash, source_id, permission)
 
-def fixture_rights(source_hash: str, source_id: str) -> dict[str, Any]:
-    value: dict[str, Any] = {
-        "schema_version": "1.0.0",
-        "source_id": source_id,
-        "content_sha256": source_hash,
-        "operator_id": "OPR_000000000001",
-        "rights_basis": "synthetic-controlled",
-        "permissions": {operation: True for operation in OPERATIONS},
-        "restrictions": [],
-        "expires_at": None,
-        "notes": "Automatically declared for a hash-bound AV-Atlas controlled fixture.",
-        "created_at": "2026-07-13T00:00:00+00:00",
-        "manifest_hash": "",
-        "independently_reviewed": False,
-        "review_record": None,
-    }
-    value["manifest_hash"] = manifest_digest(value)
-    validate_instance("rights_manifest", value, "controlled fixture rights")
-    return value
+    fixture_bundle = None
+    fixture_marker = None
+    fixture_trust_mode = fixture_trust_mode_for_rights_basis(str(rights["rights_basis"]))
+    if fixture_trust_mode == SYNTHETIC_CONTROLLED_EXPLICIT_RIGHTS:
+        fixture_bundle = load_controlled_fixture_bundle(media, source_hash, source_id)
+        if fixture_bundle is None or fixture_bundle.manifest.get("schema_version") != "1.1.0":
+            raise AtlasError(
+                "synthetic-controlled rights require an exact current controlled-fixture bundle"
+            )
+        fixture_marker = fixture_bundle.manifest
+        fixture_status = "authorized_controlled_fixture"
+    else:
+        # Ordinary rights never inspect, promote, or consume adjacent fixture files.
+        # Their presence must not affect authorization or observation content.
+        fixture_status = "not_fixture"
+    return AuthorizationPreflight(
+        source_sha256=source_hash,
+        source_id=source_id,
+        fixture_status=fixture_status,
+        fixture_trust_mode=fixture_trust_mode,
+        fixture_manifest=fixture_marker,
+        fixture_sidecars=fixture_bundle.sidecars if fixture_bundle is not None else (),
+        rights_declaration=rights,
+        requested_run_mode=run_mode,
+        authorized_at=datetime.now(UTC).isoformat(),
+    )
 
 
 def authorize_media_preflight(
@@ -224,31 +318,31 @@ def authorize_media_preflight(
     rights_manifest: Path | None,
     run_mode: str,
 ) -> AuthorizationPreflight:
-    """Authorize exact source bytes without invoking a media parser or adapter."""
-    if not media.is_file():
-        raise AtlasError(f"media source is not a regular file: {media}")
+    """Legacy parser-free authorization wrapper; processing uses ``stable_input``."""
+    try:
+        before = os.lstat(media)
+    except OSError as exc:
+        raise AtlasError("media source is unavailable") from exc
+    if not stat.S_ISREG(before.st_mode):
+        raise AtlasError("media source must be a regular non-symlink file")
     source_hash = sha256_file(media)
+    try:
+        after = os.lstat(media)
+    except OSError as exc:
+        raise AtlasError("media source changed during authorization") from exc
+    if (
+        before.st_dev,
+        before.st_ino,
+        before.st_size,
+        before.st_mtime_ns,
+        before.st_ctime_ns,
+    ) != (
+        after.st_dev,
+        after.st_ino,
+        after.st_size,
+        after.st_mtime_ns,
+        after.st_ctime_ns,
+    ):
+        raise AtlasError("media source changed during authorization")
     source_id = source_id_from_sha256(source_hash)
-    fixture_marker = controlled_fixture_manifest(media, source_hash, source_id)
-    if rights_manifest is None:
-        if fixture_marker is None:
-            raise AtlasError(
-                "non-fixture media requires --rights-manifest bound to the exact source hash"
-            )
-        rights = fixture_rights(source_hash, source_id)
-        fixture_status = "authorized_controlled_fixture"
-    else:
-        rights = load_and_validate_rights(rights_manifest, source_hash, source_id, run_mode)
-        fixture_status = (
-            "authorized_controlled_fixture" if fixture_marker is not None else "not_fixture"
-        )
-    validate_rights_artifact(rights, source_hash, source_id, run_mode)
-    return AuthorizationPreflight(
-        source_sha256=source_hash,
-        source_id=source_id,
-        fixture_status=fixture_status,
-        fixture_manifest=fixture_marker,
-        rights_declaration=rights,
-        requested_run_mode=run_mode,
-        authorized_at=datetime.now(UTC).isoformat(),
-    )
+    return authorize_source_identity(media, source_hash, source_id, rights_manifest, run_mode)

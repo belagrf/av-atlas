@@ -12,8 +12,9 @@ from typing import Any
 
 from av_atlas.adapters import AdapterContext
 from av_atlas.contracts import AdapterResult, AdapterStatus, Observation
-from av_atlas.errors import AtlasError, ResourceLimitError
+from av_atlas.errors import AtlasError, ResourceLimitError, redact_private_paths
 from av_atlas.io import atomic_write_text, sha256_file, write_json, write_jsonl
+from av_atlas.native_media import NativeInputPolicy, enforce_path_policy, policy_from_inventory
 
 TEXT_CODECS = {"subrip", "srt", "webvtt", "ass", "ssa", "mov_text", "text"}
 BITMAP_CODECS = {"hdmv_pgs_subtitle", "dvd_subtitle", "dvb_subtitle", "xsub"}
@@ -106,10 +107,16 @@ def parse_webvtt(
     return cues
 
 
-def _extract_track(media: Path, stream_index: int, timeout_seconds: int) -> str:
+def _extract_track(
+    media: Path,
+    stream_index: int,
+    timeout_seconds: int,
+    native_policy: NativeInputPolicy,
+) -> str:
     ffmpeg = shutil.which("ffmpeg")
     if ffmpeg is None:
         raise AtlasError("ffmpeg is unavailable")
+    enforce_path_policy(media, native_policy)
     try:
         completed = subprocess.run(
             [
@@ -118,8 +125,7 @@ def _extract_track(media: Path, stream_index: int, timeout_seconds: int) -> str:
                 "-loglevel",
                 "error",
                 "-nostdin",
-                "-i",
-                str(media),
+                *native_policy.arguments(media),
                 "-map",
                 f"0:{stream_index}",
                 "-c:s",
@@ -139,8 +145,12 @@ def _extract_track(media: Path, stream_index: int, timeout_seconds: int) -> str:
             "subtitle extraction exceeded the configured decode budget"
         ) from exc
     except subprocess.CalledProcessError as exc:
-        detail = (exc.stderr or "unknown subtitle decode error").strip().splitlines()[-1]
+        detail = redact_private_paths(
+            (exc.stderr or "unknown subtitle decode error").strip().splitlines()[-1], media
+        )
         raise AtlasError(f"subtitle extraction failed: {detail}") from exc
+    except OSError as exc:
+        raise AtlasError("subtitle extraction could not start safely") from exc
     if len(completed.stdout.encode("utf-8")) > 16_000_000:
         raise ResourceLimitError("subtitle extraction exceeded the 16 MB output limit")
     return completed.stdout
@@ -177,6 +187,7 @@ def extract_subtitles(
             failed_units=len(chosen),
         )
         return SubtitleOutput(result, _tracks_payload(source_id, mode, []), (), (), {})
+    native_policy: NativeInputPolicy | None = None
     tracks: list[dict[str, Any]] = []
     cues: list[dict[str, Any]] = []
     artifacts: list[Path] = []
@@ -212,7 +223,9 @@ def extract_subtitles(
             tracks.append(record)
             continue
         try:
-            raw = _extract_track(media, stream_index, timeout_seconds)
+            if native_policy is None:
+                native_policy = policy_from_inventory(inventory)
+            raw = _extract_track(media, stream_index, timeout_seconds, native_policy)
             raw_path = raw_dir / f"{track_id}.vtt"
             atomic_write_text(raw_path, raw)
             record["status"] = "extracted"

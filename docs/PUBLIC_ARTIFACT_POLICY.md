@@ -18,3 +18,18 @@ evidence, and no media text becomes an instruction.
 
 No project license has yet been selected. Public visibility permits inspection of the source but
 does not grant reuse rights beyond applicable law.
+
+M2B.2 private stable-input roots, ownership markers, transient snapshots, verified sidecar payload
+copies, and crash residue are local processing material and must never be tracked, archived,
+attached, or published. Public runs may include only schema-valid path-free receipts, inventory,
+and fixture-sidecar identity metadata. `stable_input.json` carries the canonical source hash/ID,
+verified method, byte ceilings, explicit ordinary-or-synthetic trust mode, sanitized rights basis
+and checksum linkage, nullable current fixture checksum, bound sidecar digests/sizes, and lifecycle
+assertions; it contains no operator, rights-manifest path/payload, snapshot path, or sidecar path and
+does not make a marker, snapshot, or sidecar copy source evidence. A publishable fixture marker is
+integrity metadata, never an authorization credential.
+
+Unlinking a snapshot and removing its lease is logical lifecycle cleanup, not secure erasure. No
+public statement may imply that underlying filesystem blocks, journal entries, snapshots, swap, or
+backups were erased. A private, capacity-bounded temporary-root policy or explicit remanence-risk
+acceptance remains a gate before real operator media.

@@ -32,6 +32,36 @@ def write_json(path: Path, value: Any) -> None:
     atomic_write_text(path, json.dumps(value, indent=2, sort_keys=True) + "\n")
 
 
+def write_json_new(path: Path, value: Any) -> None:
+    """Create one JSON file without ever replacing an existing path."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    flags = (
+        os.O_WRONLY
+        | os.O_CREAT
+        | os.O_EXCL
+        | getattr(os, "O_CLOEXEC", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+    )
+    try:
+        descriptor = os.open(path, flags, 0o600)
+    except OSError as exc:
+        raise OSError("refusing to replace an existing or unsafe output path") from exc
+    created = os.fstat(descriptor)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as handle:
+            handle.write(json.dumps(value, indent=2, sort_keys=True) + "\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+    except BaseException:
+        try:
+            current = os.lstat(path)
+            if (current.st_dev, current.st_ino) == (created.st_dev, created.st_ino):
+                path.unlink()
+        except OSError:
+            pass
+        raise
+
+
 def write_jsonl(path: Path, records: list[dict[str, Any]]) -> None:
     atomic_write_text(path, "".join(canonical_json(record) + "\n" for record in records))
 

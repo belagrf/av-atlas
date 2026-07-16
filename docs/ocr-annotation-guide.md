@@ -21,7 +21,21 @@ Copy [the pilot specification template](templates/ocr-pilot-spec-v1.json) outsid
 uv run av-atlas pilot-prepare LOCAL_SPEC --output NEW_LOCAL_PILOT_DIR
 ```
 
-Preparation verifies exact source hashes and all four permissions before extracting frames, validates timestamp bounds, rejects duplicates, and exports only hash-derived source IDs. It does not run OCR. Source media is never copied. If extraction fails, the incomplete package is removed. The pilot manifest records exact frame hashes and the pre-registered split.
+Preparation verifies every exact source hash and all four permissions before parsing any source,
+validates timestamp bounds, rejects duplicates, and exports only hash-derived source IDs. It does
+not run OCR. The original source is never copied into the pilot package: FFprobe and FFmpeg operate
+on a verified private transient snapshot, which is deleted after each source. If extraction fails,
+the snapshot and incomplete package are removed. The pilot manifest records exact frame hashes and
+the pre-registered split.
+
+Current native-input policy accepts only parser-free-classified, self-contained Matroska/WebM.
+MOV/MP4, HLS, DASH, concat/concatf, image sequences, Blu-ray navigation, and other unreviewed or
+multi-resource inputs fail before parsing; operators must not use AV-Atlas to fetch or silently
+transcode them. Snapshot unlinking and lease removal are logical cleanup, not secure erasure. The
+default temporary directory may be disk-backed, journaled, snapshotted, swapped, or backed up.
+Before supplying real media, select and document a private capacity-bounded temporary root on an
+encrypted volume or appropriately configured tmpfs, or explicitly accept residual remanence risk.
+A tmpfs can still swap unless host policy prevents it.
 
 ## Independent annotation
 

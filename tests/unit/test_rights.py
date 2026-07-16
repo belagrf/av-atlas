@@ -90,7 +90,7 @@ def test_authoritative_loader_rejects_stale_digest_and_stale_run_linkage(tmp_pat
         load_and_validate_rights(path, value["content_sha256"], value["source_id"], "analysis")
     value["manifest_hash"] = manifest_digest(value)
     path.write_text(__import__("json").dumps(value))
-    with pytest.raises(AtlasError, match="run manifest rights hash"):
+    with pytest.raises(AtlasError, match="expected rights manifest hash"):
         load_and_validate_rights(
             path,
             value["content_sha256"],

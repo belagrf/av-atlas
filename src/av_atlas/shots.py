@@ -12,8 +12,9 @@ from typing import Any
 from av_atlas.adapters import AdapterContext
 from av_atlas.config import BaselineConfig
 from av_atlas.contracts import AdapterResult, Observation
-from av_atlas.errors import AtlasError, ResourceLimitError
+from av_atlas.errors import AtlasError, ResourceLimitError, redact_private_paths
 from av_atlas.io import sha256_file, write_jsonl
+from av_atlas.native_media import NativeInputPolicy, enforce_path_policy, policy_from_inventory
 
 FRAME_WIDTH = 64
 FRAME_HEIGHT = 36
@@ -50,13 +51,19 @@ def _difference(left: bytes, right: bytes) -> float:
     )
 
 
-def _decode_frames(media: Path, config: BaselineConfig, duration_ms: int) -> list[bytes]:
+def _decode_frames(
+    media: Path,
+    config: BaselineConfig,
+    duration_ms: int,
+    native_policy: NativeInputPolicy,
+) -> list[bytes]:
     ffmpeg = shutil.which("ffmpeg")
     if ffmpeg is None:
         raise AtlasError("ffmpeg is unavailable")
     maximum_frames = math.ceil(duration_ms * config.shot_sample_fps / 1000) + 2
     if maximum_frames > config.max_duration_ms * config.shot_sample_fps / 1000 + 2:
         raise ResourceLimitError("frame-count budget exceeds configured duration")
+    enforce_path_policy(media, native_policy)
     try:
         completed = subprocess.run(
             [
@@ -65,8 +72,7 @@ def _decode_frames(media: Path, config: BaselineConfig, duration_ms: int) -> lis
                 "-loglevel",
                 "error",
                 "-nostdin",
-                "-i",
-                str(media),
+                *native_policy.arguments(media),
                 "-map",
                 "0:v:0",
                 "-vf",
@@ -85,8 +91,12 @@ def _decode_frames(media: Path, config: BaselineConfig, duration_ms: int) -> lis
     except subprocess.TimeoutExpired as exc:
         raise ResourceLimitError("shot decoding exceeded the configured decode budget") from exc
     except subprocess.CalledProcessError as exc:
-        detail = (exc.stderr or b"unknown video decode error").decode(errors="replace")
+        detail = redact_private_paths(
+            (exc.stderr or b"unknown video decode error").decode(errors="replace"), media
+        )
         raise AtlasError(f"shot decoding failed: {detail.strip().splitlines()[-1]}") from exc
+    except OSError as exc:
+        raise AtlasError("shot decoding could not start safely") from exc
     if len(completed.stdout) > maximum_frames * FRAME_BYTES:
         raise ResourceLimitError("shot decoding exceeded the configured frame-count limit")
     complete_size = len(completed.stdout) - len(completed.stdout) % FRAME_BYTES
@@ -167,10 +177,17 @@ def _boundaries(
     return accepted
 
 
-def _extract_keyframe(media: Path, path: Path, timestamp_ms: int, timeout_seconds: int) -> None:
+def _extract_keyframe(
+    media: Path,
+    path: Path,
+    timestamp_ms: int,
+    timeout_seconds: int,
+    native_policy: NativeInputPolicy,
+) -> None:
     ffmpeg = shutil.which("ffmpeg")
     if ffmpeg is None:
         raise AtlasError("ffmpeg is unavailable")
+    enforce_path_policy(media, native_policy)
     path.parent.mkdir(parents=True, exist_ok=True)
     try:
         subprocess.run(
@@ -180,10 +197,7 @@ def _extract_keyframe(media: Path, path: Path, timestamp_ms: int, timeout_second
                 "-loglevel",
                 "error",
                 "-nostdin",
-                "-ss",
-                f"{timestamp_ms / 1000:.3f}",
-                "-i",
-                str(media),
+                *native_policy.arguments(media, seek_ms=timestamp_ms),
                 "-map",
                 "0:v:0",
                 "-frames:v",
@@ -208,8 +222,13 @@ def _extract_keyframe(media: Path, path: Path, timestamp_ms: int, timeout_second
         ) from exc
     except subprocess.CalledProcessError as exc:
         path.unlink(missing_ok=True)
-        detail = (exc.stderr or b"unknown keyframe error").decode(errors="replace")
+        detail = redact_private_paths(
+            (exc.stderr or b"unknown keyframe error").decode(errors="replace"), media
+        )
         raise AtlasError(f"keyframe extraction failed: {detail.strip().splitlines()[-1]}") from exc
+    except OSError as exc:
+        path.unlink(missing_ok=True)
+        raise AtlasError("keyframe extraction could not start safely") from exc
     if not path.is_file() or path.stat().st_size == 0:
         raise AtlasError("keyframe extraction produced no image")
     if path.stat().st_size > 8_000_000:
@@ -250,7 +269,8 @@ def detect_shots(
             (),
         )
     try:
-        frames = _decode_frames(media, config, int(inventory["duration_ms"]))
+        native_policy = policy_from_inventory(inventory)
+        frames = _decode_frames(media, config, int(inventory["duration_ms"]), native_policy)
         boundaries = _boundaries(frames, config, int(inventory["duration_ms"]))
         if len(boundaries) > config.max_keyframes:
             raise ResourceLimitError("detected shot count exceeds the configured keyframe limit")
@@ -267,7 +287,13 @@ def detect_shots(
             shot_id, keyframe_id = f"SHOT_{index:04d}", f"KEY_{index:04d}"
             timestamp_ms = start_ms + (end_ms - start_ms) // 2
             keyframe_path = run_dir / "keyframes" / f"{keyframe_id}.png"
-            _extract_keyframe(media, keyframe_path, timestamp_ms, config.subprocess_timeout_seconds)
+            _extract_keyframe(
+                media,
+                keyframe_path,
+                timestamp_ms,
+                config.subprocess_timeout_seconds,
+                native_policy,
+            )
             shot_ref = f"VID:{inventory['source_id']}:ms:{start_ms}-{end_ms}"
             key_ref = f"VID:{inventory['source_id']}:frame:{timestamp_ms}"
             shots.append(

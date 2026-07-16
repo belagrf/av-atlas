@@ -1,0 +1,45 @@
+{
+  "schema_version": "1.0.0",
+  "chunk_duration_ms": 3000,
+  "chunk_overlap_ms": 250,
+  "sample_interval_ms": 1000,
+  "adapters": ["shot", "ocr_frame"],
+  "shot": {
+    "enabled": true,
+    "sample_fps": 10,
+    "hard_threshold": 0.15,
+    "gradual_threshold": 0.02,
+    "min_duration_ms": 500,
+    "max_duration_ms": 5000,
+    "flash_suppression_ms": 250
+  },
+  "ocr": {
+    "enabled": true,
+    "executable": "auto",
+    "languages": ["eng"],
+    "page_segmentation_mode": 6,
+    "engine_mode": 1,
+    "preprocessing": {
+      "grayscale": true,
+      "contrast_normalization": false,
+      "threshold": null
+    },
+    "minimum_confidence": 0,
+    "max_frame_dimension": 1920,
+    "timeout_seconds": 15,
+    "workers": 1,
+    "maximum_frames_per_source": 100,
+    "unavailable_behavior": "degrade",
+    "retain_raw_frames": false,
+    "temporal_association_max_gap_ms": 2500
+  },
+  "resources": {
+    "subprocess_timeout_seconds": 30,
+    "max_duration_ms": 600000,
+    "max_video_width": 4096,
+    "max_video_height": 4096,
+    "max_keyframes": 1000,
+    "max_source_bytes": 8589934592,
+    "max_temporary_storage_bytes": 8589934592
+  }
+}

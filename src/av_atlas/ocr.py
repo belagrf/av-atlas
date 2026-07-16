@@ -22,6 +22,7 @@ from av_atlas.adapters import AdapterContext
 from av_atlas.contracts import AdapterResult, AdapterStatus, Observation
 from av_atlas.errors import AtlasError
 from av_atlas.io import canonical_json, sha256_file, write_json, write_jsonl
+from av_atlas.native_media import classify_generated_png
 from av_atlas.ocr_tracks import associate_temporal_text
 
 INSTALL_COMMAND = "sudo apt-get install tesseract-ocr tesseract-ocr-eng"
@@ -316,6 +317,7 @@ def _process_frame(
         raise AtlasError("OCR keyframe exceeds the 8 MB input limit")
     if sha256_file(source) != keyframe.get("sha256"):
         raise AtlasError("OCR keyframe content hash mismatch")
+    native_policy = classify_generated_png(source)
     prepared = temporary / f"frame-{frame_number:04d}.png"
     ffmpeg = shutil.which("ffmpeg")
     if ffmpeg is None:
@@ -327,8 +329,7 @@ def _process_frame(
             "-loglevel",
             "error",
             "-nostdin",
-            "-i",
-            str(source),
+            *native_policy.arguments(source),
             "-vf",
             _preprocessing_filter(config),
             "-frames:v",

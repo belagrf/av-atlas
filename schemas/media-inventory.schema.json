@@ -1,16 +1,38 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://av-atlas.local/schemas/media-inventory/1.0.0",
+  "$id": "https://av-atlas.local/schemas/media-inventory/1.1.0",
   "type": "object", "additionalProperties": false,
   "required": ["schema_version", "source_id", "sha256", "size_bytes", "duration_ms", "format_names", "streams", "chapters"],
   "properties": {
-    "schema_version": {"const": "1.0.0"},
+    "schema_version": {"enum": ["1.0.0", "1.1.0"]},
     "source_id": {"type": "string", "pattern": "^SRC_[A-F0-9]{12}$"},
     "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
     "size_bytes": {"type": "integer", "minimum": 1},
     "duration_ms": {"type": "integer", "minimum": 1},
-    "format_names": {"type": "array", "items": {"type": "string"}},
+    "format_names": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+    "native_input_policy": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schema_version", "contract_version", "role", "selection", "demuxer", "protocol_whitelist", "format_whitelist", "accepted_reported_formats", "multi_resource_inputs_permitted"],
+      "properties": {
+        "schema_version": {"const": "1.0.0"},
+        "contract_version": {"const": "av-atlas-native-input/1.0.0"},
+        "role": {"const": "authorized_source"},
+        "selection": {"const": "parser-free-ebml-magic"},
+        "demuxer": {"const": "matroska"},
+        "protocol_whitelist": {"const": ["file"]},
+        "format_whitelist": {"const": ["matroska"]},
+        "accepted_reported_formats": {"const": ["matroska", "webm"]},
+        "multi_resource_inputs_permitted": {"const": false}
+      }
+    },
     "streams": {"type": "array", "items": {"type": "object", "required": ["index", "codec_type", "codec_name", "language", "title", "time_base", "frame_rate", "duration_ms", "width", "height", "disposition"]}},
     "chapters": {"type": "array", "items": {"type": "object"}}
-  }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"schema_version": {"const": "1.1.0"}}},
+      "then": {"required": ["native_input_policy"]},
+      "else": {"not": {"required": ["native_input_policy"]}}
+    }
+  ]
 }

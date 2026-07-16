@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
@@ -14,10 +13,13 @@ from av_atlas.errors import AtlasError
 
 @dataclass(frozen=True)
 class AdapterContext:
+    # ``media`` is always the verified transient snapshot for native adapters.
     media: Path
     inventory: dict[str, Any]
     run_dir: Path
     config: BaselineConfig
+    # Verified controlled-fixture observations are immutable values, never source paths.
+    sidecar_observations: tuple[Observation, ...] = ()
 
 
 class AdapterExecution(Protocol):
@@ -50,27 +52,20 @@ class SidecarAdapter:
     def __init__(self, name: str) -> None:
         self.name = name
 
-    def observe(self, media: Path, duration_ms: int) -> list[Observation]:
-        sidecar = media.with_suffix(".observations.json")
-        if not sidecar.is_file():
-            return []
-        try:
-            payload = json.loads(sidecar.read_text(encoding="utf-8"))
-            values = payload["observations"]
-        except (OSError, json.JSONDecodeError, KeyError, TypeError) as exc:
-            raise AtlasError(f"invalid observation sidecar {sidecar.name}: {exc}") from exc
-        observations = [
-            Observation.from_dict(value) for value in values if value.get("adapter") == self.name
-        ]
-        for observation in observations:
+    def observe(self, observations: tuple[Observation, ...], duration_ms: int) -> list[Observation]:
+        selected = [value for value in observations if value.adapter == self.name]
+        for observation in selected:
             if observation.end_ms > duration_ms:
                 raise AtlasError(
                     f"observation exceeds source duration: {observation.observation_id}"
                 )
-        return observations
+        return selected
 
     def run(self, context: AdapterContext) -> SidecarOutput:
-        values = self.observe(context.media, int(context.inventory["duration_ms"]))
+        values = self.observe(
+            context.sidecar_observations,
+            int(context.inventory["duration_ms"]),
+        )
         return SidecarOutput(
             AdapterResult(
                 self.name,

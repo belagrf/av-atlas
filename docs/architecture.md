@@ -3,9 +3,12 @@
 The current implementation establishes the low-level contracts required by later trainable modules:
 
 ```text
-synthetic media + rights/observation sidecar
-  -> parser-free hash/fixture/rights authorization preflight
-  -> safe ffprobe inventory + preflight identity confirmation + integer-ms timeline
+synthetic media + explicit rights + observation sidecar
+  -> parser-free descriptor hash + rights permission closure
+  -> synthetic-controlled basis + exact fixture 1.1 bundle -> immutable observations
+  -> verified private transient snapshot (0700 directory / 0600 file)
+  -> native-input 1.0 protocol/format/demuxer policy
+  -> safe ffprobe inventory of snapshot + integer-ms timeline
   -> deterministic overlapping chunks + uniform sample schedule
   -> visual/OCR/ASR/speaker/acoustic sidecar adapters
   -> ordered atomic records + stable evidence index
@@ -20,7 +23,9 @@ M2A extends that flow without replacing it:
 ```text
 media + hash-bound operator declaration
   -> parser-free exact-hash/source/operation/retention/expiry authorization
-  -> bounded ffprobe inventory + preflight identity confirmation
+  -> bounded descriptor copy + independently verified private snapshot
+  -> parser-free EBML classification + forced Matroska/file-only input policy
+  -> bounded ffprobe inventory of snapshot + identity confirmation
   -> common adapter context
        -> embedded subtitle tracks -> hashed WebVTT -> canonical SUB cues
        -> bounded RGB samples -> hard/gradual/flash rules -> shots + hashed keyframes
@@ -34,19 +39,27 @@ JSONL is canonical. Generated prose is never fed back as evidence. Each adapter 
 timestamped observation interface, so M2 can replace a sidecar branch without changing fusion or
 ledger contracts. Missing sidecars fail explicitly instead of fabricating observations.
 
-Source identity is a SHA-256-derived ID, not a filename. Media and configuration paths stored for
-resume are relative to the run directory; structured logs contain run and source IDs but no raw
-user path. External programs are invoked with argument arrays, `shell=False`, and an option
-terminator. Files are never modified by inspection.
+Source identity is a SHA-256-derived ID, not a filename. New runs never retain an external source
+path; interrupted resume requires the operator to supply `--media`, whose exact identity and rights
+are revalidated before a fresh snapshot is acquired. Configuration paths stored for resume are
+run-relative. Structured logs contain run and source IDs but no raw user or snapshot path. External
+programs are invoked with argument arrays, `shell=False`, and an option terminator. Original files
+are never modified by inspection.
 
-Initial processing first checks that the input is a regular file, hashes it directly, derives its
-source ID through the canonical source-ID helper, and verifies either a hash-bound controlled
-fixture marker or an explicit rights declaration. No FFprobe, FFmpeg, Tesseract, subtitle, shot, or
-perception process is invoked before that authorization succeeds. FFprobe then independently
-rehashes the source for inventory; a hash or source-ID difference from preflight is treated as a
-source change and aborts before the run directory is created. Authorization completes before parser
-invocation, and post-inspection identity verification detects source changes. A concurrent
-same-path modification race remains until a stable-input mechanism is implemented.
+M2B.2 initial processing opens a regular non-symlink input without following its final symlink,
+streams its hash through that descriptor, derives its canonical source ID, and verifies an
+explicit rights declaration. Only a validated `synthetic-controlled` basis then admits an exact
+current fixture bundle; ordinary rights do not open adjacent fixture data. No FFprobe, FFmpeg,
+Tesseract, subtitle, shot, or perception process is invoked before authorization succeeds. The
+same descriptor is rewound and copied into a unique private snapshot under source and temporary-
+storage ceilings. Source identity/size/time metadata are checked before and after copying; the copy
+is hashed while written, flushed, independently rehashed, and required to reproduce the authorized
+hash, source ID, and size. The snapshot is then admitted only through native-input contract
+`av-atlas-native-input/1.0.0`: parser-free EBML magic, forced `matroska` demuxer, input protocol
+whitelist `file`, and format whitelist `matroska`. The same policy is rechecked immediately at each
+runtime decode helper. HLS, DASH, concat/concatf, image sequences, Blu-ray navigation, MOV/MP4, and
+unknown inputs are rejected before a native parser can dereference another resource. The operator
+source identity, not the snapshot, remains canonical.
 
 Chunking uses half-open conceptual intervals represented by inclusive start/exclusive end integer
 milliseconds. The baseline uses 2,000 ms chunks with 250 ms overlap and 1,000 ms uniform samples.
@@ -54,12 +67,15 @@ Sidecar observations are ordered by `(start_ms, end_ms, observation_id)` and obs
 exact interval are merged into one atomic event in this transparent B1-style baseline. Subtitle and
 shot observations pass through the same merge and ledger path.
 
-The run manifest is created before processing. `state.json` records a restart checkpoint. Final
-records retain stable event IDs and advance the provisional revision rather than silently replacing
-history. Configuration is snapshotted into the run, avoiding external configuration paths and
-protecting resume from later edits. External source paths are retained only when bounded beneath the
-run parent; otherwise resume requires the operator to provide the source again. Artifact content
-hashes are recorded only after source artifacts are complete. Validation
+The run manifest is created before perception processing. `state.json` records a restart
+checkpoint. `stable_input.json` is a path-free receipt for verified acquisition; it is canonical
+metadata, not the snapshot itself. Media-inventory 1.1 records the exact native-input policy used
+for the snapshot; inventory 1.0 remains validation-compatible. Final records retain stable event IDs and advance the
+provisional revision rather than silently replacing history. Configuration is snapshotted into the
+run, avoiding external configuration paths and protecting resume from later edits. The transient
+snapshot is removed before the run can be marked complete or its final artifact map written. Resume
+reacquires it from the exact operator-supplied source. Artifact content hashes are recorded only
+after source artifacts are complete and cleanup succeeds. Validation
 checks schemas, duration bounds, ordering, revision predecessors, dialogue source rules, dangling
 evidence, and hashes.
 
@@ -111,3 +127,43 @@ The permission vocabulary remains the rights-manifest 1.0 vocabulary, but execut
 narrower. `analysis` closes over analysis and derivative retention; `evaluation` closes over
 analysis, evaluation, and derivative retention. Annotation, training, retention, and redistribution
 cannot be selected as perception-processing modes.
+
+M2B.2 uses the same stable-input service for `run`, `resume`, `inspect`, `inspect-subtitles`, and
+pilot source preparation. Standalone inspection now uses analysis-mode permission closure, so
+every fixture and non-fixture needs explicit analysis and derivative-retention permission. Pilot preparation completes
+parser-free authorization for every selected source before parsing any of them, then inventories
+and extracts only from one verified snapshot at a time. Controlled-fixture trust exists only for
+an explicit `synthetic-controlled` declaration plus an exact current bundle. Fresh fixture-manifest contract
+`av-atlas-controlled-fixture/1.1.0` additionally lists the one currently accepted runtime sidecar
+type with canonical basename, payload schema, SHA-256, and bounded size. Authorization opens it
+without following a final symlink, checks descriptor/path identity before and after a bounded read,
+verifies its declared hash and size, validates its schema, and converts it once to immutable
+observations. Adapters receive those values, not a pathname. Missing, mismatched, replaced,
+malformed, oversized, or unlisted sidecars fail before observations are accepted. Historical
+fixture 1.0 records remain validation-compatible but cannot authorize fresh execution. For
+ordinary rights bases, adjacent markers and sidecars are ignored and cannot change evidence.
+
+The corrected stable-input contract is `av-atlas-stable-input/1.2.0`; its receipt schema is 1.2.0
+and records the declaration-derived trust mode, rights basis/checksum, nullable current fixture
+checksum/contract, and verified sidecar identities without paths. Run-manifest 1.1 records matching
+trust linkage. Receipt schemas 1.0/1.1 and run-manifest 1.0 remain readable for historical artifacts,
+while accepted v1/v1.1 releases predate current receipts.
+The configuration schema ID is 1.2.0. Default source and temporary-copy ceilings are each 8 GiB and the
+schema hard cap is 64 GiB. Lease directories and files use modes 0700/0600. Ordinary cleanup uses
+pinned directory descriptors; crash recovery scans at most 64 entries and removes at most 16
+marker-recognized, inactive leases without recursive traversal or symlink following. Recovery
+accepts the known 1.0, 1.1, and 1.2 lease-marker contracts so a review-head crash residue is not stranded;
+unknown versions remain untouched. `SIGKILL` and
+power loss require later bounded recovery. A growing long-form stream must be segmented and
+authorized as finalized chunks rather than copied as one live file.
+
+Supported entry points and their low-level runtime decode helpers require the fixed native-input
+policy and reclassify bytes before each parser invocation. This closes default libavformat protocol
+and demuxer selection but is not a capability-typed API or an OS sandbox. Private modes do not
+defend against a malicious process running as the same OS user. The allowlist currently excludes
+otherwise common self-contained formats until each receives a separate transitive-I/O review.
+
+Snapshot unlinking and lease-directory removal are logical lifecycle cleanup, not secure erasure.
+The OS temporary root may be disk-backed, journaled, snapshotted, swapped, or backed up. A private,
+capacity-bounded encrypted volume or suitably configured tmpfs—or explicit documented risk
+acceptance—is required before real operator media; tmpfs can still swap unless configured not to.

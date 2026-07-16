@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://av-atlas.local/schemas/native-input-policy/1.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "contract_version", "role", "selection", "demuxer", "protocol_whitelist", "format_whitelist", "accepted_reported_formats", "multi_resource_inputs_permitted"],
+  "properties": {
+    "schema_version": {"const": "1.0.0"},
+    "contract_version": {"const": "av-atlas-native-input/1.0.0"},
+    "role": {"enum": ["authorized_source", "generated_single_frame"]},
+    "selection": {"enum": ["parser-free-ebml-magic", "trusted-generated-png-contract"]},
+    "demuxer": {"enum": ["matroska", "png_pipe"]},
+    "protocol_whitelist": {"const": ["file"]},
+    "format_whitelist": {
+      "type": "array", "minItems": 1, "maxItems": 1,
+      "items": {"enum": ["matroska", "png_pipe"]}
+    },
+    "accepted_reported_formats": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"enum": ["matroska", "webm", "png_pipe"]}
+    },
+    "multi_resource_inputs_permitted": {"const": false}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"role": {"const": "authorized_source"}}},
+      "then": {
+        "properties": {
+          "selection": {"const": "parser-free-ebml-magic"},
+          "demuxer": {"const": "matroska"},
+          "format_whitelist": {"const": ["matroska"]},
+          "accepted_reported_formats": {"const": ["matroska", "webm"]}
+        }
+      },
+      "else": {
+        "properties": {
+          "selection": {"const": "trusted-generated-png-contract"},
+          "demuxer": {"const": "png_pipe"},
+          "format_whitelist": {"const": ["png_pipe"]},
+          "accepted_reported_formats": {"const": ["png_pipe"]}
+        }
+      }
+    }
+  ]
+}
