@@ -1,6 +1,6 @@
 # ADR-0006: M2B.2 stable authorized input
 
-- Status: proposed on `feat/m2b2-stable-input`; acceptance requires PR review and merge
+- Status: accepted by reviewed merge `2555a297153c9b5ff059b7d8dc7e49de5d93c43b`
 - Date: 2026-07-15
 - Milestone: M2B.2 input-integrity and inspection governance; no M2C implementation
 

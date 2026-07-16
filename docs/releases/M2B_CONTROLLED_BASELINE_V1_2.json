@@ -1,0 +1,396 @@
+{
+  "schema_version": "1.0.0",
+  "release_id": "M2B_CONTROLLED_BASELINE_V1_2",
+  "package_version": "0.2.2",
+  "implementation_source_commit": "2555a297153c9b5ff059b7d8dc7e49de5d93c43b",
+  "implementation_tree": "f8ca95eab8c1988cee00ab774a2bf30f5cad1776",
+  "planned_tag": "m2b-controlled-v1.2",
+  "tag_and_release_policy": "Creation is permitted only after release-preparation source review and merge; the final tagged commit and published-release identity are verified externally rather than predicted by this record.",
+  "scope": "four-frame project-authored synthetic controlled fixture and reviewed M2B.2 stable-input hardening only",
+  "status": "M2B.2 stable authorized input, rights-gated inspection, fixture-trust, and native-input hardening complete for the controlled synthetic baseline. Authorized real-media evaluation remains pending.",
+  "claims": {
+    "av_atlas_model_trained": false,
+    "foundation_model_trained": false,
+    "full_m2_complete": false,
+    "m2c_implemented": false,
+    "real_media_accuracy": false,
+    "semantic_visual_understanding": false
+  },
+  "controlled_fixture": {
+    "frames": 4,
+    "ocr_observations": 13,
+    "temporal_ocr_tracks": 13,
+    "region_metrics_supported": false,
+    "region_metric_limitation": "The frozen v1 gold region arrays are empty."
+  },
+  "contracts": {
+    "stable_input": "av-atlas-stable-input/1.2.0; schema 1.2.0",
+    "run_manifest": "1.1.0",
+    "native_input": "av-atlas-native-input/1.0.0; schema 1.0.0",
+    "controlled_fixture": "av-atlas-controlled-fixture/1.1.0; schema 1.1.0",
+    "media_inventory": "1.1.0",
+    "observation_sidecar": "1.0.0",
+    "rights_manifest": "1.0.0",
+    "configuration": "schema ID 1.2.0; instance schema_version 1.0.0",
+    "adapter_results": "1.1.0",
+    "component_evaluation": "1.0.0",
+    "component_gold": "1.0.0",
+    "dependency_bom": "1.1.0 runtime record accepted",
+    "entity": "1.0.0",
+    "event_ledger": "1.0.0 and 1.1.0 accepted",
+    "evidence_index": "1.0.0",
+    "keyframe": "1.0.0",
+    "ocr_benchmark": "1.0.0",
+    "ocr_dependency": "1.0.0 and 1.1.0 accepted",
+    "ocr_evaluation": "1.0.0",
+    "ocr_frame_results": "1.0.0 and 1.1.0 accepted",
+    "ocr_gold": "1.0.0",
+    "ocr_human_annotation": "1.0.0",
+    "ocr_observation": "1.0.0",
+    "ocr_pilot_manifest": "1.0.0",
+    "ocr_runtime": "1.0.0",
+    "ocr_text_tracks": "1.0.0",
+    "provenance": "1.0.0",
+    "quality_report": "1.0.0",
+    "shot": "1.0.0",
+    "state": "1.0.0",
+    "structured_log": "1.0.0",
+    "subtitle_cue": "1.0.0",
+    "subtitle_tracks": "1.0.0"
+  },
+  "schema_hashes": {
+    "stable_input": "4e2fa84f9ae59602a85cd00cbc7b03884abd8b24f9aae3827a80ce77cc739252",
+    "run_manifest": "b2df807a219837f9f27ff9a916c9c5356ce78be25c81a4fe548eafeda21c171d",
+    "native_input": "0a8465c8cba176bbd252ee6d579f3043a21777b1236e6cc4bf38b7fdbeb22834",
+    "controlled_fixture": "46739bbf84a9eb6ef132e03a6f9c5db8cf85fda61cc4a1869247d10a0e97b7d1",
+    "media_inventory": "7314902422c45448e21662c88190a8d0290e1072856fc5c1306e8cbb694be3b9",
+    "observation_sidecar": "3f079383e2e03a0bca6933665106ea0a6df2262601c070c952c5287f1e425531",
+    "configuration": "142c27bbcc47feb56b736b2e4896725f5dfd676dd2f2d0b25f2a3004fe529ae5",
+    "adapter_results": "4dba61fff21da82fa9252bef68112e3de7af9e993e7ec6c76f827e6f50c4b7fe",
+    "component_evaluation": "58652cf8a1bbb8af69748c66d4baac74dd5ff2195cc300806c4582c7bedd7aa6",
+    "component_gold": "28f92e55316df645826de5b5babf1934bdc454d1078c7db2817bb14911b288d6",
+    "dependency_bom": "6f33125c3aa1e2def3bbb8dd8643dc8020c2d8aa9b8cc0df10a90eba629c4d48",
+    "entity": "32a40ae4468fd954c99b91f3868fc0d8c009cb155b463c467e0f9e9c2fb25728",
+    "event_ledger": "a8d582affa85b36011e61c9ce80910e69d58a93c9d6ca1836c4c610e6b8a7093",
+    "evidence_index": "e3776bd0c334aae8e7728bc7849283a0039f5b3b5e181a6d977e412e91858971",
+    "keyframe": "e7c36ac30a3119f3cf2c3de70b3e40100d62fb38b960c6913101273e6de1a513",
+    "ocr_dependency": "8d80d510cc498e110d01ce8d6b1c42f25afe24cae118fe99bd5a702ca3d1a6dc",
+    "ocr_frame_results": "5f056f86ab83fd7b172bb2dd67027968af9e6d97c3a18646596c70d69283bd9a",
+    "ocr_text_tracks": "6395e6475efc54865e88b7a64443087ac1d3b9f278e661697bb3cd12b416a518",
+    "rights_manifest": "1c48df345ff75be7742fbd2a0eb22e48e656c5e6e670fb2a5ec44bad571decd5",
+    "ocr_observation": "8e70e97e07df18374d986691c34da1311115a11af8659eae07148555e96e21f3",
+    "ocr_gold": "01189133b7185d3cf0d17dbaf7c34cb9700e7d17ae5d98fede470f747070efc3",
+    "ocr_evaluation": "28c639314fdc4bdbd5789e68251e3003071861df276564589c123074a53b9d4a",
+    "ocr_benchmark": "f07e1519a937b1d6408ee92249185bc4ba263c1d50f3cef15f305128078a87e5",
+    "ocr_human_annotation": "3ff5d35197df5f4fe89db7d9b62e0fe8fe1e3234e41426b895dc753ad9adcc4f",
+    "ocr_pilot_manifest": "3c772a6b08304b129198ef3c82f7df8feb3405fc4657ba45fa116c6d87fc1a02",
+    "ocr_runtime": "12c789035b00e0f474428ee77615cddd678f27a099a7d55ac63b50e3f62de283",
+    "provenance": "6031420ed8215ca40f2eb66f7ce6bb765575a893952ed7bd726289317bd9a721",
+    "quality_report": "84d4b81142dbe6ce6190d308f9eb68b2ad0ab54341259219e2e938f297840a7c",
+    "shot": "7e8d5d720c9c7f25a09c457f21a51c61a825ae020088f13228181f61a0f741ca",
+    "state": "e4eeb1bd01d9136c28ab81865c7b8da9e0b9a20ec505fb94e1d9e19d71dde480",
+    "structured_log": "7e4f19f99c18421edeec19fc90a5b2f06a022ae39b4fe87d0c8afc780d749c15",
+    "subtitle_cue": "ca82436c9d32260270b00481d5257a0ecbf3fc852db5a1b1f0783cf2488c0332",
+    "subtitle_tracks": "ecf789f1b7a7e71b19ed02828b896e4fb6bf8650733635427472e10c8b34610d"
+  },
+  "permission_matrix": {
+    "analysis": [
+      "analysis",
+      "derivative_artifact_retention"
+    ],
+    "evaluation": [
+      "analysis",
+      "evaluation",
+      "derivative_artifact_retention"
+    ],
+    "standalone_inspection": [
+      "analysis",
+      "derivative_artifact_retention"
+    ],
+    "pilot_preparation": [
+      "analysis",
+      "annotation",
+      "evaluation",
+      "derivative_artifact_retention"
+    ],
+    "unsupported_run_modes": [
+      "annotation",
+      "training",
+      "derivative_artifact_retention",
+      "redistribution"
+    ]
+  },
+  "stable_input": {
+    "explicit_source_bound_rights_required": true,
+    "ordinary_trust_mode": "ordinary-explicit-rights; adjacent fixture metadata is ignored",
+    "controlled_trust_mode": "synthetic-controlled-explicit-rights; exact current fixture 1.1 bundle required",
+    "legacy_fixture_markers_authorize_execution": false,
+    "snapshot_method": "bounded private file-descriptor copy",
+    "private_directory_mode": "0700",
+    "private_file_mode": "0600",
+    "source_and_snapshot_hash_size_source_id_verified": true,
+    "snapshot_path_exported": false,
+    "original_path_exported": false,
+    "snapshot_retained": false,
+    "resume_reacquires_fresh_snapshot": true,
+    "logical_cleanup_is_secure_erasure": false
+  },
+  "native_input_policy": {
+    "selection": "parser-free EBML magic",
+    "forced_demuxer": "matroska",
+    "protocol_whitelist": [
+      "file"
+    ],
+    "format_whitelist": [
+      "matroska"
+    ],
+    "multi_resource_inputs_permitted": false,
+    "generated_ocr_frame_demuxer": "png_pipe",
+    "operating_system_sandbox": false
+  },
+  "fixture_sidecars": {
+    "contract": "av-atlas-controlled-fixture/1.1.0",
+    "hash_and_size_bound": true,
+    "bounded_no_follow_read": true,
+    "immutable_value_delivery": true,
+    "adapter_original_path_reread": false
+  },
+  "dependencies": {
+    "ffmpeg": {
+      "architecture": "amd64",
+      "license": "GPL-2.0-or-later for the installed GPL-enabled build, verified from local executable/package metadata",
+      "package_version": "7:6.1.1-3ubuntu5",
+      "sha256": "ed16af623947494a72e284b6eb8ff225f2da22b38b5d5069c2fd4b4ba3384e41",
+      "version": "6.1.1"
+    },
+    "ffprobe": {
+      "architecture": "amd64",
+      "license": "GPL-2.0-or-later for the installed GPL-enabled package, verified from local executable/package metadata",
+      "package_version": "7:6.1.1-3ubuntu5",
+      "sha256": "272f6ebc634a63d9c8b4ca68e964119d980f25154e5aa2c35e5487da48e9a58f",
+      "version": "6.1.1"
+    },
+    "tesseract": {
+      "architecture": "amd64",
+      "leptonica": "1.82.0",
+      "license": "Apache-2.0 verified from installed package metadata",
+      "package_version": "5.3.4-1build5",
+      "sha256": "9f831cab7525c3dab04af41bda35182af7ea1df9dceeaaa2f3bf207ac45c06a5",
+      "version": "5.3.4"
+    },
+    "eng_traineddata": {
+      "license": "Apache-2.0 verified from installed package metadata",
+      "package_version": "1:4.1.0-2",
+      "sha256": "7d4322bd2a7749724879683fc3912cb542f19906c83bcc1a52132556427170b2",
+      "size_bytes": 4113088
+    }
+  },
+  "preserved_v1": {
+    "tag_object": "8cadd6c8ecda7d0b6f60421f312c199cbad163e1",
+    "tagged_commit": "54d96dc25bdf03ab1e92d22150c5011faf16b7e6",
+    "hashes": {
+      "benchmark": "479087002a126b1d442ca2e4d768bafd3e266e9f542dba92a01ea075a3280455",
+      "configuration": "8f5545df1c78e5845e19e3ae0299a86cc7c950cb9c3ba7e7b5fee217f1a45c55",
+      "evaluation": "a1011542165e3b8974857aaee68bbaa8185987cbb3ca0353ad4afecda38803ad",
+      "fixture": "6d1f79c6a63b6a8d5510bcd67a74e522096fe97b6c2bba68587f0213ccc682a8",
+      "gold": "e62e392aa45406f939edc1f2093d07f1dcf175c0c4ea9085cbeae3edde50bc1a",
+      "observations": "f851aef0d8a1c215023cd71b38120a2f317a10be3dd24567f2f023449acd6060",
+      "release_manifest": "e545855c11ee23542939a35aecf03d00c6f12bbd056d6d4bcae43df139b7c9b2",
+      "run_manifest": "6779769594db6a7457ee30b7d9ffbdacc8ec345120433125e7e846978359b440"
+    }
+  },
+  "preserved_v1_1": {
+    "tag_object": "8be328eef2fd10037b56921aff1f401c3ef3a12e",
+    "tagged_commit": "5d016784c6b3d7226a9f6e0f56cca9fb3ef48822",
+    "release_manifest": "fbdc8e171811794d37bbdb018179ba736647795ed053d01cada4580fe5d29d73"
+  },
+  "fresh_replay_hashes": {
+    "frozen_input_or_contract_content_stable": {
+      "configuration": "9c0d2b71c928912671f10cee3c0b2e0676f2b5e81de7ca68962832ebfb99313b",
+      "fixture_manifest_file": "4186ed28525803033e4131275d2217c401ef12ab5c16e623f2fdff25c2a373d5",
+      "fixture_manifest_self_checksum": "001dd0b0a755a780434ea621616392a18abbadf9085317dda6d5915f644205ad",
+      "fixture_media": "6d1f79c6a63b6a8d5510bcd67a74e522096fe97b6c2bba68587f0213ccc682a8",
+      "gold": "e62e392aa45406f939edc1f2093d07f1dcf175c0c4ea9085cbeae3edde50bc1a"
+    },
+    "semantic_outputs_stable_on_recorded_software_and_dependencies": {
+      "raw_ocr_observations": "f851aef0d8a1c215023cd71b38120a2f317a10be3dd24567f2f023449acd6060",
+      "temporal_ocr_tracks": "f27d60f51c06cead4d0b6159b47865fd635a010e2faba9902057ae1c9cd4b9c2"
+    },
+    "host_or_dependency_bound_content": {
+      "media_inventory": "91ada0947d3da15c53b8a99076fa3f9841ebad026fcf96ec91da87cde5e7d6d5",
+      "ocr_dependency_inventory": "5ab8663ce63b7d6303ce84e3ec62ab3a9dd1ec55283e8f0c6852dd88740d5cce"
+    },
+    "runtime_or_execution_bearing": {
+      "bom_snapshot": "abca366e47275ef2d5ff2825b53b0d47436e03a56e29a696f903cb194d188868",
+      "ocr_evaluation": "d82c56376cdcbd8c2eaeb273aac63af4706500530d393d0711f028019fe0c3e2",
+      "run_manifest": "543f7ba9fe4a9f20f0301b04a675d55bfa22c061700658e4b3577e0d23fa4f77",
+      "stable_input_receipt": "5f7019bf07b012e87ff44c7f9368b24ae04c49f905307388729955f1c5b07a3c",
+      "worker_benchmark": "27f1e68189ed5ba06f1d30cf406f0c61be4c17701e75270e7721edab4aa9053c"
+    },
+    "resume_comparisons": {
+      "completed_all_files": "26ea7690b24db7c775e238392005b6515b5dcaf5527b893471b58d1a9afff93f",
+      "completed_manifest_artifacts": "6d7fcfae81203be355c15b9ee376da6a286829f6389885a3f1f0b564ce40ec1f",
+      "interrupted_all_files": "327554fade972edf5714d85f66558008f547215ab720f8074f21eb853ee74d57",
+      "interrupted_manifest_artifacts": "d112c327564be1c58a80a318cb8fabf0bf91eadbd5b4891e3f762c54f5c8082e",
+      "all_files_per_run": 72,
+      "manifest_artifacts_per_run": 69,
+      "first_and_repeated_resume_byte_identical": true
+    }
+  },
+  "fresh_run_validation": {
+    "m1": {
+      "artifact_hashes": 18,
+      "errors": 0,
+      "valid": true
+    },
+    "m2a": {
+      "artifact_hashes": 32,
+      "errors": 0,
+      "valid": true
+    },
+    "m2b": {
+      "artifact_hashes": 69,
+      "errors": 0,
+      "valid": true
+    },
+    "m2b_1": {
+      "artifact_hashes": 69,
+      "errors": 0,
+      "valid": true
+    },
+    "m2b_2": {
+      "artifact_hashes": 69,
+      "errors": 0,
+      "valid": true
+    },
+    "m2b_2_interrupted_resumed": {
+      "artifact_hashes": 69,
+      "errors": 0,
+      "valid": true
+    },
+    "accepted_v1_read_only": {
+      "artifact_hashes": 64,
+      "errors": 0,
+      "valid": true
+    },
+    "accepted_v1_1_read_only": {
+      "artifact_hashes": 68,
+      "errors": 0,
+      "valid": true
+    }
+  },
+  "synthetic_metrics": {
+    "adapter_state_correctness": true,
+    "derived_tracks": 13,
+    "evaluated_frames": 4,
+    "exact_record_duplicate_rate": 0.0,
+    "exact_text_match": 0.75,
+    "gold_only_keyframes": 0,
+    "invalid_timestamps": 0,
+    "missing_evidence_references": 0,
+    "normalized_cer": 0.0125,
+    "normalized_wer": 0.07692307692307693,
+    "observations": 13,
+    "peak_rss_kb": 180796,
+    "prediction_only_keyframes": 0,
+    "presence_f1": 1.0,
+    "presence_precision": 1.0,
+    "presence_recall": 1.0,
+    "region_precision": null,
+    "region_recall": null,
+    "retries": 0,
+    "timeouts": 0,
+    "unresolved_track_evidence": 0,
+    "wall_seconds": 2.10413,
+    "cpu_seconds": 2.057794,
+    "frames_per_second": 1.9010231661221566,
+    "media_minutes_per_compute_minute": 3.802046451502521
+  },
+  "workers": [
+    {
+      "configuration_sha256": "180266786c33110b4fa2b166fcddcb222f88740638bb932b97bf5e8fbb26b107",
+      "cpu_seconds": 2.068903,
+      "failures": 0,
+      "frames_per_second": 1.9101169485499039,
+      "media_minutes_per_compute_minute": 3.820233196584902,
+      "observations": 13,
+      "output_semantic_sha256": "f851aef0d8a1c215023cd71b38120a2f317a10be3dd24567f2f023449acd6060",
+      "peak_rss_kb": 180800,
+      "retries": 0,
+      "timeouts": 0,
+      "wall_seconds": 2.094113,
+      "workers": 1
+    },
+    {
+      "configuration_sha256": "9edd7622e421e846ed634382034c58aa97c5ed150f91900616c5e3b255de1980",
+      "cpu_seconds": 2.091952,
+      "failures": 0,
+      "frames_per_second": 2.2023091969650266,
+      "media_minutes_per_compute_minute": 4.404619344537584,
+      "observations": 13,
+      "output_semantic_sha256": "f851aef0d8a1c215023cd71b38120a2f317a10be3dd24567f2f023449acd6060",
+      "peak_rss_kb": 180800,
+      "retries": 0,
+      "timeouts": 0,
+      "wall_seconds": 1.816275,
+      "workers": 2
+    },
+    {
+      "configuration_sha256": "c16d806cc51a1dfc0722bd29dba004132026eba0e08011e8475ddbf72c2b0040",
+      "cpu_seconds": 2.187848,
+      "failures": 0,
+      "frames_per_second": 2.277345221599819,
+      "media_minutes_per_compute_minute": 4.554690733652503,
+      "observations": 13,
+      "output_semantic_sha256": "f851aef0d8a1c215023cd71b38120a2f317a10be3dd24567f2f023449acd6060",
+      "peak_rss_kb": 180800,
+      "retries": 0,
+      "timeouts": 0,
+      "wall_seconds": 1.756431,
+      "workers": 4
+    }
+  ],
+  "quality_gates": {
+    "codeql": {
+      "result": "success",
+      "url": "https://github.com/belagrf/av-atlas/actions/runs/29486706995"
+    },
+    "doctor": "pass",
+    "main_ci": {
+      "result": "success",
+      "url": "https://github.com/belagrf/av-atlas/actions/runs/29486707488"
+    },
+    "mypy_source_files": 24,
+    "pytest_failed": 0,
+    "pytest_passed": 272,
+    "pytest_skipped": 0,
+    "ruff_format_files": 51,
+    "ruff_lint": "pass",
+    "uv_lock": "pass",
+    "uv_sync_offline": "pass"
+  },
+  "governance": {
+    "project_license": "unresolved; public visibility grants no reuse rights beyond applicable law",
+    "rights_self_hash": "integrity checksum, not an authenticated signature",
+    "real_media_pilot_gate": "https://github.com/belagrf/av-atlas/issues/17",
+    "patent_review": "unresolved",
+    "publication_review": "unresolved"
+  },
+  "limitations": [
+    "Snapshot unlink and lease removal are logical cleanup, not cryptographic secure erasure.",
+    "The fixed FFmpeg/FFprobe policy is defense in depth, not an operating-system native-parser sandbox.",
+    "The private snapshot does not protect against a hostile process running as the same OS user.",
+    "Self-contained non-Matroska inputs are unsupported pending format-specific review.",
+    "Acquisition requires POSIX directory-descriptor and flock primitives.",
+    "Growing or live-stream input is unsupported.",
+    "Retained raw-frame lifecycle is unsupported.",
+    "Issue 17 remains the security and temporary-root gate before real-media pilot execution.",
+    "Authorized double-annotated real-media evaluation is pending.",
+    "Project license selection is unresolved.",
+    "Patent and publication review are unresolved.",
+    "Full M2 remains incomplete.",
+    "M2C is unimplemented."
+  ],
+  "detached_hash_note": "The rendered release-manifest and publication-manifest file hashes are computed after final rendering to avoid self-reference and are reported in release-preparation verification. The publication manifest records its normalized self-hash under its own file entry.",
+  "resume_digest_algorithm": "SHA-256 of newline-delimited '<current-file-sha256><two spaces><relative-path>' rows sorted by path. Full-run and run-manifest artifact maps were each compared entry by entry before, after first resume, and after repeated resume."
+}

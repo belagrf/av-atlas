@@ -117,8 +117,8 @@
       "path": "README.md",
       "reason_for_inclusion": "architecture, governance, research, or project contract",
       "redistribution_basis": "explicit operator authorization for public disclosure",
-      "sha256": "41f573d2e9aa8e8b49897011f7aabe5d0a2f9704cd5241ad46c041b88da1d128",
-      "size_bytes": 15835
+      "sha256": "7cd40ce372039a2947f1a2041dfa38ace30010b97e30a96eefa16fb3b2885a3a",
+      "size_bytes": 16064
     },
     {
       "applicable_license": "unresolved; no project reuse license selected",
@@ -187,8 +187,8 @@
       "path": "docs/PROJECT_STATE.md",
       "reason_for_inclusion": "architecture, governance, research, or project contract",
       "redistribution_basis": "explicit operator authorization for public disclosure",
-      "sha256": "6b80616263b05ffe20777aa46516da822afa2e07497f6fdd7a29561a70add1be",
-      "size_bytes": 90965
+      "sha256": "340e8813670a653e289539d15bb71bf4fb96d13faab9b6e0e0a068bd448ff4b9",
+      "size_bytes": 99994
     },
     {
       "applicable_license": "unresolved; no project reuse license selected",
@@ -197,8 +197,8 @@
       "path": "docs/PUBLICATION_READINESS.md",
       "reason_for_inclusion": "architecture, governance, research, or project contract",
       "redistribution_basis": "explicit operator authorization for public disclosure",
-      "sha256": "af038c21e67766dc9546aa32e23741b9d7ab5f16c9f4979ba13926d6c1e44774",
-      "size_bytes": 6055
+      "sha256": "6eba97a69ab2e47025973d7f91ba8a83d47e6c581b3b2c5cdcf4438d3c7a2576",
+      "size_bytes": 8310
     },
     {
       "applicable_license": "unresolved; no project reuse license selected",
@@ -217,8 +217,8 @@
       "path": "docs/PUBLIC_RELEASE_DECISION.md",
       "reason_for_inclusion": "architecture, governance, research, or project contract",
       "redistribution_basis": "explicit operator authorization for public disclosure",
-      "sha256": "992959b05e99fb5ea7a679ebc4aa1401fb57fcfbbc9b065b277a5b36bfd4a9eb",
-      "size_bytes": 4309
+      "sha256": "c7803ba2dd3fcb9e2c2ea14f6b9b43f02564ebe5f7edafab8e8396dc7a33b2d4",
+      "size_bytes": 6169
     },
     {
       "applicable_license": "unresolved; no project reuse license selected",
@@ -237,8 +237,8 @@
       "path": "docs/data-governance.md",
       "reason_for_inclusion": "architecture, governance, research, or project contract",
       "redistribution_basis": "explicit operator authorization for public disclosure",
-      "sha256": "482cca408a402e42a0a31d714bcc40b56128ffac766ec90f8c7fe6665d939865",
-      "size_bytes": 5412
+      "sha256": "0c6ac5079199e811c2620b3bf89b8f459451ebcde203875a8fe9d9a0392293bb",
+      "size_bytes": 5689
     },
     {
       "applicable_license": "unresolved; no project reuse license selected",
@@ -297,8 +297,8 @@
       "path": "docs/decisions/ADR-0006-m2b2-stable-authorized-input.md",
       "reason_for_inclusion": "architecture, governance, research, or project contract",
       "redistribution_basis": "explicit operator authorization for public disclosure",
-      "sha256": "0259956c89a61eccb0bb86829195294be2f65f2cdcce2082106b784aa2ba6903",
-      "size_bytes": 7684
+      "sha256": "70c0d51aa56aee50e77667a0df79f0cbe10d817651f522e89e137f6bd0ce24cf",
+      "size_bytes": 7676
     },
     {
       "applicable_license": "unresolved; no project reuse license selected",
@@ -347,8 +347,8 @@
       "path": "docs/publication-manifest.json",
       "reason_for_inclusion": "machine-readable disclosure inventory",
       "redistribution_basis": "explicit operator authorization for public disclosure",
-      "sha256": "853a56b88cda4de2dcb25cb86f4cebb1157de7c882482a0ded6b88f6cf4799e3",
-      "size_bytes": 63397
+      "sha256": "e0356783d4acd876b0014236cb4e1ffb28c94d6d8cdc2076b459126c4fca3f96",
+      "size_bytes": 64335
     },
     {
       "applicable_license": "unresolved; no project reuse license selected",
@@ -394,11 +394,31 @@
       "applicable_license": "unresolved; no project reuse license selected",
       "classification": "sanitized-release-record",
       "generated": true,
+      "path": "docs/releases/M2B_CONTROLLED_BASELINE_V1_2.json",
+      "reason_for_inclusion": "hash-bound controlled-baseline record",
+      "redistribution_basis": "explicit operator authorization for public disclosure",
+      "sha256": "da8ef265124bded29c389fe0eb35d16b0c08aa67d778eea3ebf8465c8a5b71bd",
+      "size_bytes": 17479
+    },
+    {
+      "applicable_license": "unresolved; no project reuse license selected",
+      "classification": "sanitized-release-record",
+      "generated": true,
+      "path": "docs/releases/M2B_CONTROLLED_BASELINE_V1_2.md",
+      "reason_for_inclusion": "hash-bound controlled-baseline record",
+      "redistribution_basis": "explicit operator authorization for public disclosure",
+      "sha256": "226460da6ce4336517f7f74188791a2eb5098714ea682244c9aaeb4ebdd9e0c1",
+      "size_bytes": 11777
+    },
+    {
+      "applicable_license": "unresolved; no project reuse license selected",
+      "classification": "sanitized-release-record",
+      "generated": true,
       "path": "docs/releases/M2B_CONTROLLED_REPRODUCTION.md",
       "reason_for_inclusion": "hash-bound controlled-baseline record",
       "redistribution_basis": "explicit operator authorization for public disclosure",
-      "sha256": "3583665e99b386ddee90f2fd0b89473001ca7e0584e85a9bbd44143a8675c4cc",
-      "size_bytes": 9952
+      "sha256": "656c3f7353c512f366104c8dcbaa12c332d48756af29bfaa088bbb51750eb141",
+      "size_bytes": 13972
     },
     {
       "applicable_license": "unresolved; no project reuse license selected",
@@ -417,8 +437,8 @@
       "path": "docs/security.md",
       "reason_for_inclusion": "architecture, governance, research, or project contract",
       "redistribution_basis": "explicit operator authorization for public disclosure",
-      "sha256": "69f903f8485bff3f0bde18437f488c0208bea03914fe7ee7ef9ddfbb40019faa",
-      "size_bytes": 10228
+      "sha256": "f64d5ae97222f2fa77ee09f79c73c86b3a0867563f93fff173f7b55efcf06740",
+      "size_bytes": 10342
     },
     {
       "applicable_license": "unresolved; no project reuse license selected",
@@ -1322,6 +1342,6 @@
     }
   ],
   "schema_version": "1.0.0",
-  "scope": "files proposed by PR 16 for the M2B.2 stable-input, source-review, and explicit fixture-trust hardening increment; no tag or release",
+  "scope": "files tracked by the M2B.2 controlled baseline v1.2 release preparation",
   "self_hash_rule": "The manifest entry uses SHA-256 of canonical JSON with its own sha256 value set to 64 zeroes; the detached actual file SHA-256 is reported in release verification."
 }
