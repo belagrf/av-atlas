@@ -116,8 +116,9 @@ view. Acquisition fails closed on platforms without the
 required POSIX directory-descriptor and `flock` primitives. A growing live source and a retained-frame
 lifecycle remain unsupported. Issues [#11](https://github.com/belagrf/av-atlas/issues/11),
 [#12](https://github.com/belagrf/av-atlas/issues/12), and
-[#14](https://github.com/belagrf/av-atlas/issues/14) remain open until this implementation is
-reviewed and merged; the real-media pilot has not begun.
+[#14](https://github.com/belagrf/av-atlas/issues/14) closed after review and merge of this
+implementation. Issue [#17](https://github.com/belagrf/av-atlas/issues/17) remains the security and
+temporary-root gate before any real-media pilot; the pilot has not begun.
 
 Snapshot cleanup unlinks the private file and removes its lease directory. This is logical
 lifecycle cleanup, not cryptographic or secure erasure; AV-Atlas does not claim filesystem blocks

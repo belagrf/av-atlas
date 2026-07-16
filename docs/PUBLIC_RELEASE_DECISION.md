@@ -33,11 +33,11 @@ manifest hashes after final rendering. No project license has been selected; pub
 permits inspection but grants no reuse rights beyond applicable law. Patent/publication review
 remains unresolved rather than inferred from release authorization.
 
-Security issue 11 and standalone-inspection governance issue 12 remain open pilot gates. Native
-parser isolation and retained-frame lifecycle also remain unresolved. Full M2 is incomplete, and
-M2C is unimplemented.
+At v1.1 release time, security issue 11 and standalone-inspection governance issue 12 remained open
+pilot gates; both later closed with the reviewed M2B.2 implementation. Native parser isolation and
+retained-frame lifecycle remain unresolved. Full M2 is incomplete, and M2C is unimplemented.
 
-## M2B.2 pull-request boundary
+## Historical M2B.2 pull-request boundary
 
 The operator authorized public implementation of issue 14 on
 `feat/m2b2-stable-input` and an unmerged review pull request. This authorizes publication of the
@@ -51,7 +51,7 @@ policy plus hash/size-bound immutable controlled-fixture sidecar delivery. It re
 no tag or release is authorized, and issues
 [#11](https://github.com/belagrf/av-atlas/issues/11),
 [#12](https://github.com/belagrf/av-atlas/issues/12), and
-[#14](https://github.com/belagrf/av-atlas/issues/14) stay open until review and merge. The local and
+[#14](https://github.com/belagrf/av-atlas/issues/14) stayed open until review and merge. The local and
 loopback hostile-input regressions generate only temporary synthetic bytes and publish neither
 media nor network-fetched content.
 
@@ -61,3 +61,29 @@ explicit `synthetic-controlled` basis plus an exact current bundle, and persists
 stable-input 1.2/run-manifest 1.1. Ordinary rights ignore adjacent fixture data; historical markers
 remain validation-only. This correction authorizes no release, tag movement, issue closure, real
 media, M2C work, or license choice.
+
+## Separately authorized v1.2 release preparation
+
+Issue 18 authorizes a documentation/manifests-only preparation branch and public pull request for a
+future immutable `m2b-controlled-v1.2` patch release. The reviewed M2B.2 runtime source is exactly
+`2555a297153c9b5ff059b7d8dc7e49de5d93c43b`, package version 0.2.2. This preparation does not
+authorize creating the tag or publishing the release before the pull request receives source
+review and is merged. The future release commit is therefore intentionally not predicted in the
+tracked record.
+
+The proposed release freezes explicit source-bound rights, stable-input 1.2, run-manifest 1.1,
+private transient snapshots, fixed native-input policy 1.0, fixture 1.1 immutable sidecar bindings,
+declaration-derived trust modes, rights-gated inspection, fresh-snapshot resume, and accepted
+v1/v1.1 validation compatibility. It remains a four-frame synthetic fixture with 13 OCR
+observations. It establishes no real-media OCR accuracy, semantic visual understanding, trained
+AV-Atlas/foundation-model capability, M2C, or full-M2 completion.
+
+The v1 and v1.1 tags, releases, records, and accepted evidence remain immutable. No manually
+attached media, derivative, private rights declaration, annotation, Tesseract traineddata,
+checkpoint, weight, run, or archive is authorized. Issue 17 remains the security and temporary-root
+gate before any real-media pilot. Logical-not-secure snapshot deletion, absence of an OS native-
+parser sandbox, non-Matroska/live/non-POSIX limits, retained-frame lifecycle, project-license
+selection, and patent/publication review remain unresolved.
+
+No project license has been selected. Public visibility permits inspection of the source but does
+not grant reuse rights beyond applicable law.

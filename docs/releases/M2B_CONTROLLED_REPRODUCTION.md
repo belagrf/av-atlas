@@ -3,9 +3,12 @@
 This is an offline, CPU-only fresh reproducibility replay. Calling a replay by the same
 implementation on the same host “independent verification” would overstate the evidence.
 
-The v1 procedure below remains the historical reproduction contract. The v1.1 extension adds the
-reviewed M2B.1 secondary-track, permission-closure, validation, and clean-checkout checks without
-changing v1 inputs or artifacts.
+The v1 procedure below remains the historical reproduction contract at the immutable v1 tag. The
+v1.1 extension applies at its immutable tag and adds the reviewed M2B.1 secondary-track,
+permission-closure, validation, and clean-checkout checks without changing v1 inputs or artifacts.
+Those historical commands predate the current requirement for an explicit rights manifest on
+every fresh fixture run. Use the v1.2 procedure at the end of this document on current source; do
+not weaken current authorization merely to replay an older CLI transcript.
 
 ## Preconditions
 
@@ -118,63 +121,153 @@ published release remain immutable and are not retargeted by M2B.1. The separate
 patch incorporates the clean-checkout fix and reviewed hardening changes at a new tag and commit.
 The accepted v1 hashes remain historical release evidence; they are not silently regenerated.
 
-## Additive M2B.2 review replay (not a release)
+## M2B.2/v1.2 fresh release replay
 
 M2B.2 does not retarget either accepted tag or alter the frozen v1 fixture, gold, normalization,
-metrics, or `configs/m2b.yaml`. From the review branch, regenerate the controlled fixture and use
-the separately versioned stable-input configuration in fresh ignored paths:
+metrics, or `configs/m2b.yaml`. From the release-preparation branch, use new empty ignored paths,
+run the complete gates, regenerate all controlled fixtures, and use explicit synthetic rights. The
+example below uses placeholders and never requires real media:
 
 ```bash
-uv run av-atlas make-fixture --profile m2b --output tests/fixtures/generated/m2b2-review
-uv run av-atlas make-rights tests/fixtures/generated/m2b2-review/m2b_ocr_controlled.mkv \
-  --output tests/fixtures/generated/m2b2-review/rights.json \
-  --operator-id controlled-replay --basis synthetic-controlled \
-  --allow analysis --allow evaluation --allow derivative_artifact_retention
-uv run av-atlas run tests/fixtures/generated/m2b2-review/m2b_ocr_controlled.mkv \
-  --config configs/m2b2.yaml \
-  --rights-manifest tests/fixtures/generated/m2b2-review/rights.json \
-  --output runs/m2b2-review
-uv run av-atlas evaluate-ocr runs/m2b2-review tests/gold/m2b-ocr-controlled.gold.json
-uv run av-atlas benchmark-ocr runs/m2b2-review tests/gold/m2b-ocr-controlled.gold.json
-uv run av-atlas validate runs/m2b2-review
+set -eu
+V12_FIXTURES=tests/fixtures/generated/m2b-v1-2-replay
+V12_RUNS=runs/m2b-v1-2-replay
+test ! -e "$V12_FIXTURES"
+test ! -e "$V12_RUNS"
+
+uv lock --check
+uv sync --extra dev --locked --offline
+uv run ruff format --check .
+uv run ruff check .
+uv run mypy src
+uv run pytest -q
+uv run av-atlas doctor
+
+uv run av-atlas make-fixture --profile m1 --output "$V12_FIXTURES/m1"
+uv run av-atlas make-fixture --profile m2a --include-edge-fixtures \
+  --output "$V12_FIXTURES/m2a"
+uv run av-atlas make-fixture --profile m2b --output "$V12_FIXTURES/m2b"
+
+for profile in m1 m2a m2b; do
+  case "$profile" in
+    m1) media="$V12_FIXTURES/m1/synthetic.mkv" ;;
+    m2a) media="$V12_FIXTURES/m2a/m2a_controlled.mkv" ;;
+    m2b) media="$V12_FIXTURES/m2b/m2b_ocr_controlled.mkv" ;;
+  esac
+  uv run av-atlas make-rights "$media" \
+    --output "$V12_FIXTURES/$profile/rights.json" \
+    --operator-id controlled-replay --basis synthetic-controlled \
+    --allow analysis --allow evaluation --allow derivative_artifact_retention
+done
+
+uv run av-atlas inspect "$V12_FIXTURES/m1/synthetic.mkv" \
+  --rights-manifest "$V12_FIXTURES/m1/rights.json" \
+  --output "$V12_FIXTURES/m1/inventory.json"
+uv run av-atlas inspect "$V12_FIXTURES/m2a/m2a_controlled.mkv" \
+  --rights-manifest "$V12_FIXTURES/m2a/rights.json" \
+  --output "$V12_FIXTURES/m2a/inventory.json"
+uv run av-atlas inspect-subtitles "$V12_FIXTURES/m2a/m2a_controlled.mkv" \
+  --rights-manifest "$V12_FIXTURES/m2a/rights.json"
+
+uv run av-atlas run "$V12_FIXTURES/m1/synthetic.mkv" \
+  --config configs/baseline.yaml --rights-manifest "$V12_FIXTURES/m1/rights.json" \
+  --operation analysis --output "$V12_RUNS/m1"
+uv run av-atlas export "$V12_RUNS/m1"
+uv run av-atlas validate "$V12_RUNS/m1"
+
+uv run av-atlas run "$V12_FIXTURES/m2a/m2a_controlled.mkv" \
+  --config configs/m2a.yaml --rights-manifest "$V12_FIXTURES/m2a/rights.json" \
+  --operation analysis --output "$V12_RUNS/m2a"
+uv run av-atlas export "$V12_RUNS/m2a"
+uv run av-atlas evaluate "$V12_RUNS/m2a" tests/gold/m2a-controlled.gold.json \
+  --tolerance-ms 200
+uv run av-atlas validate "$V12_RUNS/m2a"
+
+for pair in "m2b:configs/m2b.yaml" "m2b1:configs/m2b.yaml" "m2b2:configs/m2b2.yaml"; do
+  name="${pair%%:*}"
+  config="${pair#*:}"
+  uv run av-atlas run "$V12_FIXTURES/m2b/m2b_ocr_controlled.mkv" \
+    --config "$config" --rights-manifest "$V12_FIXTURES/m2b/rights.json" \
+    --operation analysis --output "$V12_RUNS/$name"
+  uv run av-atlas export "$V12_RUNS/$name"
+  uv run av-atlas evaluate-ocr "$V12_RUNS/$name" \
+    tests/gold/m2b-ocr-controlled.gold.json
+  uv run av-atlas benchmark-ocr "$V12_RUNS/$name" \
+    tests/gold/m2b-ocr-controlled.gold.json
+  uv run av-atlas validate "$V12_RUNS/$name"
+done
+
+uv run av-atlas run "$V12_FIXTURES/m2b/m2b_ocr_controlled.mkv" \
+  --config configs/m2b2.yaml --rights-manifest "$V12_FIXTURES/m2b/rights.json" \
+  --operation analysis --output "$V12_RUNS/m2b2-interrupted" --stop-after inventory
+uv run av-atlas resume "$V12_RUNS/m2b2-interrupted" \
+  --media "$V12_FIXTURES/m2b/m2b_ocr_controlled.mkv"
+uv run av-atlas export "$V12_RUNS/m2b2-interrupted"
+uv run av-atlas evaluate-ocr "$V12_RUNS/m2b2-interrupted" \
+  tests/gold/m2b-ocr-controlled.gold.json
+uv run av-atlas benchmark-ocr "$V12_RUNS/m2b2-interrupted" \
+  tests/gold/m2b-ocr-controlled.gold.json
+uv run av-atlas validate "$V12_RUNS/m2b2-interrupted"
+
+uv run av-atlas resume "$V12_RUNS/m2b2" \
+  --media "$V12_FIXTURES/m2b/m2b_ocr_controlled.mkv"
+uv run av-atlas resume "$V12_RUNS/m2b2" \
+  --media "$V12_FIXTURES/m2b/m2b_ocr_controlled.mkv"
+uv run av-atlas resume "$V12_RUNS/m2b2-interrupted" \
+  --media "$V12_FIXTURES/m2b/m2b_ocr_controlled.mkv"
+uv run av-atlas resume "$V12_RUNS/m2b2-interrupted" \
+  --media "$V12_FIXTURES/m2b/m2b_ocr_controlled.mkv"
+uv run av-atlas validate "$V12_RUNS/m2b2"
+uv run av-atlas validate "$V12_RUNS/m2b2-interrupted"
+
+sha256sum "$V12_FIXTURES/m2b/m2b_ocr_controlled.mkv" \
+  "$V12_FIXTURES/m2b/m2b_ocr_controlled.fixture.json" \
+  tests/gold/m2b-ocr-controlled.gold.json configs/m2b2.yaml
 ```
 
-Confirm that current `stable_input.json` validates against stable-input schema 1.2, contains no
-path, and matches inventory source hash/ID/size plus run-manifest 1.1 rights basis/checksum, explicit
-synthetic trust mode, current fixture checksum/contract, fixture-sidecar bindings, and configured
-byte ceilings. Confirm that fixture-manifest 1.1 binds every accepted sidecar by
-canonical basename, type, payload schema, SHA-256, and size; media-inventory 1.1 records native-
-input contract `av-atlas-native-input/1.0.0`. Historical fixture/inventory/stable-input 1.0 records
-remain validation-compatible, but no legacy/current marker authorizes fresh work without explicit
-rights. Ordinary rights must ignore adjacent marker/sidecar data.
+The fixture, gold, configuration, inventory, raw OCR, temporal-track, and sanitized dependency
+hashes must match the v1.2 release record on the approved dependency set. Stable-input receipts,
+rights files, evaluation, benchmarks, BOMs, logs, and run manifests contain runtime or
+authorization metadata and are compared by invariant fields and fresh reported hashes rather than
+forced to equal a prior execution.
 
-Run the focused hostile-input and sidecar regressions:
+For completed and interrupted runs, build both a map of every run file and a map containing only
+the sorted `run_manifest.json` artifact keys. Capture each map after completion, after first resume,
+and after repeated resume; require byte-for-byte equality of every row, not merely the aggregate
+digest. Validate accepted v1 and v1.1 runs with `validate_run(..., write_report=False)` so historical
+evidence is never rewritten.
+
+The focused hostile-input and fixture-trust suite is:
 
 ```bash
 uv run pytest -q tests/unit/test_native_media_policy.py tests/unit/test_fixture_sidecars.py \
   tests/unit/test_initial_authorization.py tests/unit/test_rights_gated_inspection.py
 ```
 
-They prove that HLS/DASH/concat/sequence/navigation inputs start no parser, a local sentinel is not
+It proves that HLS/DASH/concat/sequence/navigation inputs start no parser, a local sentinel is not
 accessed, a loopback endpoint receives zero requests, and missing/mismatched/replaced/symlinked/
-malformed/oversized/unlisted/concurrently changed sidecars fail before evidence admission. Verify
-that forged 1.0/1.1 markers without rights start no parser, ordinary rights admit no adjacent
-observation, synthetic rights require the exact bundle, and resume cannot change trust mode. Verify
-that every ingest parser command carries the fixed `file` protocol whitelist and forced/whitelisted
-`matroska` demuxer; generated OCR PNG decoding uses the separate `png_pipe` policy.
+malformed/oversized/unlisted/concurrently changed sidecars fail before evidence admission. It also
+proves that forged 1.0/1.1 markers without rights start no parser, ordinary rights admit no adjacent
+observation, synthetic rights require the exact bundle, and resume cannot change trust mode.
 
-Scan every run file for the original absolute path, `source.snapshot`, sidecar paths, and the
-private-root prefix. The private root must contain no lease after completion. Run a second fresh
-directory with `--stop-after inventory`, resume with the exact `--media` path, and compare every
-file after first and repeated resume. Also validate accepted v1/v1.1 runs with
-`write_report=False`; their lack of a stable-input receipt remains valid because their software
-versions predate 0.2.2.
+Confirm that current `stable_input.json` validates against stable-input schema 1.2, contains no
+path, and matches inventory source hash/ID/size plus run-manifest 1.1 rights basis/checksum, explicit
+synthetic trust mode, current fixture checksum/contract, fixture-sidecar bindings, and configured
+byte ceilings. Confirm that media-inventory 1.1 records native-input contract
+`av-atlas-native-input/1.0.0`; every ingest parser command uses `file`/`matroska` whitelists and the
+forced `matroska` demuxer, while generated OCR PNG decoding uses `png_pipe`.
+
+Scan every run file for the original absolute path, `source.snapshot`, sidecar paths, private-root
+prefixes, and credentials. The private root must contain no lease after completion. The tracked
+publication candidate must contain no run directory, generated fixture, rights manifest, media,
+snapshot, traineddata, checkpoint, model weight, private annotation, archive, or personal path.
 
 Snapshot unlinking and lease removal are logical cleanup, not secure erasure. This synthetic replay
-does not establish a production temporary-root policy. Before real media, use a documented private,
-capacity-bounded encrypted volume or appropriately configured tmpfs, or record explicit residual
-remanence-risk acceptance.
+does not establish a production temporary-root policy. Before real media, issue 17 requires a
+documented private, capacity-bounded encrypted volume or appropriately configured tmpfs, or
+explicit residual-remanence risk acceptance.
 
 This is a fresh reproducibility replay in the same environment, not independent verification. It
-uses only project-authored synthetic media. It creates no tag or release and establishes no real-
-media accuracy, native-parser sandbox, trained-model capability, full M2 completion, or M2C work.
+uses only project-authored synthetic media. During release preparation it creates no tag or release
+and establishes no real-media accuracy, native-parser sandbox, trained-model capability, full M2
+completion, or M2C work.

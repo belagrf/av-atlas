@@ -1,6 +1,6 @@
 # Project state
 
-Last verified: 2026-07-15 (Europe/Berlin)
+Last verified: 2026-07-16 (Europe/Berlin)
 
 ## Milestone status
 
@@ -22,10 +22,11 @@ Last verified: 2026-07-15 (Europe/Berlin)
   configuration, coherent partial results, actual chunk provenance, immutable raw OCR plus secondary
   temporal tracks, complete derived-artifact validation, path privacy, and clean-checkout CI are
   complete for the synthetic controlled baseline. Real-media evaluation remains pending.
-- **M2B.2 — source-review correction locally verified on an unmerged branch.** Supported media
-  entry points authorize parser-free, acquire a verified private snapshot, enforce a shared fixed
-  native protocol/demuxer policy, and hash/size-bind fixture sidecars before immutable adapter
-  delivery. Issues 11, 12, and 14 remain open pending PR review and merge.
+- **M2B.2 — reviewed implementation merged; v1.2 release preparation pending review.** Supported
+  media entry points authorize parser-free, acquire a verified private snapshot, enforce a shared
+  fixed native protocol/demuxer policy, and hash/size-bind fixture sidecars before immutable
+  adapter delivery. Issues 11, 12, and 14 closed with the reviewed implementation; issue 17 remains
+  the security and temporary-root gate before any real-media pilot.
 - **M2 — in progress, not complete.** ASR/alignment, diarization, acoustic,
   and semantic visual perception, a human-adjudicated pilot, direct-VLM/loose-baseline comparisons,
   and the full M2 continuation gate in `AV-Atlas_GOAL.md` have not been delivered.
@@ -42,31 +43,28 @@ installed or required.
 Commands run from the repository root and exact final results:
 
 ```text
-uv lock --offline
-  Resolved 19 packages
 uv lock --check
   Resolved 19 packages
 uv sync --extra dev --locked --offline
-  Resolved 19 packages; checked 18 packages
+  Resolved 19 packages; checked 18 packages; local package 0.2.2
 uv run ruff format --check .
-  32 files already formatted
+  51 files already formatted
 uv run ruff check .
   All checks passed!
 uv run mypy src
-  Success: no issues found in 19 source files
+  Success: no issues found in 24 source files
 uv run pytest -q
-  48 passed in 36.31s; no skips
-uv run pytest -q -m tesseract
-  4 passed, 44 deselected in 28.61s
+  272 passed; zero failed; zero skipped
 uv run av-atlas doctor
-  required FFmpeg/ffprobe and optional local OCR inventory reported
+  passed; required FFmpeg/ffprobe and approved local OCR inventory reported
 ```
 
-The final suite covers the M0/M1 behavior plus rights refusal, permission/hash/expiry/tamper failures,
-valid non-fixture authorization, subtitle metadata and cue edge cases, unsupported bitmap subtitles,
-hard/gradual/flash shot behavior, keyframe evidence, absent streams, corrupt input, media limits,
-inert prompt text, interruption, repeated resume, semantic determinism, evaluation, BOM, schemas,
-revisions, provenance, evidence, and artifact hashes. It requires no network or GPU.
+The final suite covers the M0/M1 behavior plus explicit fixture trust, rights refusal,
+permission/hash/expiry/tamper failures, parser/subprocess zero-call sentinels, private snapshot
+lifecycle and recovery, hostile mutation, fixed native protocol/demuxer policy, immutable sidecar
+delivery, rights-gated inspection, subtitle and shot/keyframe paths, OCR, interruption, repeated
+resume, semantic determinism, evaluation, BOM, schemas, revisions, provenance, evidence, and
+artifact hashes. It requires no network or GPU.
 
 ## Independent M0/M1 verification
 
@@ -1366,3 +1364,143 @@ same-UID hostility, logical-not-secure erasure, temporary-root policy, authentic
 fixture signatures, retained-frame lifecycle, non-Matroska/live input, the authorized real-media
 pilot, and project license/patent/publication decisions. No real media, M2C, model/checkpoint, GPU,
 cloud/paid API, training, tag, release, or merge occurred.
+
+## 2026-07-16 — M2B.2 controlled baseline v1.2 release preparation
+
+The reviewed M2B.2 implementation merged at source commit
+`2555a297153c9b5ff059b7d8dc7e49de5d93c43b`, tree
+`f8ca95eab8c1988cee00ab774a2bf30f5cad1776`, package version `0.2.2`. This release-only branch
+changes no runtime, schema, configuration, test, lock, workflow, fixture, or accepted evidence
+bytes. It adds `docs/releases/M2B_CONTROLLED_BASELINE_V1_2.md` and `.json` and updates `README.md`,
+this state record, the controlled reproduction guide, publication readiness/release-decision
+records, data governance, security, ADR-0006 status, and the publication manifest. The release
+commit, tag, and GitHub release remain intentionally pending source review.
+
+The frozen scope is four synthetic frames, 13 immutable raw OCR observations, and 13 secondary
+temporal tracks. Every fresh source and inspection now requires explicit source-bound rights.
+Stable-input 1.2 creates a verified bounded private `0600` copy under a unique `0700` lease,
+exports neither source nor snapshot path, and removes the snapshot before successful completion.
+Run-manifest 1.1 persists rights basis/checksum and declaration-derived
+`ordinary-explicit-rights` or `synthetic-controlled-explicit-rights` linkage. Only the latter plus
+the exact current fixture 1.1 bundle admits hash/size-bound immutable observation sidecars.
+Legacy markers remain validation-compatible but authorize no fresh execution. The rights and
+marker self-hashes are integrity checks, not authenticated signatures.
+
+Native-input contract `av-atlas-native-input/1.0.0` accepts parser-free-classified,
+self-contained Matroska/WebM only; it forces the `matroska` demuxer, `matroska` format whitelist,
+and `file` protocol whitelist and denies manifest/multi-resource and network-capable formats before
+native parsing. Generated keyframes use the separate forced `png_pipe` policy. The policy limits
+transitive access but is not an OS sandbox.
+
+### Exact release-preparation verification
+
+Commands executed from the repository root were:
+
+```text
+git fetch origin
+git switch main
+git pull --ff-only origin main
+git switch -c release/m2b-controlled-v1.2
+uv lock --check
+uv sync --extra dev --locked --offline
+uv run ruff format --check .
+uv run ruff check .
+uv run mypy src
+uv run pytest -q
+uv run av-atlas doctor
+uv run av-atlas make-fixture --profile m1 --output FRESH_M1_FIXTURES
+uv run av-atlas make-fixture --profile m2a --include-edge-fixtures --output FRESH_M2A_FIXTURES
+uv run av-atlas make-fixture --profile m2b --output FRESH_M2B_FIXTURES
+uv run av-atlas make-rights MEDIA --output RIGHTS --operator-id controlled-v12-replay \
+  --basis synthetic-controlled --allow analysis --allow evaluation \
+  --allow derivative_artifact_retention
+uv run av-atlas inspect MEDIA --rights-manifest RIGHTS --output INVENTORY
+uv run av-atlas inspect-subtitles MEDIA --rights-manifest RIGHTS
+uv run av-atlas run MEDIA --config CONFIG --rights-manifest RIGHTS \
+  --operation analysis --output FRESH_RUN
+uv run av-atlas export FRESH_RUN
+uv run av-atlas evaluate FRESH_M2A_RUN tests/gold/m2a-controlled.gold.json --tolerance-ms 200
+uv run av-atlas evaluate-ocr FRESH_OCR_RUN tests/gold/m2b-ocr-controlled.gold.json
+uv run av-atlas benchmark-ocr FRESH_OCR_RUN tests/gold/m2b-ocr-controlled.gold.json
+uv run av-atlas validate FRESH_RUN
+uv run av-atlas run MEDIA --config configs/m2b2.yaml --rights-manifest RIGHTS \
+  --operation analysis --output INTERRUPTED_RUN --stop-after inventory
+uv run av-atlas resume RUN --media MEDIA
+```
+
+The last resume and validation commands were repeated twice for both completed and interrupted
+M2B.2. The final full test gate passed 272/272 with zero failures and zero skips; Ruff format checked 51
+files, Ruff lint passed, mypy passed over 24 source files, and doctor passed. Locked offline sync
+resolved 19 and checked 18 packages. The installed controlled host reported uv 0.11.28, CPython
+3.14.3, Linux 6.8.0-134-generic x86_64, FFmpeg/ffprobe 6.1.1-3ubuntu5, Tesseract 5.3.4,
+Leptonica 1.82.0, and approved English tessdata hash
+`7d4322bd2a7749724879683fc3912cb542f19906c83bcc1a52132556427170b2`. The replay used no
+network, GPU, cloud inference, paid API, model/checkpoint download, or training.
+
+Fresh ignored M1, M2A, M2B, M2B.1, M2B.2, and inventory-interrupted/resumed M2B.2 runs validated
+with `18 / 32 / 69 / 69 / 69 / 69` artifact hashes and zero errors. Accepted v1 and v1.1 evidence
+validated read-only with 64 and 68 artifact hashes and zero errors. Completed first/repeated resume
+preserved all 72 run files and all 69 manifest artifacts; the full and manifest map hashes were
+`26ea7690b24db7c775e238392005b6515b5dcaf5527b893471b58d1a9afff93f` and
+`6d7fcfae81203be355c15b9ee376da6a286829f6389885a3f1f0b564ce40ec1f`.
+Interrupted completion and repeated resume were also byte-identical. The interrupted all-files map
+hash was `327554fade972edf5714d85f66558008f547215ab720f8074f21eb853ee74d57`;
+the interrupted manifest-artifact map hash was
+`d112c327564be1c58a80a318cb8fabf0bf91eadbd5b4891e3f762c54f5c8082e`.
+
+### Fresh replay hashes and measurements
+
+Frozen input/contract identities are fixture
+`6d1f79c6a63b6a8d5510bcd67a74e522096fe97b6c2bba68587f0213ccc682a8`, fixture marker
+`4186ed28525803033e4131275d2217c401ef12ab5c16e623f2fdff25c2a373d5` with inner checksum
+`001dd0b0a755a780434ea621616392a18abbadf9085317dda6d5915f644205ad`, gold
+`e62e392aa45406f939edc1f2093d07f1dcf175c0c4ea9085cbeae3edde50bc1a`, M2B.2 config
+`9c0d2b71c928912671f10cee3c0b2e0676f2b5e81de7ca68962832ebfb99313b`. Raw OCR
+`f851aef0d8a1c215023cd71b38120a2f317a10be3dd24567f2f023449acd6060` and temporal tracks
+`f27d60f51c06cead4d0b6159b47865fd635a010e2faba9902057ae1c9cd4b9c2` are stable on the recorded
+software/dependency set. The FFprobe/software-bound inventory is
+`91ada0947d3da15c53b8a99076fa3f9841ebad026fcf96ec91da87cde5e7d6d5`; the sanitized host/package
+OCR dependency inventory is `5ab8663ce63b7d6303ce84e3ec62ab3a9dd1ec55283e8f0c6852dd88740d5cce`.
+
+Fresh runtime/execution-bearing identities are stable receipt
+`5f7019bf07b012e87ff44c7f9368b24ae04c49f905307388729955f1c5b07a3c`, evaluation
+`d82c56376cdcbd8c2eaeb273aac63af4706500530d393d0711f028019fe0c3e2`, benchmark
+`27f1e68189ed5ba06f1d30cf406f0c61be4c17701e75270e7721edab4aa9053c`, BOM
+`abca366e47275ef2d5ff2825b53b0d47436e03a56e29a696f903cb194d188868`, run manifest
+`543f7ba9fe4a9f20f0301b04a675d55bfa22c061700658e4b3577e0d23fa4f77`, and quality report
+`ee0936365cb0574518918e5a9d73826f039519c32a31ca9f709bdeae260b3b9d`.
+
+Measured synthetic-only OCR remained exact match 0.75, normalized CER 0.0125, normalized WER
+0.07692307692307693, text-presence precision/recall/F1 1.0/1.0/1.0, zero duplicate/missing-
+evidence/invalid-timestamp/retry/timeout counts, wall 2.104130 s, CPU 2.057794 s, peak RSS 180796
+KiB, and 1.9010231661 frames/s. Region metrics remain unsupported because the frozen gold has no
+regions. Worker 1/2/4 wall times were 2.094113/1.816275/1.756431 s; CPU
+2.068903/2.091952/2.187848 s; peak RSS 180800 KiB each; and throughput
+1.9101169485/2.2023091970/2.2773452216 frames/s. All produced the identical 13-observation semantic
+hash and zero failures/retries/timeouts.
+
+The exact implementation commit passed main CI at
+`https://github.com/belagrf/av-atlas/actions/runs/29486707488` and CodeQL at
+`https://github.com/belagrf/av-atlas/actions/runs/29486706995`. Release-PR checks remain pending
+until push. Publication-manifest and release-record detached hashes are rendered and reported only
+after every tracked record is final, avoiding circular claims.
+
+### Compatibility, publication, and remaining limits
+
+Immutable v1/v1.1 tag object and commit pairs remain
+`8cadd6c8ecda7d0b6f60421f312c199cbad163e1` /
+`54d96dc25bdf03ab1e92d22150c5011faf16b7e6` and
+`8be328eef2fd10037b56921aff1f401c3ef3a12e` /
+`5d016784c6b3d7226a9f6e0f56cca9fb3ef48822`. The accepted v1
+fixture/gold/config/raw-OCR/evaluation/benchmark/run/release hashes remain
+`6d1f79c6…82a8`, `e62e392a…bc1a`, `8f5545df…5c55`, `f851aef0…6060`,
+`a1011542…3ad`, `47908700…455`, `67797695…440`, and `e545855c…9b2`; the v1.1 release JSON remains
+`fbdc8e171811794d37bbdb018179ba736647795ed053d01cada4580fe5d29d73`.
+
+The release candidate includes no generated fixture media, run, source/snapshot path, private
+rights declaration, annotation, traineddata, checkpoint, weight, archive, or credential. Issue 17
+remains the security/temporary-root gate before real media. Snapshot deletion is logical rather
+than secure; native parsers lack an OS sandbox; same-UID hostility, non-Matroska and live input,
+non-POSIX support, retained-frame lifecycle, authenticated rights signatures, license selection,
+patent/publication review, the double-annotated pilot, full M2, and M2C remain unresolved. No real
+media, pilot, M2C, model, checkpoint, training, tag, or release was processed or created.

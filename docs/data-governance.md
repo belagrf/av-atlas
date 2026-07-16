@@ -68,6 +68,10 @@ Blu-ray navigation, and other unreviewed formats before native parsing. This lim
 resource access but is not an operating-system sandbox and does not establish safety for arbitrary
 hostile media.
 
-The pilot remains unexecuted. Issues [#11](https://github.com/belagrf/av-atlas/issues/11) and
-[#12](https://github.com/belagrf/av-atlas/issues/12) stay open pending review and merge of the
-M2B.2 implementation; neither issue closure nor legal sufficiency is inferred on this branch.
+The pilot remains unexecuted. Issues [#11](https://github.com/belagrf/av-atlas/issues/11),
+[#12](https://github.com/belagrf/av-atlas/issues/12), and
+[#14](https://github.com/belagrf/av-atlas/issues/14) closed after the reviewed M2B.2
+implementation merged; closure records implementation and policy decisions, not legal sufficiency.
+Issue [#17](https://github.com/belagrf/av-atlas/issues/17) remains the security and temporary-root
+gate before any authorized real-media pilot. The release-preparation branch processes only
+project-authored synthetic fixtures.

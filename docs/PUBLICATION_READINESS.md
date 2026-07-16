@@ -86,6 +86,37 @@ payloads, and residues are ignored and are not release artifacts. Snapshot unlin
 as logical cleanup rather than secure erasure. The final review scan and machine-readable manifest
 cover 132 proposed branch paths, and a second independently rendered manifest was byte-identical.
 Exact gate counts are recorded in `PROJECT_STATE.md`; the detached manifest hash and clean-checkout
-CI/CodeQL results are reported in the PR update to avoid circular tracked claims. This branch
-creates no release and does not alter the v1/v1.1 release records. Issues 11, 12, and 14 remain
-open.
+CI/CodeQL results were reported in the PR review to avoid circular tracked claims. The reviewed
+implementation merged without altering the v1/v1.1 release records. Issues 11, 12, and 14 closed
+with that implementation; issue 17 is the remaining security and temporary-root gate before a
+real-media pilot.
+
+## v1.2 release-preparation candidate
+
+The v1.2 candidate contains release, state, reproduction, publication, governance, security, and
+ADR metadata only. It preserves the reviewed implementation commit
+`2555a297153c9b5ff059b7d8dc7e49de5d93c43b` and package 0.2.2 without changing source, schemas,
+configuration, tests, locks, workflows, fixtures, or accepted evidence. The two new release records
+bring the reviewed candidate inventory to 134 files. A fresh deterministic render must exactly
+match that candidate path set; its detached SHA-256 is reported in the release-preparation PR,
+because embedding it in a file that it hashes would be circular.
+
+The complete local gate passed 272 tests with zero failures/skips, Ruff format over 51 files, Ruff
+lint, mypy over 24 source files, locked offline sync, and doctor. Fresh ignored
+M1/M2A/M2B/M2B.1/M2B.2/interrupted-resumed M2B.2 runs validated with zero errors; accepted v1/v1.1
+runs validated read-only. The exact implementation source passed main CI and CodeQL. Completed and
+interrupted first/repeated resume comparisons were byte-identical across all 72 run files and all
+69 manifest artifacts.
+
+The candidate scan covers filenames, content, staged blobs, JSON, MIME/magic, sizes, symlinks, Git
+LFS, credentials, personal paths/emails, media/derivatives, rights workspaces, annotations,
+traineddata, checkpoints/weights, datasets, archives, runs, caches, and private snapshot leases. No
+publication blocker was found. The only object above 1 MiB remains the approved 1,282,425-byte
+concept PDF; it is unencrypted and has no JavaScript or embedded file. There are no tracked
+symlinks or LFS objects. Inert `.invalid`, `/home/operator`, and documented negative-test strings
+are not live personal data or credentials.
+
+No tag or release is created from this branch before source review. No private media, derivative,
+rights declaration, annotation, traineddata, checkpoint, model, run directory, or archive is
+included. No project license has been selected. Issue 17 and the operator-supplied authorized
+double-annotated pilot remain pending; full M2 is incomplete and M2C is unimplemented.

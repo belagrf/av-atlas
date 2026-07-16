@@ -5,8 +5,8 @@ does not grant reuse rights beyond applicable law. AV-Atlas is therefore not cur
 open source.
 
 AV-Atlas is an evidence-first research implementation for comprehensive audiovisual
-transcription. This repository implements M0/M1, M2A, the bounded M2B frame-OCR increment, and an
-M2B.2 stable-input hardening candidate. The original M1 path
+transcription. This repository implements M0/M1, M2A, the bounded M2B frame-OCR increment, and the
+reviewed M2B.2 stable-input hardening increment. The original M1 path
 remains available:
 deterministic synthetic media is inventoried, chunked, sampled, combined with production-shaped
 sidecar perception adapters, and written as a validated evidence ledger plus derived transcript and
@@ -181,7 +181,9 @@ See [OCR annotation guide](docs/ocr-annotation-guide.md) for external-pilot hand
 The accepted controlled release and offline replay procedure are recorded in
 [M2B controlled baseline v1](docs/releases/M2B_CONTROLLED_BASELINE_V1.md). The separately versioned
 [M2B controlled baseline v1.1](docs/releases/M2B_CONTROLLED_BASELINE_V1_1.md) freezes the reviewed
-M2B.1 source-audit hardening without changing v1. Two workers are the provisional recommendation
+M2B.1 source-audit hardening without changing v1. The release-preparation record for
+[M2B controlled baseline v1.2](docs/releases/M2B_CONTROLLED_BASELINE_V1_2.md) freezes the reviewed
+M2B.2 source at package version 0.2.2, pending review before any tag or release. Two workers are the provisional recommendation
 for a future versioned configuration; the frozen baseline remains unchanged.
 
 An authorized real-media pilot is prepared, annotated, frozen, run, and evaluated with
@@ -247,14 +249,14 @@ risk. A tmpfs may still swap unless configured appropriately.
 Temporal OCR tracks are validated relationally against immutable raw observations; malformed
 parallel arrays become actionable quality-report errors rather than validator tracebacks.
 
-M2B.1 status: “M2B.1 rights, configuration, partial-result, provenance, temporal-track, validation,
-privacy, and clean-checkout hardening complete for the controlled synthetic baseline. Authorized
-real-media evaluation remains pending.” This describes four synthetic frames and 13 OCR
-observations only. It establishes no real-media accuracy, semantic understanding, or trained-model
-capability. M2B.2 stable-input and rights-gated inspection are implemented on this review branch,
-not released or merged. Full M2 is incomplete, and M2C is unimplemented. The real-media pilot
-remains gated by
-[stable-input security issue #11](https://github.com/belagrf/av-atlas/issues/11) and
-[standalone-inspection governance issue #12](https://github.com/belagrf/av-atlas/issues/12), while
-the implementation issue [#14](https://github.com/belagrf/av-atlas/issues/14) also remains open
-until this M2B.2 pull request is reviewed and merged. No pilot media was processed.
+M2B.2 status: “M2B.2 stable authorized input, rights-gated inspection, fixture-trust, and
+native-input hardening complete for the controlled synthetic baseline. Authorized real-media
+evaluation remains pending.” This describes four synthetic frames and 13 OCR observations only. It
+establishes no real-media accuracy, semantic understanding, or trained-model capability. The
+implementation is merged; the separate v1.2 release-preparation PR must receive source review
+before a new tag or release is created. Full M2 is incomplete, and M2C is unimplemented. Issues
+[#11](https://github.com/belagrf/av-atlas/issues/11),
+[#12](https://github.com/belagrf/av-atlas/issues/12), and
+[#14](https://github.com/belagrf/av-atlas/issues/14) closed with reviewed M2B.2 implementation.
+The real-media pilot remains gated by
+[#17](https://github.com/belagrf/av-atlas/issues/17). No pilot media was processed.
