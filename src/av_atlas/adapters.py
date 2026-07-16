@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Literal, Protocol
+
+if TYPE_CHECKING:
+    from av_atlas.native_process import BubblewrapNativeRunner
 
 from av_atlas.config import BaselineConfig
 from av_atlas.contracts import AdapterResult, Observation
@@ -20,6 +23,15 @@ class AdapterContext:
     config: BaselineConfig
     # Verified controlled-fixture observations are immutable values, never source paths.
     sidecar_observations: tuple[Observation, ...] = ()
+    native_execution_mode: Literal["controlled_direct", "pilot_bubblewrap"] = "controlled_direct"
+    native_runner: BubblewrapNativeRunner | None = None
+    ocr_dependency_private: dict[str, Any] | None = None
+
+    def __post_init__(self) -> None:
+        if self.native_execution_mode == "pilot_bubblewrap" and self.native_runner is None:
+            raise AtlasError("pilot adapter context requires the mandatory Bubblewrap runner")
+        if self.native_execution_mode == "controlled_direct" and self.native_runner is not None:
+            raise AtlasError("controlled-direct context must not carry a pilot sandbox runner")
 
 
 class AdapterExecution(Protocol):

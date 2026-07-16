@@ -1,6 +1,6 @@
 {
   "schema_version": "1.1.0",
-  "generated_at": "2026-07-14",
+  "generated_at": "2026-07-16",
   "inventory_layers": {
     "declared_dependency_metadata": "Project purpose, constraints, approval, and expected runtime fields; declarations are not host measurements.",
     "measured_current_host_inventory": "Versions and file identities observed on the controlled host; each fresh OCR run writes a separately measured sanitized dependency inventory.",
@@ -45,6 +45,31 @@
       "approval_record": "Approved for local M0-M2A deterministic tooling only",
       "approval_date": "2026-07-13",
       "known_risks": ["Parser and decoder attack surface", "Metadata output must remain bounded"]
+    },
+    {
+      "name": "Bubblewrap",
+      "purpose": "Mandatory local namespace sandbox for M2B.3 pilot-mode FFprobe, FFmpeg, and Tesseract execution",
+      "identifier": "ubuntu:bubblewrap",
+      "version": "0.9.0-1ubuntu0.1 (amd64; source bubblewrap 0.9.0-1ubuntu0.1; executable reports bubblewrap 0.9.0)",
+      "source": "https://github.com/containers/bubblewrap/ and Ubuntu package repositories; measured system-class executable basename bwrap",
+      "checksum": "sha256:52231e1caf55bcbc667b269f49c63599a6f7db4767ae6a039580d0ff853db712",
+      "license_id": "LGPL-2+",
+      "license_source": "Installed bubblewrap package copyright metadata (sha256:229a402fddba5c81005950f28de162359383cba731f5b859b8f82a03c338bf01)",
+      "redistribution_constraints": "LGPL-2+ and Ubuntu package notice/source obligations apply if the binary is redistributed; AV-Atlas does not redistribute it.",
+      "commercial_use_constraints": "No project-specific prohibition identified in the installed metadata; license compliance remains required. This is not legal advice.",
+      "data_use_constraints": "No media-rights grant; pilot sources still require exact rights and security-policy linkage.",
+      "runtime_requirements": "Linux amd64; user/PID/IPC/UTS/mount/network namespace support; profile av-atlas-bubblewrap-pilot/1.1.0 (sha256:18ba5b8e06291138310fa45d040c5930bcbc5c705ac4c2a7018398114b0be2ad); executable size 72160 bytes; profile-bound dependency identity sha256:f75d9e08d32eaad33de98592ee0f603a19539768f3e5381b8a0b31e3c1f6c94e",
+      "network_required": false,
+      "weights_status": "not_applicable",
+      "approval_record": "Existing local package authorized for project-authored synthetic M2B.3 sandbox verification only; AV-Atlas does not install it automatically",
+      "approval_date": "2026-07-16",
+      "known_risks": [
+        "Kernel namespaces and the narrow reviewed read-only system runtime remain trusted computing base",
+        "Fixed runtime subtrees are exposed by profile and operator-controlled inputs must not overlap them",
+        "The profile SHA-256 binds declarative arguments and mounts, not the separate Python path-overlap or runner-enforcement code",
+        "RLIMIT_NPROC is charged against the host real UID rather than being a precise per-sandbox process counter",
+        "A capability smoke pass does not by itself satisfy the complete synthetic-pilot execution gate"
+      ]
     },
     {
       "name": "jsonschema",

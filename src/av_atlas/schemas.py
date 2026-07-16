@@ -44,6 +44,11 @@ SCHEMA_FILES = {
     "ocr_human_annotation": "ocr-human-annotation.schema.json",
     "stable_input": "stable-input.schema.json",
     "native_input_policy": "native-input-policy.schema.json",
+    "pilot_security_policy": "pilot-security-policy.schema.json",
+    "pilot_security_receipt": "pilot-security-receipt.schema.json",
+    "pilot_security_synthetic_report": "pilot-security-synthetic-report.schema.json",
+    "pilot_ocr_observation": "pilot-ocr-observation.schema.json",
+    "pilot_ocr_output_manifest": "pilot-ocr-output-manifest.schema.json",
 }
 
 

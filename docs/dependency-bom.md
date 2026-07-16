@@ -53,3 +53,28 @@ FFmpeg/libavformat build: an explicit `file` protocol whitelist, a forced and wh
 OCR frames. The supported-format narrowing is AV-Atlas policy, not a new dependency or a claim that
 native parsing is sandboxed. No network component, model, checkpoint, language data, or package was
 added.
+
+M2B.3 inventories the already installed, system-class Bubblewrap dependency without installing or
+downloading it. The measured executable basename is `bwrap`, version `bubblewrap 0.9.0`, size
+72,160 bytes, SHA-256
+`52231e1caf55bcbc667b269f49c63599a6f7db4767ae6a039580d0ff853db712`. Ubuntu package metadata
+reports `bubblewrap` `0.9.0-1ubuntu0.1` for `amd64`, source package/version
+`bubblewrap 0.9.0-1ubuntu0.1`, and license `LGPL-2+` from installed copyright metadata with SHA-256
+`229a402fddba5c81005950f28de162359383cba731f5b859b8f82a03c338bf01`. The sanitized, profile-bound
+dependency identity is `f75d9e08d32eaad33de98592ee0f603a19539768f3e5381b8a0b31e3c1f6c94e`.
+
+The versioned Bubblewrap profile is `av-atlas-bubblewrap-pilot/1.1.0`, with profile SHA-256
+`18ba5b8e06291138310fa45d040c5930bcbc5c705ac4c2a7018398114b0be2ad`. The hash binds the exact
+static argument prefix/suffix, narrow runtime mounts, masked subtrees, and fixed tool paths in the
+declarative profile. It does not independently bind the Python path-overlap guard or runner code;
+those controls are identified by the reviewed source commit and regression tests. Its current-host namespace
+smoke test passed without network access. That smoke test is a dependency/capability measurement,
+not the complete synthetic-pilot gate and not evidence of real-media safety. Pilot mode fails
+closed if Bubblewrap is missing, changed, or incapable. AV-Atlas does not install it; on this
+Ubuntu host the minimal operator command would be `sudo apt-get install bubblewrap`.
+
+Bubblewrap is not a model, checkpoint, trained weight, or inference service. The checkpoint
+inventory remains empty. `RLIMIT_NPROC` applies to the host real UID before namespace entry and is
+therefore a bounded host-UID control, not a precise per-sandbox process counter. The sandbox's
+reviewed read-only host runtime and kernel namespace implementation remain part of the trusted
+computing base.

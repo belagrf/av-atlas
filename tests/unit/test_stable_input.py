@@ -15,6 +15,7 @@ from av_atlas.stable_input import (
     MARKER_NAME,
     SNAPSHOT_NAME,
     StableInputPolicy,
+    VerifiedPrivateRoot,
     acquire_authorized_input,
     recover_stale_snapshots,
 )
@@ -52,6 +53,20 @@ def _children(root: Path) -> list[Path]:
     return list(root.iterdir()) if root.exists() else []
 
 
+def _open_verified_root(root: Path) -> VerifiedPrivateRoot:
+    root.mkdir(mode=0o700)
+    root.chmod(0o700)
+    descriptor = os.open(
+        root,
+        os.O_RDONLY
+        | getattr(os, "O_DIRECTORY", 0)
+        | getattr(os, "O_CLOEXEC", 0)
+        | getattr(os, "O_NOFOLLOW", 0),
+    )
+    value = os.fstat(descriptor)
+    return VerifiedPrivateRoot(root, descriptor, value.st_dev, value.st_ino)
+
+
 def test_snapshot_is_exact_private_path_free_and_cleaned(tmp_path: Path) -> None:
     source = tmp_path / "operator;$(inert).mkv"
     source.write_bytes(b"authorized stable bytes")
@@ -71,6 +86,145 @@ def test_snapshot_is_exact_private_path_free_and_cleaned(tmp_path: Path) -> None
     assert snapshot is not None and not snapshot.exists()
     assert _children(private) == []
     assert not (tmp_path / "inert").exists()
+
+
+def test_verified_private_root_uses_retained_fd_and_preserves_legacy_receipt(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "source.bin"
+    source.write_bytes(b"verified private-root bytes")
+    rights = _rights(source, tmp_path / "rights.json")
+    verified = _open_verified_root(tmp_path / "verified")
+    borrowed_snapshot_fd: int | None = None
+    try:
+        with acquire_authorized_input(
+            source,
+            rights,
+            "analysis",
+            verified_private_root=verified,
+        ) as stable:
+            borrowed_snapshot_fd = stable.snapshot_fd
+            assert borrowed_snapshot_fd is not None
+            assert os.get_inheritable(borrowed_snapshot_fd) is False
+            os.lseek(borrowed_snapshot_fd, 0, os.SEEK_SET)
+            assert os.read(borrowed_snapshot_fd, 1024) == source.read_bytes()
+            with pytest.raises(OSError):
+                os.write(borrowed_snapshot_fd, b"not writable")
+            verified_receipt = stable.receipt
+            assert os.fstat(verified.descriptor).st_ino == verified.inode
+        assert _children(verified.path) == []
+        assert borrowed_snapshot_fd is not None
+        with pytest.raises(OSError):
+            os.fstat(borrowed_snapshot_fd)
+
+        with acquire_authorized_input(
+            source,
+            rights,
+            "analysis",
+            private_root=tmp_path / "legacy",
+        ) as legacy:
+            assert canonical_json(legacy.receipt) == canonical_json(verified_receipt)
+        assert _children(tmp_path / "legacy") == []
+    finally:
+        os.close(verified.descriptor)
+
+
+def test_verified_private_root_replacement_is_rejected_before_lease(tmp_path: Path) -> None:
+    source = tmp_path / "source.bin"
+    source.write_bytes(b"root replacement")
+    rights = _rights(source, tmp_path / "rights.json")
+    verified = _open_verified_root(tmp_path / "verified")
+    moved = tmp_path / "moved"
+    verified.path.rename(moved)
+    verified.path.mkdir(mode=0o700)
+    try:
+        with (
+            pytest.raises(AtlasError, match="private-root identity"),
+            acquire_authorized_input(
+                source,
+                rights,
+                "analysis",
+                verified_private_root=verified,
+            ),
+        ):
+            pytest.fail("a replaced verified root must not yield a snapshot")
+        assert _children(verified.path) == []
+        assert _children(moved) == []
+    finally:
+        os.close(verified.descriptor)
+
+
+def test_verified_private_root_replacement_before_yield_is_rejected(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = tmp_path / "source.bin"
+    source.write_bytes(b"replace after lease allocation")
+    rights = _rights(source, tmp_path / "rights.json")
+    verified = _open_verified_root(tmp_path / "verified")
+    moved = tmp_path / "moved"
+    real_copy = stable_input._copy_snapshot
+
+    def replace_root(*args: object, **kwargs: object) -> tuple[str, int]:
+        result = real_copy(*args, **kwargs)  # type: ignore[arg-type]
+        verified.path.rename(moved)
+        verified.path.mkdir(mode=0o700)
+        return result
+
+    monkeypatch.setattr(stable_input, "_copy_snapshot", replace_root)
+    try:
+        with (
+            pytest.raises(AtlasError, match="private-root identity"),
+            acquire_authorized_input(
+                source,
+                rights,
+                "analysis",
+                verified_private_root=verified,
+            ),
+        ):
+            pytest.fail("a replaced root must be rejected before the lease is yielded")
+        residues = [item for item in moved.iterdir() if item.is_dir()]
+        assert len(residues) == 1
+        assert (residues[0] / MARKER_NAME).is_file()
+        assert (residues[0] / SNAPSHOT_NAME).is_file()
+
+        verified.path.rmdir()
+        moved.rename(verified.path)
+        assert recover_stale_snapshots(verified_root=verified) == 1
+        assert _children(verified.path) == []
+    finally:
+        os.close(verified.descriptor)
+
+
+def test_verified_private_root_mode_drift_blocks_cleanup_then_recovers(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "source.bin"
+    source.write_bytes(b"mode drift")
+    rights = _rights(source, tmp_path / "rights.json")
+    verified = _open_verified_root(tmp_path / "verified")
+    try:
+        with (
+            pytest.raises(AtlasError, match="cleanup failed"),
+            acquire_authorized_input(
+                source,
+                rights,
+                "analysis",
+                verified_private_root=verified,
+            ),
+        ):
+            verified.path.chmod(0o750)
+        residues = [item for item in verified.path.iterdir() if item.is_dir()]
+        assert len(residues) == 1
+        assert (residues[0] / MARKER_NAME).is_file()
+        assert (residues[0] / SNAPSHOT_NAME).is_file()
+
+        verified.path.chmod(0o700)
+        assert recover_stale_snapshots(verified_root=verified) == 1
+        assert _children(verified.path) == []
+    finally:
+        verified.path.chmod(0o700)
+        os.close(verified.descriptor)
 
 
 def test_original_mutation_after_acquisition_cannot_change_snapshot(tmp_path: Path) -> None:

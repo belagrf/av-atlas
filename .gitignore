@@ -62,6 +62,11 @@ extracted-subtitles/
 temporary-ocr/
 ocr-temp/
 av-atlas-stable-input-*/
+av-atlas-pilot-private-*/
+pilot-private/
+pilot-security-policies/
+pilot-security-policy.local.json
+*.pilot-security-policy.local.json
 annotation-workspaces/
 private-annotations/
 private-rights/

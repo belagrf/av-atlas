@@ -15,6 +15,13 @@ from av_atlas.contracts import AdapterResult, AdapterStatus, Observation
 from av_atlas.errors import AtlasError, ResourceLimitError, redact_private_paths
 from av_atlas.io import atomic_write_text, sha256_file, write_json, write_jsonl
 from av_atlas.native_media import NativeInputPolicy, enforce_path_policy, policy_from_inventory
+from av_atlas.native_process import (
+    BubblewrapNativeRunner,
+    NativeInvocation,
+    NativeTool,
+    ReadOnlyBind,
+    WritableDirectory,
+)
 
 TEXT_CODECS = {"subrip", "srt", "webvtt", "ass", "ssa", "mov_text", "text"}
 BITMAP_CODECS = {"hdmv_pgs_subtitle", "dvd_subtitle", "dvb_subtitle", "xsub"}
@@ -45,6 +52,7 @@ class SubtitleAdapter:
             context.config.subtitle_mode,
             context.config.subtitle_tracks,
             context.config.subprocess_timeout_seconds,
+            native_runner=context.native_runner,
         )
 
 
@@ -112,11 +120,57 @@ def _extract_track(
     stream_index: int,
     timeout_seconds: int,
     native_policy: NativeInputPolicy,
+    *,
+    native_runner: BubblewrapNativeRunner | None = None,
+    sandbox_work_directory: Path | None = None,
+    expected_source_sha256: str | None = None,
+    expected_source_size: int | None = None,
 ) -> str:
+    enforce_path_policy(media, native_policy)
+    if native_runner is not None:
+        if (
+            sandbox_work_directory is None
+            or expected_source_sha256 is None
+            or expected_source_size is None
+        ):
+            raise AtlasError("sandboxed subtitle extraction requires exact source identity")
+        source = ReadOnlyBind.measure_file(
+            media,
+            "/input/source",
+            expected_size=expected_source_size,
+            expected_sha256=expected_source_sha256,
+        )
+        sandbox_result = native_runner.run(
+            NativeInvocation(
+                NativeTool.FFMPEG,
+                (
+                    "-hide_banner",
+                    "-loglevel",
+                    "error",
+                    "-nostdin",
+                    *native_policy.arguments(Path("/input/source")),
+                    "-map",
+                    f"0:{stream_index}",
+                    "-c:s",
+                    "webvtt",
+                    "-f",
+                    "webvtt",
+                    "pipe:1",
+                ),
+                WritableDirectory.measure(sandbox_work_directory),
+                (source,),
+                private_paths=(media, sandbox_work_directory),
+            )
+        )
+        if not isinstance(sandbox_result.stdout, str):
+            raise AtlasError("sandboxed subtitle extraction returned invalid text output")
+        if len(sandbox_result.stdout.encode("utf-8")) > 16_000_000:
+            raise ResourceLimitError("subtitle extraction exceeded the 16 MB output limit")
+        return sandbox_result.stdout
+
     ffmpeg = shutil.which("ffmpeg")
     if ffmpeg is None:
         raise AtlasError("ffmpeg is unavailable")
-    enforce_path_policy(media, native_policy)
     try:
         completed = subprocess.run(
             [
@@ -163,6 +217,8 @@ def extract_subtitles(
     mode: str,
     selected_indexes: tuple[int, ...],
     timeout_seconds: int,
+    *,
+    native_runner: BubblewrapNativeRunner | None = None,
 ) -> SubtitleOutput:
     source_id, duration_ms = inventory["source_id"], int(inventory["duration_ms"])
     streams = [stream for stream in inventory["streams"] if stream["codec_type"] == "subtitle"]
@@ -178,7 +234,7 @@ def extract_subtitles(
         )
         return SubtitleOutput(result, _tracks_payload(source_id, mode, []), (), (), {})
     chosen = available_indexes if mode == "all" else set(selected_indexes)
-    if chosen and shutil.which("ffmpeg") is None:
+    if chosen and native_runner is None and shutil.which("ffmpeg") is None:
         result = AdapterResult(
             "subtitle",
             "unavailable_dependency",
@@ -225,7 +281,24 @@ def extract_subtitles(
         try:
             if native_policy is None:
                 native_policy = policy_from_inventory(inventory)
-            raw = _extract_track(media, stream_index, timeout_seconds, native_policy)
+            if native_runner is None:
+                raw = _extract_track(media, stream_index, timeout_seconds, native_policy)
+            else:
+                source_hash, source_size = inventory.get("sha256"), inventory.get("size_bytes")
+                if not isinstance(source_hash, str) or not isinstance(source_size, int):
+                    raise AtlasError(
+                        "sandboxed subtitle extraction requires inventory source identity"
+                    )
+                raw = _extract_track(
+                    media,
+                    stream_index,
+                    timeout_seconds,
+                    native_policy,
+                    native_runner=native_runner,
+                    sandbox_work_directory=run_dir,
+                    expected_source_sha256=source_hash,
+                    expected_source_size=source_size,
+                )
             raw_path = raw_dir / f"{track_id}.vtt"
             atomic_write_text(raw_path, raw)
             record["status"] = "extracted"

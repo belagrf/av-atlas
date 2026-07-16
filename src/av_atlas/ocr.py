@@ -20,9 +20,16 @@ from typing import Any
 
 from av_atlas.adapters import AdapterContext
 from av_atlas.contracts import AdapterResult, AdapterStatus, Observation
-from av_atlas.errors import AtlasError
+from av_atlas.errors import AtlasError, ResourceLimitError
 from av_atlas.io import canonical_json, sha256_file, write_json, write_jsonl
 from av_atlas.native_media import classify_generated_png
+from av_atlas.native_process import (
+    BubblewrapNativeRunner,
+    NativeInvocation,
+    NativeTool,
+    ReadOnlyBind,
+    WritableDirectory,
+)
 from av_atlas.ocr_tracks import associate_temporal_text
 
 INSTALL_COMMAND = "sudo apt-get install tesseract-ocr tesseract-ocr-eng"
@@ -92,6 +99,29 @@ def _path_class(path: Path) -> str:
     )
 
 
+def ocr_dependency_identity_sha256(value: dict[str, Any]) -> str:
+    """Recompute the canonical sanitized OCR dependency identity."""
+    language_data = value.get("language_data")
+    if not isinstance(language_data, list):
+        raise AtlasError("OCR dependency language data is malformed")
+    normalized_languages: list[tuple[str, str]] = []
+    for item in language_data:
+        if (
+            not isinstance(item, dict)
+            or not isinstance(item.get("language"), str)
+            or not isinstance(item.get("sha256"), str)
+        ):
+            raise AtlasError("OCR dependency language-data identity is malformed")
+        normalized_languages.append((item["language"], item["sha256"]))
+    identity_payload = {
+        "engine": value.get("engine"),
+        "version": value.get("version"),
+        "executable_sha256": value.get("executable_sha256"),
+        "language_data": normalized_languages,
+    }
+    return hashlib.sha256(canonical_json(identity_payload).encode()).hexdigest()
+
+
 def sanitize_ocr_inventory(value: dict[str, Any]) -> dict[str, Any]:
     """Remove host-private absolute paths from ordinary exported dependency records."""
     if value.get("state") != "available":
@@ -127,20 +157,16 @@ def sanitize_ocr_inventory(value: dict[str, Any]) -> dict[str, Any]:
         _path_class(Path(prefix)) if prefix else "distribution-default"
     )
     sanitized["relevant_environment"] = {
-        key: ("set-path-redacted" if key == "TESSDATA_PREFIX" and item else item)
+        key: (
+            None
+            if item is None
+            else "set-path-redacted"
+            if key == "TESSDATA_PREFIX"
+            else "set-value-redacted"
+        )
         for key, item in sanitized.get("relevant_environment", {}).items()
     }
-    identity_payload = {
-        "engine": sanitized["engine"],
-        "version": sanitized["version"],
-        "executable_sha256": sanitized["executable_sha256"],
-        "language_data": [
-            (item["language"], item["sha256"]) for item in sanitized["language_data"]
-        ],
-    }
-    sanitized["dependency_identity_sha256"] = hashlib.sha256(
-        canonical_json(identity_payload).encode()
-    ).hexdigest()
+    sanitized["dependency_identity_sha256"] = ocr_dependency_identity_sha256(sanitized)
     sanitized["inventory_layers"] = {
         "declared_metadata": "adapter configuration and project BOM",
         "measured_current_host": True,
@@ -150,7 +176,13 @@ def sanitize_ocr_inventory(value: dict[str, Any]) -> dict[str, Any]:
     return sanitized
 
 
-def inspect_ocr(executable: str = "auto", *, include_private_paths: bool = False) -> dict[str, Any]:
+def inspect_ocr(
+    executable: str = "auto",
+    *,
+    include_private_paths: bool = False,
+    native_runner: BubblewrapNativeRunner | None = None,
+    sandbox_work_directory: Path | None = None,
+) -> dict[str, Any]:
     """Inventory a local Tesseract installation without network or mutation."""
     path = shutil.which("tesseract") if executable == "auto" else shutil.which(executable)
     if path is None:
@@ -163,12 +195,27 @@ def inspect_ocr(executable: str = "auto", *, include_private_paths: bool = False
         }
     resolved = Path(path).resolve()
     try:
-        version_process = _completed([str(resolved), "--version"])
-        version_output = (version_process.stdout + version_process.stderr).strip()
+        if native_runner is None:
+            version_process = _completed([str(resolved), "--version"])
+            version_output = (version_process.stdout + version_process.stderr).strip()
+            languages_process = _completed([str(resolved), "--list-langs"])
+            languages_output = (languages_process.stdout + languages_process.stderr).strip()
+        else:
+            if sandbox_work_directory is None or resolved != Path("/usr/bin/tesseract"):
+                raise AtlasError(
+                    "sandboxed OCR inventory supports only the reviewed system Tesseract"
+                )
+            writable = WritableDirectory.measure(sandbox_work_directory)
+            version_result = native_runner.run(
+                NativeInvocation(NativeTool.TESSERACT, ("--version",), writable)
+            )
+            version_output = (version_result.stdout + version_result.stderr).strip()
+            languages_result = native_runner.run(
+                NativeInvocation(NativeTool.TESSERACT, ("--list-langs",), writable)
+            )
+            languages_output = (languages_result.stdout + languages_result.stderr).strip()
         version_lines = [line.strip() for line in version_output.splitlines() if line.strip()]
-        languages_process = _completed([str(resolved), "--list-langs"])
-        languages_output = (languages_process.stdout + languages_process.stderr).strip()
-    except (OSError, subprocess.SubprocessError) as exc:
+    except (AtlasError, OSError, subprocess.SubprocessError) as exc:
         return {
             "schema_version": "1.0.0",
             "state": "unavailable",
@@ -209,10 +256,20 @@ def inspect_ocr(executable: str = "auto", *, include_private_paths: bool = False
         }
         | ({str(tessdata_directory)} if tessdata_directory is not None else set())
     )
-    relevant_environment = {
-        key: os.environ.get(key)
-        for key in ("TESSDATA_PREFIX", "OMP_THREAD_LIMIT", "LANG", "LC_ALL", "LC_CTYPE")
-    }
+    relevant_environment = (
+        {
+            "TESSDATA_PREFIX": None,
+            "OMP_THREAD_LIMIT": None,
+            "LANG": "C.UTF-8",
+            "LC_ALL": "C.UTF-8",
+            "LC_CTYPE": None,
+        }
+        if native_runner is not None
+        else {
+            key: os.environ.get(key)
+            for key in ("TESSDATA_PREFIX", "OMP_THREAD_LIMIT", "LANG", "LC_ALL", "LC_CTYPE")
+        }
+    )
     result = {
         "schema_version": "1.0.0",
         "state": "available",
@@ -230,10 +287,10 @@ def inspect_ocr(executable: str = "auto", *, include_private_paths: bool = False
         "version_output": version_lines,
         "executable_package": _package_record(resolved),
         "tessdata_prefix": {
-            "environment_value": os.environ.get("TESSDATA_PREFIX"),
+            "environment_value": relevant_environment["TESSDATA_PREFIX"],
             "behavior": (
                 "explicit_environment_override"
-                if os.environ.get("TESSDATA_PREFIX")
+                if relevant_environment["TESSDATA_PREFIX"]
                 else "unset_uses_distribution_default"
             ),
         },
@@ -322,57 +379,105 @@ def _process_frame(
     ffmpeg = shutil.which("ffmpeg")
     if ffmpeg is None:
         raise AtlasError("ffmpeg is unavailable for OCR preprocessing")
-    subprocess.run(
-        [
-            ffmpeg,
-            "-hide_banner",
-            "-loglevel",
-            "error",
-            "-nostdin",
-            *native_policy.arguments(source),
-            "-vf",
-            _preprocessing_filter(config),
-            "-frames:v",
-            "1",
-            "-y",
-            "--",
-            str(prepared),
-        ],
-        check=True,
-        capture_output=True,
-        shell=False,
-        timeout=config.ocr_timeout_seconds,
-    )
+    runner = context.native_runner
+    source_argument = Path("/input/frame.png") if runner is not None else source
+    prepared_argument = Path("/work/prepared.png") if runner is not None else prepared
+    ffmpeg_arguments = [
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-nostdin",
+        *native_policy.arguments(source_argument),
+        "-vf",
+        _preprocessing_filter(config),
+        "-frames:v",
+        "1",
+        "-y",
+        "--",
+        str(prepared_argument),
+    ]
+    if runner is None:
+        subprocess.run(
+            [ffmpeg, *ffmpeg_arguments],
+            check=True,
+            capture_output=True,
+            shell=False,
+            timeout=config.ocr_timeout_seconds,
+        )
+        tesseract_work = temporary
+    else:
+        preprocess_work = temporary / f"preprocess-{frame_number:04d}"
+        preprocess_work.mkdir(mode=0o700)
+        runner.run(
+            NativeInvocation(
+                NativeTool.FFMPEG,
+                tuple(ffmpeg_arguments),
+                WritableDirectory.measure(preprocess_work),
+                (
+                    ReadOnlyBind.measure_file(
+                        source,
+                        "/input/frame.png",
+                        expected_size=int(keyframe["size_bytes"]),
+                        expected_sha256=str(keyframe["sha256"]),
+                    ),
+                ),
+                private_paths=(source, preprocess_work),
+            )
+        )
+        prepared = preprocess_work / "prepared.png"
+        tesseract_work = temporary / f"tesseract-{frame_number:04d}"
+        tesseract_work.mkdir(mode=0o700)
     if not prepared.is_file() or prepared.stat().st_size == 0:
         raise AtlasError("OCR preprocessing produced no frame")
     if prepared.stat().st_size > 16_000_000:
         raise AtlasError("OCR prepared frame exceeds the 16 MB limit")
-    environment = {**os.environ, "OMP_THREAD_LIMIT": "1"}
-    completed = subprocess.run(
-        [
-            dependency["resolved_executable_path"],
-            str(prepared),
-            "stdout",
-            "-l",
-            "+".join(config.ocr_languages),
-            "--psm",
-            str(config.ocr_page_segmentation_mode),
-            "--oem",
-            str(config.ocr_engine_mode),
-            "tsv",
-        ],
-        check=True,
-        capture_output=True,
-        text=True,
-        shell=False,
-        timeout=config.ocr_timeout_seconds,
-        env=environment,
-    )
-    if len(completed.stdout.encode("utf-8")) > 8_000_000:
+    tesseract_arguments = [
+        "/input/prepared.png" if runner is not None else str(prepared),
+        "stdout",
+        "-l",
+        "+".join(config.ocr_languages),
+        "--psm",
+        str(config.ocr_page_segmentation_mode),
+        "--oem",
+        str(config.ocr_engine_mode),
+        "tsv",
+    ]
+    if runner is None:
+        environment = {**os.environ, "OMP_THREAD_LIMIT": "1"}
+        completed = subprocess.run(
+            [dependency["resolved_executable_path"], *tesseract_arguments],
+            check=True,
+            capture_output=True,
+            text=True,
+            shell=False,
+            timeout=config.ocr_timeout_seconds,
+            env=environment,
+        )
+        tsv_output = completed.stdout
+    else:
+        completed_sandbox = runner.run(
+            NativeInvocation(
+                NativeTool.TESSERACT,
+                tuple(tesseract_arguments),
+                WritableDirectory.measure(tesseract_work),
+                (
+                    ReadOnlyBind.measure_file(
+                        prepared,
+                        "/input/prepared.png",
+                        expected_size=prepared.stat().st_size,
+                        expected_sha256=sha256_file(prepared),
+                    ),
+                ),
+                environment=(("OMP_THREAD_LIMIT", "1"),),
+                private_paths=(prepared, tesseract_work),
+            )
+        )
+        tsv_output = completed_sandbox.stdout
+    if len(tsv_output.encode("utf-8")) > 8_000_000:
         raise AtlasError("Tesseract TSV output exceeds the 8 MB limit")
     return (
         frame_number,
-        parse_tsv(completed.stdout, config.ocr_min_confidence),
+        parse_tsv(tsv_output, config.ocr_min_confidence),
         {
             "keyframe_id": keyframe["keyframe_id"],
             "shot_id": keyframe["shot_id"],
@@ -397,7 +502,14 @@ class TesseractOcrAdapter:
         cpu_started = time.process_time()
         child_started = resource.getrusage(resource.RUSAGE_CHILDREN)
         config = context.config
-        private_dependency = inspect_ocr(config.ocr_executable, include_private_paths=True)
+        if context.native_execution_mode == "pilot_bubblewrap":
+            if context.ocr_dependency_private is None:
+                raise AtlasError(
+                    "pilot OCR requires a pre-inventoried dependency and mandatory sandbox runner"
+                )
+            private_dependency = context.ocr_dependency_private
+        else:
+            private_dependency = inspect_ocr(config.ocr_executable, include_private_paths=True)
         dependency = sanitize_ocr_inventory(private_dependency)
         dependency_path = context.run_dir / "ocr_dependency.json"
         output_path = context.run_dir / "ocr_observations.jsonl"
@@ -561,6 +673,23 @@ class TesseractOcrAdapter:
                                 "source_frame_evidence_ref": keyframe["evidence_ref"],
                                 "state": "failed",
                                 "warning": "subprocess_timeout",
+                            }
+                        )
+                    except ResourceLimitError as exc:
+                        timed_out = "wall-time" in str(exc)
+                        timeouts += int(timed_out)
+                        frame_failures.append(
+                            {
+                                "keyframe_id": keyframe["keyframe_id"],
+                                "shot_id": keyframe["shot_id"],
+                                "timestamp_ms": keyframe["timestamp_ms"],
+                                "source_frame_evidence_ref": keyframe["evidence_ref"],
+                                "state": "failed",
+                                "warning": (
+                                    "sandbox_wall_timeout"
+                                    if timed_out
+                                    else "sandbox_resource_limit"
+                                ),
                             }
                         )
                     except (OSError, subprocess.SubprocessError, AtlasError) as exc:

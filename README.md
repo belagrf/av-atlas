@@ -5,8 +5,9 @@ does not grant reuse rights beyond applicable law. AV-Atlas is therefore not cur
 open source.
 
 AV-Atlas is an evidence-first research implementation for comprehensive audiovisual
-transcription. This repository implements M0/M1, M2A, the bounded M2B frame-OCR increment, and the
-reviewed M2B.2 stable-input hardening increment. The original M1 path
+transcription. This repository implements M0/M1, M2A, the bounded M2B frame-OCR increment, the
+reviewed M2B.2 stable-input increment, and the reviewed M2B.3 private-storage and sandboxed
+pilot-security boundary. The original M1 path
 remains available:
 deterministic synthetic media is inventoried, chunked, sampled, combined with production-shaped
 sidecar perception adapters, and written as a validated evidence ledger plus derived transcript and
@@ -22,6 +23,8 @@ frame text detection/recognition; it is not semantic visual understanding.
 - [uv](https://docs.astral.sh/uv/)
 - FFmpeg and ffprobe on `PATH`
 - DejaVu Sans at `/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf` for byte-stable fixtures
+- Bubblewrap on Linux for the M2B.3 pilot path; controlled baseline commands remain usable without
+  it, while pilot native parsing fails closed
 
 ```bash
 uv sync --extra dev
@@ -190,7 +193,8 @@ for a future versioned configuration; the frozen baseline remains unchanged.
 An authorized real-media pilot is prepared, annotated, frozen, run, and evaluated with
 `pilot-prepare`, `pilot-annotation-packages`, `pilot-compare-annotations`, `pilot-freeze`,
 `pilot-run-ocr`, and `pilot-evaluate`. These commands do nothing without operator-supplied local
-media and sufficient rights. No pilot media or human annotation is currently present.
+media and sufficient rights. No real/operator-supplied pilot media or human annotation is present;
+the M2B.3 security check uses only project-authored synthetic bytes.
 
 M2B.1 hardening uses strict configuration types, fail-closed rights checksum/linkage validation,
 versioned `partial_success` unit accounting, actual overlapping-chunk provenance, and a derived
@@ -235,17 +239,125 @@ uv run av-atlas resume runs/m2b2-controlled --media \
 ```
 
 Crash recovery examines only a bounded set of marker-recognized inactive private leases; it never
-recursively deletes an unrecognized directory or follows a symlink. `SIGKILL`/power loss, same-UID
-hostility, native-parser sandboxing, growing livestream input, and retained-frame lifecycle remain
-limitations. Runtime decode helpers reclassify their input and require the fixed policy, but this
-allowlist is defense-in-depth rather than an operating-system sandbox.
+recursively deletes an unrecognized directory or follows a symlink. `SIGKILL`/power loss, hostile
+same-UID host processes, growing livestream input, and a retained-frame lifecycle outside the
+policy-bound pilot path remain limitations. Pilot-retained frames and other pilot derivatives use
+the separate retained-root contract below. Runtime decode helpers reclassify their input and
+require the fixed policy. The controlled non-pilot compatibility path is still not an operating-
+system sandbox; every pilot native child uses the mandatory boundary described below.
 
 Snapshot cleanup unlinks the private file and removes its lease directory. This is logical
 lifecycle cleanup, not cryptographic or secure erasure. The default OS temporary root may be
 disk-backed, journaled, snapshotted, swapped, or backed up. Before real operator media, the operator
 must select and document an appropriately private, capacity-bounded temporary root—such as an
-encrypted local volume or suitably configured tmpfs—or explicitly accept residual data-remanence
-risk. A tmpfs may still swap unless configured appropriately.
+encrypted local volume or suitably configured tmpfs—or obtain an independent, pilot-scoped,
+expiring residual-remanence acceptance with compensating controls and a deletion plan. A tmpfs may
+still swap unless configured appropriately. Storage-remanence acceptance never waives the mandatory
+native-process sandbox.
+
+## M2B.3 private pilot-security path
+
+M2B.3 adds versioned local-private policy and sanitized public-receipt contracts without
+authorizing real media. Current policy `av-atlas-pilot-security-policy/1.1.0` binds one pilot ID
+and frozen specification to distinct pre-created current-UID-owned `0700` transient and retained
+local roots, their device/inode and filesystem identities, expiring storage decisions, separate
+capacity ceilings and reserves, exact Bubblewrap identity/profile, and native resource limits.
+Both roots must be outside the tracked checkout and every retained package is a direct,
+descriptor-created child of the retained root. The policy is mode `0600`, must be named
+`pilot-security-policy.local.json` or
+`*.pilot-security-policy.local.json`, is ignored by Git, and must never be copied into a run, log,
+report, annotation package, release, or PR. Reviewed storage decisions persist a pilot-scoped,
+expiring reviewer pseudonym in that private policy; sanitized receipt 1.1 deliberately omits it.
+Cleanup is logical deletion only, never a secure-erasure claim; tmpfs may swap and reviewed
+encryption remains an operator/reviewer assertion. Policy and receipt self-hashes are integrity
+checksums, not authenticated signatures. Historical 1.0 records remain validation compatible but
+cannot authorize current execution.
+
+Every production pilot writer creates files relative to a pinned retained-package descriptor,
+uses create-only private files, and applies the policy's aggregate-byte and current-capacity checks
+before each bounded write. Inputs reused by compare, freeze, OCR, or evaluation are stably read and
+hash/size-verified from that retained package rather than reopened through an arbitrary pathname.
+
+Pilot FFprobe, FFmpeg, and Tesseract calls share the typed Bubblewrap profile
+`av-atlas-bubblewrap-pilot/1.1.0`. It has no direct-execution fallback: missing or changed
+Bubblewrap or failed namespace capability checks stop before pilot parsing. The profile denies
+networking, exposes descriptor-verified inputs read-only, makes only host-backed `/work` writable,
+provides a writable sandbox-local private `/tmp`, clears the environment, exposes no home
+directory, drops capabilities, and applies CPU, address-space, file-size, descriptor,
+process-count, capture, core-dump, and wall-time bounds. Instead of all of `/usr`, it exposes only
+the reviewed runtime subtrees `/usr/bin`, `/usr/lib`, optional `/usr/lib64`,
+`/usr/share/tesseract-ocr`, and optional `/etc/alternatives`; mutable/source/documentation subtrees
+are masked or unexposed. Operator inputs and both storage roots may not overlap an exposed runtime
+subtree. The published profile SHA-256 binds that declarative mount/argument record; it does not
+separately hash-bind the Python overlap guard or runner code, which is identified by the source
+commit and exercised by regressions.
+
+The project-authored M2B.3 synthetic check authorizes its source before either FFprobe or FFmpeg
+runs: it requires an explicit source-bound `synthetic-controlled` declaration with the full
+evaluation permission closure and the exact current controlled-fixture bundle. The local-private
+security policy supplements that media authorization; it does not replace it. Current synthetic
+reports use `av-atlas-m2b3-synthetic-pilot/1.1.0`; legacy 1.0 reports remain historical-validation
+compatible but cannot authorize a new execution.
+
+Raw OCR observations and their evidence index remain authoritative. Completed pilot OCR is a
+fixed-file `av-atlas-pilot-ocr-output/1.0.0` package: its manifest hash-binds the frozen pilot,
+policy, prepared and `ocr-complete` receipts, rights aggregate, configuration, sanitized
+dependency, observations, evidence, runtime, record counts, and semantic output. `pilot-evaluate`
+accepts that package rather than loose observation/runtime paths and recomputes every binding
+before metrics. Package checksums detect corruption and substitution but are not signatures.
+
+The local operator flow is explicit. `LOCAL_TRANSIENT_ROOT` and `LOCAL_RETAINED_ROOT` must be
+distinct absolute canonical paths outside the checkout. The policy path
+`PRIVATE_POLICY_DIR/PILOT_ID.pilot-security-policy.local.json` must also be outside the checkout;
+all three paths are private and must remain outside tracked/public artifacts. Every retained
+output argument below names a fresh direct child of `LOCAL_RETAINED_ROOT`, not an arbitrary path:
+
+```bash
+uv run av-atlas inspect-bubblewrap
+uv run av-atlas pilot-security-create \
+  --root LOCAL_TRANSIENT_ROOT --retained-root LOCAL_RETAINED_ROOT \
+  --pilot-id PILOT_ID --pilot-spec PILOT_SPEC \
+  --output PRIVATE_POLICY_DIR/PILOT_ID.pilot-security-policy.local.json \
+  --expires-at EXPIRY_RFC3339 \
+  --storage-decision verified-tmpfs \
+  --retained-storage-decision verified-tmpfs
+uv run av-atlas pilot-security-inspect \
+  PRIVATE_POLICY_DIR/PILOT_ID.pilot-security-policy.local.json --pilot-spec PILOT_SPEC
+uv run av-atlas pilot-security-validate \
+  PRIVATE_POLICY_DIR/PILOT_ID.pilot-security-policy.local.json --pilot-spec PILOT_SPEC
+uv run av-atlas pilot-security-synthetic-check \
+  CONTROLLED_MEDIA CONTROLLED_RIGHTS PILOT_SPEC \
+  PRIVATE_POLICY_DIR/PILOT_ID.pilot-security-policy.local.json \
+  --output FRESH_IGNORED_SYNTHETIC_REPORT_DIR
+uv run av-atlas pilot-prepare PILOT_SPEC \
+  --security-policy PRIVATE_POLICY_DIR/PILOT_ID.pilot-security-policy.local.json \
+  --output FRESH_PRIVATE_PILOT_DIR
+uv run av-atlas pilot-run-ocr FRESH_PRIVATE_PILOT_DIR FROZEN_MANIFEST \
+  --security-policy PRIVATE_POLICY_DIR/PILOT_ID.pilot-security-policy.local.json \
+  --output FRESH_PRIVATE_OCR_DIR
+uv run av-atlas pilot-evaluate FRESH_PRIVATE_PILOT_DIR FROZEN_MANIFEST \
+  ADJUDICATED_GOLD FRESH_PRIVATE_OCR_DIR \
+  --security-policy PRIVATE_POLICY_DIR/PILOT_ID.pilot-security-policy.local.json \
+  --output FRESH_PRIVATE_EVALUATION_DIR
+uv run av-atlas pilot-security-validate-artifacts FRESH_PRIVATE_PILOT_DIR \
+  --security-policy PRIVATE_POLICY_DIR/PILOT_ID.pilot-security-policy.local.json
+```
+
+`pilot-evaluate` accepts the authenticated OCR package directory, validates its fixed manifest and
+every bound component, and only then computes metrics. It does not accept loose OCR observation or
+runtime files.
+
+On the measured Ubuntu host, approved locally installed, system-packaged Bubblewrap 0.9.0 actually
+ran a project-authored synthetic fixture through sandboxed FFprobe, FFmpeg, and Tesseract.
+Measured hostile probes denied loopback/external network, an out-of-mount sentinel, the masked
+mutable runtime sentinel, and root/device/host-backed writes outside `/work`; a parent-created
+writable outside positive control remained unchanged. The UTS hostname was replaced with a fixed
+non-host value, and the private sandbox-local `/tmp` remained writable as designed. Transient
+workspace cleanup, retained-output bounds, and path-redaction checks passed. These are
+host-security engineering measurements, not real-media OCR accuracy or proof that native parsers
+contain no vulnerabilities. M2B.3 implements the reviewed private-storage and sandboxed
+pilot-security boundary for project-authored synthetic input; final merge and issue identities are
+verified externally.
 
 Temporal OCR tracks are validated relationally against immutable raw observations; malformed
 parallel arrays become actionable quality-report errors rather than validator tracebacks.
@@ -261,4 +373,5 @@ is incomplete, and M2C is unimplemented. Issues
 [#12](https://github.com/belagrf/av-atlas/issues/12), and
 [#14](https://github.com/belagrf/av-atlas/issues/14) closed with reviewed M2B.2 implementation.
 The real-media pilot remains gated by
-[#17](https://github.com/belagrf/av-atlas/issues/17). No pilot media was processed.
+[#17](https://github.com/belagrf/av-atlas/issues/17). No real or operator-supplied pilot media was
+processed.

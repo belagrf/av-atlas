@@ -1,0 +1,159 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://av-atlas.local/schemas/pilot-security-synthetic-report/1.1.0",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+        "schema_version",
+        "contract_version",
+        "state",
+        "pilot_id",
+        "source_id",
+        "source_sha256",
+        "policy_sha256",
+        "security_receipt_sha256",
+        "tools",
+        "measurements",
+        "resource_limits",
+        "capability",
+        "privacy",
+        "artifact_hashes",
+        "report_hash"
+    ],
+    "properties": {
+        "schema_version": {"enum": ["1.0.0", "1.1.0"]},
+        "contract_version": {
+            "enum": ["av-atlas-m2b3-synthetic-pilot/1.0.0", "av-atlas-m2b3-synthetic-pilot/1.1.0"]
+        },
+        "state": {"const": "succeeded"},
+        "pilot_id": {"type": "string", "pattern": "^PILOT_[A-Z0-9_-]+$"},
+        "source_id": {"type": "string", "pattern": "^SRC_[A-F0-9]{12}$"},
+        "source_sha256": {"$ref": "#/$defs/sha256"},
+        "policy_sha256": {"$ref": "#/$defs/sha256"},
+        "security_receipt_sha256": {"$ref": "#/$defs/sha256"},
+        "tools": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["ffprobe_sandboxed", "ffmpeg_sandboxed", "tesseract_sandboxed"],
+            "properties": {
+                "ffprobe_sandboxed": {"const": true},
+                "ffmpeg_sandboxed": {"const": true},
+                "tesseract_sandboxed": {"const": true}
+            }
+        },
+        "measurements": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+                "wall_seconds",
+                "cpu_seconds",
+                "peak_rss_kb",
+                "source_size_bytes",
+                "frame_size_bytes",
+                "ocr_observation_count",
+                "ocr_frames_processed",
+                "ocr_timeouts",
+                "ocr_retries"
+            ],
+            "properties": {
+                "wall_seconds": {"type": "number", "minimum": 0},
+                "cpu_seconds": {"type": "number", "minimum": 0},
+                "peak_rss_kb": {"type": "integer", "minimum": 0},
+                "source_size_bytes": {"type": "integer", "minimum": 1},
+                "frame_size_bytes": {"type": "integer", "minimum": 1},
+                "ocr_observation_count": {"type": "integer", "minimum": 0},
+                "ocr_frames_processed": {"type": "integer", "minimum": 1},
+                "ocr_timeouts": {"type": "integer", "minimum": 0},
+                "ocr_retries": {"type": "integer", "minimum": 0}
+            }
+        },
+        "resource_limits": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+                "wall_timeout_seconds",
+                "cpu_time_seconds",
+                "address_space_bytes",
+                "output_file_size_bytes",
+                "open_files",
+                "process_count",
+                "core_dump_bytes",
+                "capture_bytes",
+                "cleanup_timeout_seconds"
+            ],
+            "properties": {
+                "wall_timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 3600},
+                "cpu_time_seconds": {"type": "integer", "minimum": 1, "maximum": 3600},
+                "address_space_bytes": {"type": "integer", "minimum": 1048576},
+                "output_file_size_bytes": {"type": "integer", "minimum": 1024},
+                "open_files": {"type": "integer", "minimum": 8, "maximum": 4096},
+                "process_count": {"type": "integer", "minimum": 1, "maximum": 16384},
+                "core_dump_bytes": {"const": 0},
+                "capture_bytes": {"type": "integer", "minimum": 1024},
+                "cleanup_timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 60}
+            }
+        },
+        "capability": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+                "namespace_smoke_test_passed",
+                "network_denied",
+                "external_sentinel_denied",
+                "outside_write_denied"
+            ],
+            "properties": {
+                "namespace_smoke_test_passed": {"const": true},
+                "network_denied": {"const": true},
+                "external_sentinel_denied": {"const": true},
+                "mutable_runtime_subtree_denied": {"const": true},
+                "outside_write_denied": {"const": true}
+            }
+        },
+        "privacy": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+                "real_media_processed",
+                "private_paths_exported",
+                "source_media_exported",
+                "frame_derivative_exported"
+            ],
+            "properties": {
+                "real_media_processed": {"const": false},
+                "private_paths_exported": {"const": false},
+                "source_media_exported": {"const": false},
+                "frame_derivative_exported": {"const": false}
+            }
+        },
+        "artifact_hashes": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["ocr_observations", "ocr_dependency", "security_receipt"],
+            "properties": {
+                "ocr_observations": {"$ref": "#/$defs/sha256"},
+                "ocr_dependency": {"$ref": "#/$defs/sha256"},
+                "security_receipt": {"$ref": "#/$defs/sha256"}
+            }
+        },
+        "report_hash": {"$ref": "#/$defs/sha256"}
+    },
+    "allOf": [
+        {
+            "if": {"properties": {"schema_version": {"const": "1.0.0"}}},
+            "then": {
+                "properties": {"contract_version": {"const": "av-atlas-m2b3-synthetic-pilot/1.0.0"}}
+            }
+        },
+        {
+            "if": {"properties": {"schema_version": {"const": "1.1.0"}}},
+            "then": {
+                "properties": {
+                    "contract_version": {"const": "av-atlas-m2b3-synthetic-pilot/1.1.0"},
+                    "capability": {"required": ["mutable_runtime_subtree_denied"]}
+                }
+            }
+        }
+    ],
+    "$defs": {"sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}}
+}

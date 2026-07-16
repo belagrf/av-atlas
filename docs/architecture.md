@@ -165,5 +165,97 @@ otherwise common self-contained formats until each receives a separate transitiv
 
 Snapshot unlinking and lease-directory removal are logical lifecycle cleanup, not secure erasure.
 The OS temporary root may be disk-backed, journaled, snapshotted, swapped, or backed up. A private,
-capacity-bounded encrypted volume or suitably configured tmpfs—or explicit documented risk
-acceptance—is required before real operator media; tmpfs can still swap unless configured not to.
+capacity-bounded encrypted volume or suitably configured tmpfs—or an independently reviewed,
+pilot-scoped, expiring remanence acceptance with compensating controls and a deletion plan—is
+required before real operator media; tmpfs can still swap unless configured not to. A storage
+remanence acceptance cannot replace the mandatory native-process sandbox.
+
+M2B.3 adds a separate pilot-only host-security boundary without changing the accepted controlled
+baseline. Its current local-private policy contract
+(`av-atlas-pilot-security-policy/1.1.0`) binds one pilot ID and frozen specification to distinct
+explicit pre-created transient and retained roots, each root's device/inode/owner/mode and storage
+decision, separate capacity ceilings plus reserves, expiry, exact Bubblewrap identity/profile, and
+native resource limits. Both roots must be outside the tracked checkout. When independent storage
+review is required, the policy retains the
+reviewer pseudonym with pilot scope and expiry and revalidates it at bounded native units. The
+policy can contain operator paths and host facts, remains mode `0600`, and is never copied into a
+public artifact. A sanitized public receipt
+(`av-atlas-pilot-security-receipt/1.1.0`) publishes only hash-derived linkage, storage classes and
+measured capacities, sandbox identity, limits, denial/cleanup booleans, and proof that private
+paths were not exported; it deliberately omits the reviewer pseudonym. Policy and receipt 1.0
+remain historical-validation compatible but cannot authorize current pilot execution. Contract
+self-hashes are integrity checksums, not authenticated signatures.
+
+Each root is opened as a directory descriptor and rechecked for an absolute, non-symlink,
+current-UID-owned, exact-`0700`, local-filesystem identity with adequate capacity. Pilot snapshot
+leases and workspaces are created and removed relative to the transient descriptor. Prepared
+pilots, annotation packages, authenticated OCR outputs, and evaluations are created relative to
+the retained descriptor with exact directory/file modes `0700`/`0600`, stable parent and child
+identity, and an aggregate retained-byte ceiling. Every production retained writer uses a pinned
+direct-child package descriptor, create-only files, stable reads for retained inputs, and bounded
+pre-write aggregate/capacity checks. One retained-root transaction owns the advisory lock across
+direct and nested byte writes, immutable file copies, directory placement, post-write aggregate
+verification, fsync, and exact-inode rollback; nested placement no longer uses a post-lock hard
+link. This serializes cooperating AV-Atlas processes using independently opened root descriptors,
+but is not a defense against a malicious process running as the same operating-system user.
+Repository-local or arbitrary output locations, symlinks,
+special files, identity/permission drift, remote filesystems, replacement, and capacity failure
+are denied. Failed and handled-interruption partial retained output is removed; successful output
+remains under the policy-bound retention and deletion lifecycle. Supported storage decisions are
+measured `verified-tmpfs`, independently reviewed and expiring
+`reviewed-encrypted-volume`, and independently reviewed, pilot-scoped, expiring
+`reviewed-remanence-acceptance` with compensating controls and a deletion plan. In every case,
+cleanup is logical unlinking/directory removal; no secure-erasure claim is made, and tmpfs can still
+swap.
+
+Pilot FFprobe, FFmpeg, and Tesseract execution has one typed runner and no unsandboxed fallback.
+Bubblewrap profile `av-atlas-bubblewrap-pilot/1.1.0` uses new user, PID, IPC, UTS, mount, and network
+namespaces, a new session, parent-death behavior, dropped capabilities, a cleared fixed environment,
+no home, a fixed non-host UTS hostname, narrow read-only system runtime, read-only `/input`,
+output-only writable `/work`, and a private tmpfs `/tmp`; the host root and all of `/usr` are not
+bound wholesale. The exposed host subtrees are `/usr/bin`, `/usr/lib`, optional `/usr/lib64`,
+`/usr/share/tesseract-ocr`, and optional `/etc/alternatives`. `/usr/local`, `/usr/src`,
+`/usr/include`, `/usr/share/doc`, and `/usr/share/man` are masked or unexposed. Policy, source,
+transient-root, retained-root, and output paths may not overlap an exposed runtime subtree. A
+host-writable outside positive control and a masked-runtime sentinel are checked while required
+FFprobe, FFmpeg, Tesseract, and Python probes remain executable. `/work` parent/child identity is
+verified around descriptor binding. A helper sets CPU, address-space,
+file-size, descriptor, process-count, and core-dump limits before `exec`, while the parent bounds
+capture and wall time and terminates the process group. `RLIMIT_NPROC` is charged against the host
+real UID before namespace entry, so it is a host-UID ceiling rather than a precise isolated-process
+counter.
+
+The profile SHA-256 authenticates the declarative profile record, including its argument sequence,
+mount list, masks, and fixed tool paths. It does not independently hash-bind the Python path-overlap
+or runner-enforcement code; that code is identified by the reviewed source commit and exercised by
+the overlap and zero-native-call regressions.
+
+Current pilot-manifest 1.2 security linkage preserves historical 1.1 validation while linking the
+policy and sanitized receipt hashes to the
+exact pilot/spec, source set, aggregate rights identity, transient and retained root identity
+digests and storage decisions, sandbox profile/dependency, limits, denial results, path privacy,
+and cleanup. Prepare and OCR run must use the same current decision. Preparation reacquires a
+verified source snapshot for each source; OCR execution hash/size-verifies each frozen prepared
+frame while copying it into a fresh private workspace. Direct native execution is retained solely
+for the non-pilot accepted controlled baselines; no pilot command accepts it. Activating pilot mode
+without the verified sandbox runner is an error. The M2B.3 synthetic check additionally requires
+explicit source-bound `synthetic-controlled` rights, evaluation-mode permission closure, and the
+exact current fixture bundle before FFprobe or FFmpeg can run. Policy/reviewer identity, scope, and
+expiry and both roots are rechecked before every native unit and before success output. Current
+synthetic security reports use `av-atlas-m2b3-synthetic-pilot/1.1.0`; 1.0 reports remain readable
+only for historical validation and cannot authorize current execution.
+For current-policy execution, the prepared receipt's retained-root identity, filesystem type,
+retained byte ceiling, reserve, and storage decision are recomputed from the open verified root and
+policy. The same trusted five-field binding is required again when authenticating an OCR package
+for evaluation; internally consistent but false rehashed claims are rejected.
+
+Raw pilot OCR observations and their evidence index remain authoritative. A secondary versioned
+`av-atlas-pilot-ocr-output/1.0.0` manifest authenticates the complete OCR package after native
+cleanup. It binds the exact frozen pilot manifest file and embedded hash; pilot, spec, source-set,
+rights, policy, prepared-receipt, and `ocr-complete`-receipt identities; the OCR configuration and
+sanitized Tesseract dependency; all dependency/observation/evidence/runtime hashes and sizes;
+counts; and a semantic output digest. Every component schema is validated before manifest
+creation. `pilot-evaluate` consumes this authenticated package, recomputes its links, and fails
+before metrics on missing, modified, swapped, cross-pilot, or cross-policy components. It cannot
+pair arbitrary observations or runtime data with unrelated frozen evidence. These corrections
+remain synthetic-only and make no real-media or semantic-understanding claim.
